@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  音乐模块。坐标基准和桌面一致：1280×720dp（见 DeskAdaptActivity）。
+
+  顶栏是音乐页自己的，不复用桌面那一条——桌面的页签是内容源的类目（电影/电视剧…），
+  和音乐没有关系。但视觉语言照搬桌面：左上胶囊 + 居中亮底页签（bg_pill / bg_nav_item），
+  从桌面切进来不该有「换了个 app」的观感。
+
+  布局分三块：顶部栏 / 内容区（标题 + 列表）/ 底部播放条。
+  播放条是常驻的，不随栏目切换消失——电视上「现在在放什么」必须一直看得见，
+  否则用户切个栏目就不知道音乐还在不在放。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipChildren="false">
+
+    <!-- 风格统一基准（同主界面/设置页）：desk_bg 底 + BackdropView 氛围光。
+         模块页不许用纯色背景，从桌面点进来不能有「换了个 app」的感觉 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/desk_bg" />
+
+    <com.tvdesk.desk.widget.BackdropView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!--
+      内容背景。跟着当前栏目/当前焦点那一行走：每日推荐用第一首的专辑封面，
+      榜单用榜单封面，钻进歌单用那张歌单的封面。
+      故意解码成一张一两百像素的小图再拉满屏——放大插值本身就是最便宜的模糊，
+      不用引第三方 blur 库，也不吃 GPU。alpha 由代码控制（没有封面时淡出回氛围底）。
+    -->
+    <ImageView
+        android:id="@+id/music_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:scaleType="centerCrop" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_music_scrim" />
+
+    <!-- ============ 左上：音乐胶囊 ============ -->
+    <!-- 坐标和桌面那颗「桌面 ▾」完全对齐（screen_pad / top_bar_top / top_bar_height）。
+         点开是「返回桌面」——音乐页没有桌面顶栏了，这是回桌面的唯一常驻入口。 -->
+    <LinearLayout
+        android:id="@+id/music_switcher"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/switcher_pad_h"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:layout_width="@dimen/switcher_icon"
+            android:layout_height="@dimen/switcher_icon"
+            android:src="@drawable/ic_menu_list" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/switcher_gap"
+            android:text="音乐"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp" />
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="6dp"
+            android:src="@drawable/ic_chevron_down" />
+    </LinearLayout>
+
+    <!-- ============ 顶部中央：栏目 ============ -->
+    <!-- 内容由代码动态填充（见 MusicPage.buildNav），写死会漏掉「音源」这类按功能加的项 -->
+    <LinearLayout
+        android:id="@+id/music_nav_items"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:clipChildren="false"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/nav_pad_h"
+        android:paddingEnd="@dimen/nav_pad_h" />
+
+    <!-- ============ 右上：正在播放（播放条 / 播放页的直达入口） ============
+         遥控器在长列表里按 DOWN 要一路按到最后一行才能落到播放条上，
+         所以给一个常驻入口：确定键展开播放页，DOWN 直接跳到播放条的暂停键。
+         样式沿用顶栏胶囊，和「音乐 ▾」「栏目」是一套语言。 -->
+    <LinearLayout
+        android:id="@+id/music_now_chip"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:layout_marginEnd="@dimen/screen_pad"
+        android:background="@drawable/bg_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="16dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="♪"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp" />
+
+        <TextView
+            android:id="@+id/music_now_chip_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:ellipsize="end"
+            android:maxWidth="180dp"
+            android:singleLine="true"
+            android:text="正在播放"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <!-- paddingTop = top_bar_top + top_bar_height + 16 = 80dp：内容压在顶栏下面，
+         不靠运行时补内边距（顶栏是绝对定位浮在内容上的） -->
+    <LinearLayout
+        android:id="@+id/music_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:paddingStart="48dp"
+        android:paddingTop="80dp"
+        android:paddingEnd="48dp">
+
+        <!-- ============ 栏目标题 + 搜索框 ============ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipChildren="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <!--
+              当前视图的封面：歌单/榜单用它的封面，账号行用头像，本地曲库没有就隐藏。
+              只是给「我现在看的是哪一张」一个视觉锚点，不参与焦点。
+            -->
+            <ImageView
+                android:id="@+id/music_head_cover"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:layout_marginEnd="18dp"
+                android:background="@drawable/bg_cover_placeholder"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/music_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="每日推荐"
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/module_title_size"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/music_subtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text=""
+                    android:textColor="@color/text_tertiary"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!--
+              播放全部。只在当前视图真是一串歌时露出来（每日推荐 / 榜单曲目 / 歌单曲目 /
+              搜索结果的列表页都算），目录页（榜单目录、推荐歌单目录、我的入口）不显示。
+              样式直接沿用详情页的主操作按钮，和影视那边的「播放」是同一套语言。
+            -->
+            <TextView
+                android:id="@+id/music_play_all"
+                android:layout_width="wrap_content"
+                android:layout_height="46dp"
+                android:layout_marginStart="24dp"
+                android:background="@drawable/bg_btn_primary"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:minWidth="132dp"
+                android:paddingStart="26dp"
+                android:paddingEnd="26dp"
+                android:text="播放全部"
+                android:textColor="@color/text_on_light"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <!-- 只在「搜索」栏目露出来（MusicPage 控制显隐） -->
+            <EditText
+                android:id="@+id/music_search"
+                android:layout_width="420dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="24dp"
+                android:background="@drawable/bg_dialog_input"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:hint="搜歌名 / 歌手 / 专辑"
+                android:imeOptions="actionSearch|flagNoExtractUi"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:singleLine="true"
+                android:textColor="#F5F7FA"
+                android:textColorHint="#6F7280"
+                android:textSize="16sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- paddingBottom 让最后一行不被悬浮播放条压住（条高 92 + 离底 24） -->
+        <ListView
+            android:id="@+id/music_list"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="20dp"
+            android:clipToPadding="false"
+            android:divider="@null"
+            android:dividerHeight="0dp"
+            android:paddingBottom="132dp"
+            android:scrollbars="none" />
+
+        <!--
+          内容卡片墙。和影视页的海报墙同参数（6 列 / 20dp 横距 / 24dp 行距 / 透明 selector），
+          聚焦放大和错峰入场也走同一套 FocusScaler + RevealAnim。
+          只有「音源管理」这种设置型列表还用上面的 music_list。
+        -->
+        <GridView
+            android:id="@+id/music_grid"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginStart="-12dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginEnd="-12dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:fadingEdge="none"
+            android:focusable="false"
+            android:horizontalSpacing="20dp"
+            android:listSelector="@android:color/transparent"
+            android:numColumns="6"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="132dp"
+            android:scrollbars="none"
+            android:stretchMode="columnWidth"
+            android:verticalSpacing="24dp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/music_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text=""
+            android:textColor="@color/text_tertiary"
+            android:textSize="14sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- ============ 底部：悬浮播放条 ============ -->
+    <!--
+      不再是通栏的一条底栏，而是浮在内容上面的一枚胶囊（左右下各留边 + bg_music_bar）。
+      通栏那条会把卡片墙最后一行「切掉」，悬浮条后面还能看见滚过去的海报，
+      电视上这一层浮起也顺便说明了「这是常驻的播放器，不是当前栏目的一部分」。
+
+      六个按钮从左到右：播放方式 / 上一首 / 暂停 / 下一首 / 收藏 / 展开。
+      两个状态类按钮（方式、收藏）分在传输键两侧，按的时候手不会顺路撞到你刚改的东西。
+    -->
+    <LinearLayout
+        android:id="@+id/music_bar"
+        android:layout_width="match_parent"
+        android:layout_height="92dp"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="40dp"
+        android:layout_marginEnd="40dp"
+        android:layout_marginBottom="24dp"
+        android:background="@drawable/bg_music_bar"
+        android:descendantFocusability="afterDescendants"
+        android:focusable="false"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="14dp"
+        android:paddingEnd="16dp"
+        android:visibility="gone">
+
+        <!--
+          圆形封面。本地歌多半没有封面，底下先垫一个音符：空心的圆看着像图没加载出来，
+          有音符才读得出「这首歌就是没有封面」。
+        -->
+        <FrameLayout
+            android:layout_width="60dp"
+            android:layout_height="60dp">
+
+            <TextView
+                android:id="@+id/music_now_note"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="♪"
+                android:textColor="#66FFFFFF"
+                android:textSize="24sp" />
+
+            <ImageView
+                android:id="@+id/music_now_cover"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/bg_music_bar_cover"
+                android:contentDescription="@null"
+                android:scaleType="centerCrop" />
+        </FrameLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="14dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/music_now_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:text=""
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/music_now_meta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:text=""
+                android:textColor="@color/text_tertiary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/music_mode"
+            style="@style/MusicControlIcon"
+            android:layout_marginStart="16dp"
+            android:contentDescription="播放方式"
+            android:src="@drawable/ic_mode_order" />
+
+        <ImageView
+            android:id="@+id/music_prev"
+            style="@style/MusicControlIcon"
+            android:contentDescription="上一首"
+            android:src="@drawable/ic_prev" />
+
+        <ImageView
+            android:id="@+id/music_toggle"
+            style="@style/MusicControlIcon"
+            android:contentDescription="暂停"
+            android:src="@drawable/ic_pause" />
+
+        <ImageView
+            android:id="@+id/music_next"
+            style="@style/MusicControlIcon"
+            android:contentDescription="下一首"
+            android:src="@drawable/ic_next" />
+
+        <ImageView
+            android:id="@+id/music_like"
+            style="@style/MusicControlIcon"
+            android:contentDescription="收藏"
+            android:src="@drawable/ic_like" />
+
+        <!-- 展开沉浸播放页。放在最后一个：它是这一排里唯一「离开这一排」的动作，
+             按遥控器习惯就该排在顺着往右的尽头 -->
+        <ImageView
+            android:id="@+id/music_expand"
+            style="@style/MusicControlIcon"
+            android:contentDescription="展开播放页"
+            android:src="@drawable/ic_expand" />
+    </LinearLayout>
+
+    <!--
+      音乐胶囊下拉（默认收起）。必须放在 root 的最后一个子节点：
+      FrameLayout 按子节点顺序绘制，放在内容层前面就会被 32sp 的页面标题压在下面。
+      elevation 在 minSdk 19 上不保证生效，所以用顺序而不是层级。
+    -->
+    <LinearLayout
+        android:id="@+id/music_menu"
+        android:layout_width="190dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="70dp"
+        android:background="@drawable/bg_module_menu"
+        android:orientation="vertical"
+        android:padding="6dp"
+        android:visibility="gone" />
+
+    <!--
+      沉浸播放页。必须在 root 的最后一个子节点：它要盖住上面所有内容（包括胶囊下拉）。
+      默认收起，由播放条最右边那个「展开」按钮打开。
+    -->
+    <include
+        android:id="@+id/music_stage"
+        layout="@layout/view_music_stage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+</FrameLayout>

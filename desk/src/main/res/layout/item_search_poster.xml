@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 搜索结果卡片。比影视页海报矮一档，靠源名标出这条来自哪个站 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- 焦点态只靠 FocusScaler 放大，不再加白描边：搜索结果的卡片挨得近，
+         一圈 3dp 白框在整屏里比图片本身还抢眼（用户原话「点击的背景不好看」）。 -->
+    <FrameLayout
+        android:id="@+id/poster_frame"
+        android:layout_width="match_parent"
+        android:layout_height="150dp"
+        android:background="@android:color/transparent"
+        android:duplicateParentState="true">
+
+        <ImageView
+            android:id="@+id/poster_img"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/poster_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:textColor="#F2F5FA"
+        android:textSize="15sp" />
+
+    <TextView
+        android:id="@+id/poster_note"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:textColor="#8A93A6"
+        android:textSize="12sp" />
+</LinearLayout>

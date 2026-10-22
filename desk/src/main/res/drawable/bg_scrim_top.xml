@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 顶部压暗：播放页的标题条盖在画面上，上面实、下面透 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:centerColor="#73000000"
+        android:endColor="#00000000"
+        android:startColor="#D9000000" />
+</shape>

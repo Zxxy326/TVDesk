@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  配置地址弹窗。设置页里「配置地址」那一行点开后进到这里。
+
+  三块内容，按遥控器上下依次经过：
+    1. 输入框   —— 自己敲一个地址（获焦即弹输入法，失焦收起）
+    2. 用过的源 —— 从历史里挑一个（读的是 TVBox 自己的历史，以前在原版设置里填过也在）
+    3. 按钮行   —— 清空 / 取消 / 应用
+
+  焦点顺序不靠布局顺序碰运气：代码里会把「历史最后一项的下一个焦点」直接接到「应用」、
+  把按钮的「上一个焦点」接回输入框（见 SourceDialog#wireFocus）。
+  这样从输入框按两下就能到「应用」，不用把历史从头走到尾。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/settings_dialog_width"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_dialog_panel"
+    android:orientation="vertical"
+    android:padding="28dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/settings_dialog_title"
+        android:textColor="@color/text_primary"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <!-- ============ 1. 输入 ============ -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="@string/settings_dialog_input_label"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <EditText
+        android:id="@+id/dialog_input"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_dialog_input"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:hint="@string/settings_dialog_input_hint"
+        android:imeOptions="actionDone|flagNoExtractUi"
+        android:importantForAutofill="no"
+        android:inputType="textUri"
+        android:maxLines="1"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:singleLine="true"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_tertiary"
+        android:textCursorDrawable="@null"
+        android:textSize="15sp" />
+
+    <!-- ============ 2. 用过的源 ============ -->
+    <TextView
+        android:id="@+id/dialog_history_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="@string/settings_dialog_history"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <!--
+      固定 176dp（约 3 行）而不是 wrap_content：历史最多保留 8 条，
+      不限高的话弹窗会被撑得比屏幕还高。行数超出时靠焦点滚动带出来。
+
+      这个数是被量出来的，不是随手写的：悬浮窗给的高度上限约 500dp，
+      原来给 224dp 时整块内容超出上限，LinearLayout 被夹到窗口高度，
+      结果最后那一行按钮被面板底边裁掉半截。留 48dp 余量是给按钮行本身。
+    -->
+    <ScrollView
+        android:id="@+id/dialog_history_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="176dp"
+        android:layout_marginTop="8dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/dialog_history"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/dialog_history_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:lineSpacingExtra="4dp"
+        android:text="@string/settings_dialog_history_empty"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size"
+        android:visibility="gone" />
+
+    <!-- ============ 3. 按钮 ============ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="22dp"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/dialog_btn_clear"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_dialog_btn_danger"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="@string/settings_action_clear"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/dialog_btn_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/bg_dialog_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="@string/settings_action_cancel"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/dialog_btn_apply"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/bg_btn_primary"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="@string/settings_action_apply"
+            android:textColor="@color/text_on_light"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

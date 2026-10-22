@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  信号源卡片。和 item_app_card 同一套外框（bg_poster + 内缩 3dp + 两行文案），
+  区别只有文案行的省略方式：这里的 note 是完整接口地址，
+  头尾一样长、中间各不相同，按 end 省略会只剩一串相同的 "https://"，看不出区别，
+  所以 note 用 ellipsize=middle。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/signal_card_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <FrameLayout
+        android:id="@+id/signal_card_frame"
+        android:layout_width="match_parent"
+        android:layout_height="132dp"
+        android:background="@drawable/bg_poster"
+        android:duplicateParentState="true"
+        android:padding="3dp">
+
+        <!-- 图标读不出来时的底（电视输入偶尔会给个空 drawable） -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_cover_placeholder" />
+
+        <ImageView
+            android:id="@+id/signal_card_img"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:padding="26dp"
+            android:scaleType="fitCenter" />
+
+        <!-- 右下角标：只标「使用中」，一眼看出当前生效的是哪个源 -->
+        <TextView
+            android:id="@+id/signal_card_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="7dp"
+            android:background="@drawable/bg_bili_badge"
+            android:paddingStart="6dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="2dp"
+            android:singleLine="true"
+            android:textColor="#F2F5FA"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/signal_card_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:minLines="2"
+        android:textColor="#F2F5FA"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/signal_card_note"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="middle"
+        android:singleLine="true"
+        android:textColor="#8A93A6"
+        android:textSize="13sp" />
+</LinearLayout>

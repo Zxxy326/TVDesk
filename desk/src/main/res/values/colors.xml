@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 底色 -->
+    <color name="desk_bg">#050508</color>
+    <color name="desk_bg_mid">#0E0C14</color>
+    <color name="desk_bg_warm">#1B1526</color>
+    <color name="desk_glow">#4DFF6B3D</color>
+
+    <!-- 文字 -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B9B9C2</color>
+    <color name="text_tertiary">#7A7A86</color>
+    <color name="text_on_light">#101014</color>
+
+    <!-- 胶囊 -->
+    <color name="pill_bg">#2A2A2E</color>
+    <color name="pill_bg_focused">#3D3D44</color>
+    <color name="pill_item_selected">#5A5A63</color>
+    <color name="pill_stroke">#FFFFFF</color>
+
+    <!-- 按钮 -->
+    <color name="btn_light">#FFFFFF</color>
+    <color name="btn_light_focused">#E8E8ED</color>
+    <color name="btn_circle_bg">#33FFFFFF</color>
+    <color name="btn_circle_focused">#66FFFFFF</color>
+
+    <!-- 卡片 -->
+    <color name="poster_1">#2B2233</color>
+    <color name="poster_2">#1F2A33</color>
+    <color name="poster_3">#33231F</color>
+    <color name="poster_4">#22331F</color>
+    <color name="poster_5">#2A2333</color>
+    <color name="poster_6">#332B1F</color>
+
+    <!-- 模块页（音乐/抖音/B站）底部常驻条的统一底色：
+         比 desk_bg_mid 略透一点黑，压在 BackdropView 上能看清又不挡内容 -->
+    <color name="module_bar_bg">#E60E0C14</color>
+
+    <!-- 抖音评论抽屉：必须不透明。它盖在右侧互动栏上面，
+         用半透明底就会看到互动栏的数字压在评论文字上，两边都读不了 -->
+    <color name="dy_drawer_bg">#FF121316</color>
+
+    <!-- 设置页：焦点语言沿用桌面的「亮底 + 白描边」，不另起一套 -->
+    <!-- 分组面板：比底色亮一点，能看出是一个整体 -->
+    <color name="settings_panel">#1AFFFFFF</color>
+    <!-- 只读行（当前源、说明）：比可聚焦行更暗，一眼能看出点不动 -->
+    <color name="settings_readonly_bg">#0FFFFFFF</color>
+    <color name="settings_readonly_stroke">#1FFFFFFF</color>
+    <!-- 弹窗面板：要压得住背后的设置页，所以是不透明深色 -->
+    <color name="settings_dialog_bg">#F5151519</color>
+    <color name="settings_dialog_stroke">#33FFFFFF</color>
+    <!-- 危险操作（清空）：不抢眼，但焦点态用暖色区分开 -->
+    <color name="settings_danger_focused">#5A3A2E</color>
+    <color name="settings_danger_stroke">#FFB37A</color>
+    <!-- 开关药丸：开=实心橙（桌面强调色），关=半透明白 -->
+    <color name="switch_on">#FFE85F2F</color>
+    <color name="switch_off">#26FFFFFF</color>
+
+    <!-- 抖音互动栏的已激活态：点赞红、收藏黄，和各家短视频 app 同一个读法 -->
+    <color name="dy_digg_on">#FFFF2C55</color>
+    <color name="dy_collect_on">#FFFFD54D</color>
+
+    <!-- B 站播放器进度条：品牌粉走进度，轨道用半透白（和音乐页同款直条画法） -->
+    <color name="bili_pink">#FFFB7299</color>
+    <color name="seek_track">#33FFFFFF</color>
+
+</resources>

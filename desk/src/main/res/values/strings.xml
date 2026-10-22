@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desk_title">TVDesk</string>
+    <string name="desk_module_home">首页</string>
+    <string name="desk_nav_home">首页</string>
+    <string name="desk_nav_list">清单</string>
+    <string name="desk_nav_library">媒体库</string>
+    <string name="desk_nav_setting">设置</string>
+    <string name="desk_row_hot">今日热门电视剧</string>
+
+    <!-- ============ 设置页 ============ -->
+    <string name="settings_title">设置</string>
+    <string name="settings_crumb_desk">桌面</string>
+
+    <string name="settings_group_source">内容源</string>
+    <string name="settings_group_play">播放</string>
+    <string name="settings_group_system">系统</string>
+
+    <!-- 只读行：当前生效的源 -->
+    <string name="settings_current_source">当前源</string>
+    <string name="settings_source_none">未配置</string>
+    <string name="settings_source_none_note">没配源时桌面只出豆瓣榜单，顶栏没有类目</string>
+    <string name="settings_source_in_use">桌面与影视页都用这一项</string>
+
+    <!-- 入口行：配置地址 -->
+    <string name="settings_edit_source">配置地址</string>
+    <string name="settings_edit_source_note">输入接口地址，或从用过的源里选一个</string>
+
+    <!-- 开关行：切走／退后台时音视频要不要继续放 -->
+    <string name="settings_keep_playing">切走后续播</string>
+    <string name="settings_keep_playing_note">关掉抖音、哔哩哔哩时默认停声，回来接着播；打开它才在后台继续放。音乐不受这里管，它本来就要能边逛边听</string>
+    <string name="settings_switch_on">继续播</string>
+    <string name="settings_switch_off">停止播放</string>
+
+    <!-- 入口行：跳系统原生设置 -->
+    <string name="settings_system">系统设置</string>
+    <string name="settings_system_note">打开电视原生的设置界面（网络、显示、声音…）</string>
+
+    <!-- 底部说明：把「应用之后会发生什么」讲清楚，用户才敢按 -->
+    <string name="settings_footnote">应用后写入 TVBox 的配置地址，影视页与桌面一起换源；返回桌面会自动重新加载</string>
+
+    <!-- 配置地址弹窗 -->
+    <string name="settings_dialog_title">配置地址</string>
+    <string name="settings_dialog_input_label">接口地址</string>
+    <string name="settings_dialog_input_hint">http:// 或 clan:// 开头，也可以只填域名</string>
+    <string name="settings_dialog_history">用过的源</string>
+    <string name="settings_dialog_history_empty">还没有用过的源 · 按遥控器「上」键回到输入框，填好再应用</string>
+
+    <string name="settings_action_apply">应用</string>
+    <string name="settings_action_cancel">取消</string>
+    <string name="settings_action_clear">清空</string>
+
+    <!-- 操作反馈 -->
+    <string name="settings_toast_applied">已应用到 TVBox，返回桌面会自动重新加载</string>
+    <string name="settings_toast_unchanged">地址没变，不用重新加载</string>
+    <string name="settings_toast_cleared">已清空内容源，桌面只出豆瓣榜单</string>
+    <string name="settings_toast_empty_url">先填一个地址</string>
+    <string name="settings_toast_no_system_settings">这台电视没有可用的系统设置入口</string>
+
+    <!-- 网易云账号弹窗 -->
+    <string name="ncm_dialog_title">网易云账号</string>
+    <string name="ncm_dialog_manual_label">或者，手动粘贴 cookie（已经在电脑上登过的可以走这里）</string>
+    <string name="ncm_dialog_manual_hint">一整串 k=v; k=v…，里面要含 MUSIC_U=</string>
+    <string name="ncm_action_logout">退出登录</string>
+    <string name="ncm_action_done">已完成登录</string>
+    <string name="ncm_toast_no_login">还没读到登录信息：先在二维码那一步登好，或者粘一段含 MUSIC_U= 的 cookie</string>
+</resources>

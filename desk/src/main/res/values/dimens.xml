@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      屏幕边距。设计画布是 1280x720dp（1920x1080 @ density 1.5，由 AndroidManifest 的
+      design_width_in_dp=1280 声明）。原来这里写的是 960x540dp / @320dpi，
+      那是按 density 2.0 算的，已经不对了。
+    -->
+    <dimen name="screen_pad">25dp</dimen>
+    <dimen name="top_bar_top">20dp</dimen>
+    <dimen name="top_bar_height">44dp</dimen>
+
+    <!-- 左上模块切换器 -->
+    <dimen name="switcher_pad_h">16dp</dimen>
+    <dimen name="switcher_icon">20dp</dimen>
+    <dimen name="switcher_gap">8dp</dimen>
+
+    <!-- 顶部中央导航 -->
+    <dimen name="nav_pad_h">6dp</dimen>
+    <dimen name="nav_item_pad_h">22dp</dimen>
+
+    <!-- Hero -->
+    <dimen name="hero_title_size">44sp</dimen>
+    <dimen name="hero_meta_size">13sp</dimen>
+    <dimen name="hero_desc_size">12sp</dimen>
+    <dimen name="hero_desc_width">500dp</dimen>
+    <dimen name="hero_action_height">44dp</dimen>
+
+    <!--
+      全站只有这四档圆角。别在布局或 drawable 里再写数字：之前 2/4/7/8/10/14/15/16/18/20/22dp
+      各写各的，同一张海报的图、背景、焦点框三个半径互不相同，一眼就看出来了。
+
+      card    海报、卡片、格子（图片本身裁同一个半径，见 PosterCorners）
+      control 按钮、输入框、开关、导航胶囊。给一个足够大的值，GradientDrawable 会自己夹到短边一半，
+              所以 44dp 的顶栏胶囊和 56dp 的弹窗按钮都是标准胶囊，不必一个高度配一个数
+      panel   弹窗、菜单、设置面板
+      badge   角标、小标签、进度条
+    -->
+    <dimen name="radius_card">10dp</dimen>
+    <dimen name="radius_control">100dp</dimen>
+    <dimen name="radius_panel">20dp</dimen>
+    <dimen name="radius_badge">4dp</dimen>
+
+    <!-- 内容行 -->
+    <dimen name="row_title_size">16sp</dimen>
+    <dimen name="poster_width">160dp</dimen>
+    <dimen name="poster_height">240dp</dimen>
+    <item name="poster_radius" type="dimen">@dimen/radius_card</item>
+    <dimen name="poster_gap">16dp</dimen>
+
+    <!-- 设置页 -->
+    <!-- 模块页统一页标题字号（设置页/音乐/抖音/B站共用；原来音乐自用 30sp，已并轨） -->
+    <dimen name="module_title_size">32sp</dimen>
+    <dimen name="settings_title_size">32sp</dimen>
+    <dimen name="settings_crumb_size">14sp</dimen>
+    <dimen name="settings_group_size">13sp</dimen>
+    <dimen name="settings_row_height">68dp</dimen>
+    <dimen name="settings_row_gap">10dp</dimen>
+    <dimen name="settings_row_pad_h">22dp</dimen>
+    <dimen name="settings_item_size">17sp</dimen>
+    <dimen name="settings_value_size">14sp</dimen>
+    <dimen name="settings_note_size">12sp</dimen>
+    <dimen name="settings_hint_size">12sp</dimen>
+    <!-- 设置面板宽度：不铺满整屏，右边留出来放说明文字和背景光晕 -->
+    <dimen name="settings_panel_width">820dp</dimen>
+
+    <!-- 配置地址弹窗 -->
+    <dimen name="settings_dialog_width">880dp</dimen>
+    <dimen name="settings_dialog_row_height">46dp</dimen>
+
+</resources>

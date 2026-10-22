@@ -1,0 +1,466 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面主界面（M1-布局版）
+  坐标基准：960x540dp（1920x1080 @320dpi）
+  分区：顶部浮动胶囊 / Hero 主视觉 / 底部海报行
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/desk_bg"
+    android:clipChildren="false">
+
+    <!-- 氛围背景：自绘三层光，接真实数据后由 Hero 海报覆盖 -->
+    <com.tvdesk.desk.widget.BackdropView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Hero 背景图：接真实数据后由推荐首条的海报柔化后填充 -->
+    <ImageView
+        android:id="@+id/hero_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0.8"
+        android:scaleType="centerCrop" />
+
+    <!-- 左侧压暗，保证 Hero 文字压在整屏海报上仍然可读 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_scrim_left" />
+
+    <!-- 底部压暗，保证海报行和按钮压得住背景 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_scrim_bottom" />
+
+    <!-- ============ Hero 主视觉 ============ -->
+    <!-- clipChildren=false：焦点放大会让卡片边界超出容器，默认裁剪会把放大的那一圈切掉 -->
+    <!-- marginTop 112dp：简介真正填满三行后，整块比原来量出来的高 40dp 左右；
+         152dp 那版三颗按钮的下沿会压到 hero_dots（372dp）上，白底胶囊把圆点盖没。
+         往上挪 40dp，按钮底停在 363dp，圆点下面还留 9dp。沉浸态的 IMMERSIVE_LIFT
+         同步加了 40dp，轮播时信息块仍落在同一高度。 -->
+    <LinearLayout
+        android:id="@+id/hero_block"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="112dp"
+        android:clipChildren="false"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/hero_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:letterSpacing="-0.02"
+            android:maxWidth="620dp"
+            android:shadowColor="#99000000"
+            android:shadowDx="0"
+            android:shadowDy="2"
+            android:shadowRadius="8"
+            android:text="暗影蜘蛛侠"
+            android:textColor="@color/text_primary"
+            android:textSize="@dimen/hero_title_size"
+            android:textStyle="bold" />
+
+        <!-- 元信息一行：类目徽章 + 「2026 · 美国 · 剧情」 + 琥珀评分。
+             参考图里这一行是点号分隔的一串，年份/地区这类字段源里未必都有，
+             所以整串由代码拼（DeskActivity.buildHeroMeta），缺哪项就少哪项，不留孤立的点 -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/hero_tag"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_tag_outline"
+                android:paddingStart="8dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="2dp"
+                android:text="电视剧"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/hero_meta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:text="2026 · 美国"
+                android:textColor="@color/text_secondary"
+                android:textSize="@dimen/hero_meta_size" />
+
+            <TextView
+                android:id="@+id/hero_rate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:text="★ 8.7"
+                android:textColor="#FFD166"
+                android:textSize="@dimen/hero_meta_size" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/hero_desc"
+            android:layout_width="@dimen/hero_desc_width"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:ellipsize="end"
+            android:lineSpacingExtra="3dp"
+            android:maxLines="3"
+            android:text="私家侦探本·莱利接下几桩看似单纯的案子，没想到黑帮分子、怪物，以及一位神秘的蛇蝎美人织起一张阴谋之网，让他必须面对过去，去面对纽约唯一超级英雄的身份：蜘蛛侠。"
+            android:textColor="#D2D2DA"
+            android:textSize="@dimen/hero_desc_size" />
+
+        <!-- 行动按钮：白底主胶囊是唯一的「往下的动作」，右边两颗圆钮是收藏和详情。
+             顺序照参考图（主按钮在最左），焦点从主按钮往右走一圈就够 -->
+        <LinearLayout
+            android:id="@+id/hero_actions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:clipChildren="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/btn_play"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/hero_action_height"
+                android:background="@drawable/bg_btn_primary"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="20dp"
+                android:paddingEnd="22dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_play_dark" />
+
+                <TextView
+                    android:id="@+id/btn_play_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="开始播放"
+                    android:textColor="@color/text_on_light"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <FrameLayout
+                android:id="@+id/btn_like"
+                android:layout_width="@dimen/hero_action_height"
+                android:layout_height="@dimen/hero_action_height"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/bg_btn_circle"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/btn_like_icon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_like" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/btn_detail"
+                android:layout_width="@dimen/hero_action_height"
+                android:layout_height="@dimen/hero_action_height"
+                android:layout_marginStart="12dp"
+                android:background="@drawable/bg_btn_circle"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_info" />
+            </FrameLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ============ 分页点 ============ -->
+    <!-- 挂在信息块下面、左对齐（参考图如此）。居中的话沉浸态一眼看去像另一组控件 -->
+    <LinearLayout
+        android:id="@+id/hero_dots"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="372dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal" />
+
+    <!-- ============ 底部海报行 ============ -->
+    <!-- clipChildren=false：海报焦点放大 1.08 倍，上下各超出 HSV 边界十几个像素，
+         默认会被 HorizontalScrollView 裁掉，看着就是「放大的海报不完整」 -->
+    <LinearLayout
+        android:id="@+id/row_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginTop="404dp"
+        android:clipChildren="false"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:id="@+id/row_header"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/screen_pad"
+            android:background="@drawable/bg_row_header"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="4dp">
+
+            <TextView
+                android:id="@+id/row_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="今日热门电视剧"
+                android:textColor="@color/text_primary"
+                android:textSize="@dimen/row_title_size"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_marginStart="2dp"
+                android:src="@drawable/ic_chevron_right" />
+        </LinearLayout>
+
+        <HorizontalScrollView
+            android:id="@+id/row_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:paddingStart="@dimen/screen_pad"
+            android:paddingEnd="@dimen/screen_pad"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/row_posters"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:clipChildren="false"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <!-- 清单/媒体库为空时的提示，避免用户以为页面没切过来 -->
+        <TextView
+            android:id="@+id/row_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/screen_pad"
+            android:layout_marginTop="20dp"
+            android:text="还没有内容"
+            android:textColor="@color/text_tertiary"
+            android:textSize="14sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- ============ 内嵌海报墙 ============ -->
+    <!--
+      影视不再是独立模块页：顶栏选类目，这一层就地把 Hero/海报行换成海报墙。
+      背景透明，露出桌面的氛围光；顶栏仍然可用，窗口没有任何切换。
+      放在模块宿主之前，模块页打开时才能整页盖住它。
+    -->
+    <com.tvdesk.desk.CategoryWall
+        android:id="@+id/category_wall"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:paddingStart="50dp"
+        android:paddingTop="86dp"
+        android:paddingEnd="50dp"
+        android:paddingBottom="16dp"
+        android:visibility="gone" />
+
+    <!-- ============ 模块页宿主 ============ -->
+    <!--
+      音乐 / 抖音 / 哔哩哔哩 这些模块整页挂进来，盖在桌面内容之上（各页自带
+      desk_bg + BackdropView，不透明，不会透出底下的 Hero）。不跳 Activity：
+      模块和桌面同一个窗口，切走再切回进度原样还在。
+      模块页自带顶栏（见 activity_music.xml），桌面顶栏和 Hero 一起收起。
+    -->
+    <FrameLayout
+        android:id="@+id/module_host"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <!-- ============ 左上：模块切换器 ============ -->
+    <LinearLayout
+        android:id="@+id/module_switcher"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/switcher_pad_h"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:layout_width="@dimen/switcher_icon"
+            android:layout_height="@dimen/switcher_icon"
+            android:src="@drawable/ic_menu_list" />
+
+        <TextView
+            android:id="@+id/module_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/switcher_gap"
+            android:text="桌面"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp" />
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="6dp"
+            android:src="@drawable/ic_chevron_down" />
+    </LinearLayout>
+
+    <!-- ============ 顶部中央：页面导航 ============ -->
+    <!--
+      内容由代码动态填充：首页 + 配置源自带的类目（电影/电视剧/动漫/综艺…）+ 搜索。
+      写死在 XML 里就跟不上换源了。
+    -->
+    <LinearLayout
+        android:id="@+id/top_nav"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:clipChildren="false"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/nav_pad_h"
+        android:paddingEnd="@dimen/nav_pad_h" />
+
+
+    <!-- ============ 右上：时钟 ============ -->
+    <!--
+      电视上没有别的表盘，看时间只能退出应用——所以沉浸轮播时它是唯一保留的桌面控件。
+      不可聚焦：它没有行为，进了焦点链就是一次按不动的落点。
+      文字每整分由 DeskActivity.tickClock 刷一次。
+    -->
+    <TextView
+        android:id="@+id/desk_clock"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|end"
+        android:layout_marginEnd="@dimen/screen_pad"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:gravity="center"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:text="12:51"
+        android:textColor="@color/text_primary"
+        android:textSize="17sp"
+        android:textStyle="bold" />
+
+    <!-- ============ 顶栏下面的提示条 ============ -->
+    <!--
+      四种内容都挂在这一个 TextView 上（没配源 / 正在加载 / 源没响应 / 源里没类目），
+      文案由 DeskActivity.showHint 写入，这里的 android:text 只是「没配源」那条的初值。
+
+      「首页」用的是豆瓣榜单，不依赖配置源，所以没配源时页面也不是空的。
+      提示条不能顶掉内容（那样等于把能看的页面藏起来），只能挂在顶栏下面共存。
+
+      setupActions 里给它设了 setClickable(true)，所以在电视上它是可聚焦、可点的——
+      这是有意的：它就是那一屏的行动指引，遥控器往下一格按确认就能进「设置 → 配置地址」，
+      不必先绕到左边的「桌面 ▾」。代价是焦点顺序里多一站，可以接受。
+    -->
+    <TextView
+        android:id="@+id/source_hint"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="72dp"
+        android:background="@drawable/bg_pill"
+        android:gravity="center_vertical"
+        android:paddingStart="18dp"
+        android:paddingEnd="18dp"
+        android:text="还没配置内容源 · 走「桌面 ▾」→ 设置 → 配置地址"
+        android:textColor="#FFD166"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <!-- ============ 类目下拉（「更多」展开） ============ -->
+    <!--
+      顶栏装不下的类目收在这里。以前这些类目只有进影视页才能看到，现在选中后
+      直接在同一屏换海报墙，不再跳页。高度在代码里按条目数收口。
+    -->
+    <ScrollView
+        android:id="@+id/category_menu_scroll"
+        android:layout_width="240dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="72dp"
+        android:background="@drawable/bg_module_menu"
+        android:focusable="false"
+        android:overScrollMode="never"
+        android:scrollbars="none"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/category_menu_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="6dp" />
+    </ScrollView>
+
+    <!-- ============ 模块下拉菜单（默认收起） ============ -->
+    <LinearLayout
+        android:id="@+id/module_menu"
+        android:layout_width="190dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="70dp"
+        android:background="@drawable/bg_module_menu"
+        android:orientation="vertical"
+        android:padding="6dp"
+        android:visibility="gone" />
+
+    <!-- ============ 播放覆盖层 ============ -->
+    <!--
+      起播时把 TVBox 的 PlayFragment 装进这里，盖住整个桌面。
+      必须是桌面布局的最后一个子 View（z 序最高），并且静态存在：
+      Fragment 的恢复/容器查找都要求这个 id 在布局里能找到。
+    -->
+    <include layout="@layout/overlay_player" />
+
+</FrameLayout>

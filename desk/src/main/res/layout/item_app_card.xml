@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  应用卡片。外框和文案行完全照搬 item_bili_card / item_music_card（bg_poster + 内缩 3dp +
+  两行文字），只有图框比例换成方的：应用图标本来就是方的，套 16:10 会把左右切掉。
+
+  图标是 fitCenter 而不是 centerCrop——图标被裁一半就不认识这是什么应用了，
+  宁可留白。留白由底下的 placeholder 顶着，不会露出黑底。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/apps_card_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <FrameLayout
+        android:id="@+id/apps_card_frame"
+        android:layout_width="match_parent"
+        android:layout_height="132dp"
+        android:background="@drawable/bg_poster"
+        android:duplicateParentState="true"
+        android:padding="3dp">
+
+        <!-- 图标读不出来时的底（预装应用偶尔会给个空 drawable） -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_cover_placeholder" />
+
+        <ImageView
+            android:id="@+id/apps_card_img"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:padding="26dp"
+            android:scaleType="fitCenter" />
+
+        <!-- 右下角标：预装应用标一下，免得用户以为是自己装的 -->
+        <TextView
+            android:id="@+id/apps_card_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="7dp"
+            android:background="@drawable/bg_bili_badge"
+            android:paddingStart="6dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="2dp"
+            android:singleLine="true"
+            android:textColor="#F2F5FA"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/apps_card_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:minLines="2"
+        android:textColor="#F2F5FA"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/apps_card_note"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:singleLine="true"
+        android:textColor="#8A93A6"
+        android:textSize="13sp" />
+</LinearLayout>

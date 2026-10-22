@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  弹窗里的「清空」按钮：和「取消」并排，但焦点态是暖色。
+  清空是个不可撤销的操作（历史还在，但当前源没了），在电视上用遥控器点错一次很常见，
+  给一个和普通按钮不同的颜色，至少让用户知道这一颗不是「随便点点」的那颗。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/settings_danger_focused" />
+            <corners android:radius="@dimen/radius_control" />
+            <stroke
+                android:width="2dp"
+                android:color="@color/settings_danger_stroke" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/pill_bg" />
+            <corners android:radius="@dimen/radius_control" />
+        </shape>
+    </item>
+
+</selector>

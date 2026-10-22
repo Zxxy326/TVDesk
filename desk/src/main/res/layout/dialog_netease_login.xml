@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网易云账号弹窗。
+
+  两条并存的登录路径，都留着：
+    1. 上面那块 WebView —— 手机扫码。电视上唯一能接受的登录方式，
+       遥控器没法敲手机号密码。二维码由网易云自己的网页渲染，我们只负责把
+       它显示出来、登录成功后把 cookie 读走。
+    2. 下面那个输入框 —— 粘贴 cookie。给「已经从电脑上登过」的用户留的后路，
+       WebView 万一渲染不出二维码也还有这条路，不至于完全没法登录。
+
+  WebView 刻意不参与焦点：它是给人看的（或者给人扫的），不是给遥控器点的。
+  一旦可聚焦，上下键会掉进网页里出不来。所以焦点只在
+  [输入框] ↔ [退出登录][取消][确定] 之间走。
+
+  高度写死 620dp（≈画布的 86%），不让它 wrap_content：
+  wrap_content 时这块会按「二维码 360dp + 输入框 + 按钮」算到 660dp 上下，
+  实测在模拟器上弹窗窗口只给到约 516dp，于是底部的输入框和三个按钮被整个裁掉——
+  遥控器根本没有「取消」可按。改成固定高度后，中间那块 FrameLayout 用 weight 吃掉
+  剩余空间：窗口给多少它占多少，按钮这一行永远落在可见范围内。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/settings_dialog_width"
+    android:layout_height="620dp"
+    android:background="@drawable/bg_dialog_panel"
+    android:orientation="vertical"
+    android:padding="28dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/ncm_dialog_title"
+        android:textColor="@color/text_primary"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/ncm_dialog_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <!-- ============ 1. 扫码 ============ -->
+    <!--
+      height=0dp + weight=1：扫码区弹性吃掉剩余高度。给死高度的话，
+      窗口一旦比预期矮就又会把下面那行按钮顶出屏幕。
+    -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="16dp"
+        android:layout_weight="1"
+        android:background="@drawable/bg_dialog_input">
+
+        <WebView
+            android:id="@+id/ncm_dialog_web"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:focusable="false"
+            android:focusableInTouchMode="false" />
+    </FrameLayout>
+
+    <!-- ============ 2. 手动粘 cookie ============ -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="@string/ncm_dialog_manual_label"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <EditText
+        android:id="@+id/ncm_dialog_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_dialog_input"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:hint="@string/ncm_dialog_manual_hint"
+        android:imeOptions="actionDone|flagNoExtractUi"
+        android:importantForAutofill="no"
+        android:inputType="text"
+        android:maxLines="3"
+        android:minHeight="48dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_tertiary"
+        android:textCursorDrawable="@null"
+        android:textSize="13sp" />
+
+    <!-- ============ 3. 按钮 ============ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/ncm_btn_logout"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_dialog_btn_danger"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="@string/ncm_action_logout"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/dialog_btn_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/bg_dialog_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="@string/settings_action_cancel"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/dialog_btn_apply"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginStart="12dp"
+            android:background="@drawable/bg_btn_primary"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="@string/ncm_action_done"
+            android:textColor="@color/text_on_light"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

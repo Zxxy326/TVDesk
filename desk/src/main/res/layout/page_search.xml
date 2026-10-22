@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 内嵌搜索页：上面片名输入，左边遥控器键盘，右边结果墙 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/desk_bg" />
+
+    <com.tvdesk.desk.widget.BackdropView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:paddingStart="56dp"
+        android:paddingTop="32dp"
+        android:paddingEnd="56dp"
+        android:paddingBottom="24dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="搜索"
+                android:textColor="#F5F7FA"
+                android:textSize="@dimen/module_title_size"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/search_input"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="24dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_dialog_input"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:hint="输入片名，或用左边的键盘"
+                android:imeOptions="actionSearch|flagNoExtractUi"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:singleLine="true"
+                android:textColor="#F5F7FA"
+                android:textColorHint="#6F7280"
+                android:textSize="18sp" />
+
+            <ImageView
+                android:id="@+id/search_go"
+                android:layout_width="72dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="14dp"
+                android:background="@drawable/bg_btn_primary"
+                android:clickable="true"
+                android:contentDescription="搜索"
+                android:focusable="true"
+                android:padding="14dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_search_dark" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="16dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="horizontal">
+
+            <!-- 6 列字母键盘由代码生成；宽度固定，右边结果区自己撑满 -->
+            <LinearLayout
+                android:id="@+id/search_keys"
+                android:layout_width="560dp"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="26dp"
+                android:layout_weight="1"
+                android:clipChildren="false"
+                android:clipToPadding="false">
+
+                <GridView
+                    android:id="@+id/search_grid"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="-10dp"
+                    android:layout_marginEnd="-10dp"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
+                    android:horizontalSpacing="16dp"
+                    android:listSelector="@android:color/transparent"
+                    android:numColumns="4"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingBottom="16dp"
+                    android:scrollbars="none"
+                    android:stretchMode="columnWidth"
+                    android:verticalSpacing="18dp" />
+
+                <ProgressBar
+                    android:id="@+id/search_loading"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_gravity="center"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/search_empty"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:gravity="center"
+                    android:textColor="#8A93A6"
+                    android:textSize="18sp"
+                    android:visibility="gone" />
+            </FrameLayout>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="遥控器：方向键选字母、确定输入；中文可按右键进入片名框，用输入法直接打字。"
+            android:textColor="@color/text_tertiary"
+            android:textSize="12sp" />
+    </LinearLayout>
+</FrameLayout>

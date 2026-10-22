@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  设置开关行右侧的药丸：selected 表示「开」。
+  开用实心橙（和桌面强调色同一条），关用半透明白底加描边。
+  电视是隔着几米看的，靠颜色差比靠字数差传达得快。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item android:state_selected="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/switch_on" />
+            <corners android:radius="@dimen/radius_control" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/switch_off" />
+            <corners android:radius="@dimen/radius_control" />
+            <stroke
+                android:width="1dp"
+                android:color="@color/settings_dialog_stroke" />
+        </shape>
+    </item>
+
+</selector>

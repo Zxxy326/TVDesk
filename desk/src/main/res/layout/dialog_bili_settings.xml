@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  哔哩哔哩设置。播放器里的齿轮和 B 站首页胶囊菜单都打开这一张。
+
+  行、面板、字号全部走桌面设置页那一套语言（activity_settings.xml / SettingsRow），
+  不在这另起一套：同一个 app 里两类设置长两个样子，用户每次都得重新学。
+
+  每一行按确认键就地循环取值（清晰度、倍速、连播、画面比例）或翻开关（弹幕、空降助手），
+  改动立刻生效并写进 DeskPrefs，所以没有「应用」按钮，只有一颗「完成」。
+  行是动态加的：直播没有清晰度/连播/弹幕/空降，那几行压根不出现。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/settings_panel_width"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_settings_panel"
+    android:orientation="vertical"
+    android:padding="18dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="4dp"
+        android:text="哔哩哔哩设置"
+        android:textColor="@color/text_primary"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:paddingStart="4dp"
+        android:text="改完立即生效，下次打开也按这里的来"
+        android:textColor="@color/text_secondary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <!--
+      行是动态加的，直播/登录态不同行数也不同，一屏放不下。
+      中间这段固定 300dp 可滚动（同 SourceSwitchDialog）：电视上窗口高度上限约 500dp，
+      wrap_content 会被面板底边裁掉；焦点走到下面时 ScrollView 自己把它带出来。
+    -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="300dp"
+        android:layout_marginTop="8dp"
+        android:clipToPadding="false"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/bili_settings_rows"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/bili_settings_done"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:layout_gravity="end"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/bg_btn_primary"
+        android:clickable="true"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:gravity="center"
+        android:minWidth="112dp"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:text="完成"
+        android:textColor="@color/text_on_light"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+</LinearLayout>
