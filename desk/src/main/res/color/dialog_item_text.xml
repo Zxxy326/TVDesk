@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 弹窗里「用过的源」每一行的文字色：没获焦时收着，获焦时提亮 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="@color/text_primary" />
+    <item android:color="@color/text_secondary" />
+</selector>

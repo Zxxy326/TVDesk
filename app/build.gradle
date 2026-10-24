@@ -1,0 +1,179 @@
+apply plugin: 'com.android.application'
+
+// 发行签名。密钥和口令只写在本机的 local.properties（.gitignore 里已经排除），
+// 仓库里不留钥匙；换台机器没有这几行时，release 照样能构建，只是不出签名包。
+def tvdeskProps = new Properties()
+def tvdeskLocal = rootProject.file('local.properties')
+if (tvdeskLocal.exists()) {
+    tvdeskLocal.withInputStream { tvdeskProps.load(it) }
+}
+def tvdeskKeystorePath = tvdeskProps.getProperty('tvdesk.keystore', '').trim()
+def tvdeskSigned = tvdeskKeystorePath && new File(tvdeskKeystorePath).exists()
+// properties 里反斜杠是转义符，D:\dev\... 会被吃成 D:dev...。路径填了却找不到文件必须喊出来，
+// 否则静默产出 -unsigned 包，名字看着像发行包，装上才发现没签名。
+if (tvdeskKeystorePath && !tvdeskSigned) {
+    logger.warn("!! tvdesk.keystore 指向的文件不存在：${tvdeskKeystorePath}（Windows 路径请写成正斜杠 D:/dev/xxx.jks）；本次 release 不会签名")
+}
+
+android {
+    namespace 'com.github.tvbox.osc'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.tvdesk.app'
+        targetSdkVersion 28
+        versionCode 3
+        versionName '1.0.2'
+        multiDexEnabled true
+        //设置room的Schema的位置
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments = ["room.schemaLocation": "$projectDir/schemas".toString()]
+            }
+        }
+    }
+
+    packaging {
+        resources {
+            excludes += ['META-INF/DEPENDENCIES', 'META-INF/beans.xml']
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    flavorDimensions "mode"
+    productFlavors {
+        java {
+            dimension "mode"
+            minSdkVersion 19
+            ndk {
+                //noinspection ChromeOsAbiSupport
+                abiFilters 'armeabi-v7a', 'arm64-v8a'
+            }
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        java32 {
+            dimension "mode"
+            minSdkVersion 19
+            ndk {
+                //noinspection ChromeOsAbiSupport
+                abiFilters 'armeabi-v7a'
+            }
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        java64 {
+            dimension "mode"
+            minSdkVersion 21
+            ndk {
+                abiFilters 'arm64-v8a'
+            }
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    sourceSets {
+        java {
+            java.srcDirs += 'src/normal/java'
+        }
+        java32 {
+            java.srcDirs += 'src/normal/java'
+        }
+        java64 {
+            java.srcDirs += 'src/normal/java'
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (tvdeskSigned) {
+                storeFile file(tvdeskKeystorePath)
+                storePassword tvdeskProps.getProperty('tvdesk.storePassword', '')
+                keyAlias tvdeskProps.getProperty('tvdesk.keyAlias', 'tvdesk')
+                keyPassword tvdeskProps.getProperty('tvdesk.keyPassword', '')
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            signingConfig tvdeskSigned ? signingConfigs.release : null
+            // 先不混淆：Gson 靠字段名反射解析各家接口，爬虫 jar 也是运行时按名字加载的，
+            // R8 改名后是「界面空白但不报错」这种最难查的坏法。
+            // 发行版没在混淆包上跑过全链路验证，所以第一版保持和调试包一致的字节码行为。
+            minifyEnabled false
+        }
+    }
+
+    // 禁用 ABI 分割
+    splits {
+        abi {
+            enable false // 禁用 ABI 分割
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    api fileTree(dir: "libs", include: ["*.jar","*.aar"])
+
+    // 能力层
+    api project(':core')
+    // 桌面层（LAUNCHER 入口在这里）
+    implementation project(':desk')
+
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+    implementation 'com.google.zxing:core:3.3.0'
+    implementation 'androidx.appcompat:appcompat:1.3.0'
+    implementation 'androidx.media:media:1.2.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.0.4'
+    implementation 'androidx.lifecycle:lifecycle-extensions:2.2.0'
+    implementation 'androidx.recyclerview:recyclerview:1.2.1'
+
+    implementation 'com.squareup.okhttp3:okhttp:3.12.11'
+    annotationProcessor 'androidx.room:room-compiler:2.3.0'
+    implementation 'androidx.room:room-runtime:2.3.0'
+    implementation 'androidx.multidex:multidex:2.0.1'
+    implementation 'com.squareup.okio:okio:2.8.0'
+    implementation 'com.github.CymChad:BaseRecyclerViewAdapterHelper:2.9.45-androidx'
+    implementation 'com.kingja.loadsir:loadsir:1.3.8'
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'com.squareup.picasso:picasso:2.71828'
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
+    annotationProcessor 'com.github.bumptech.glide:compiler:4.16.0'
+    implementation 'me.jessyan:autosize:1.2.1'
+    implementation('com.thoughtworks.xstream:xstream:1.4.15') {
+        exclude group: 'xmlpull', module: 'xmlpull'
+    }
+    implementation 'org.greenrobot:eventbus:3.2.0'
+    implementation 'com.orhanobut:hawk:2.0.1'
+    implementation 'com.github.ctiao:DanmakuFlameMaster:0.9.25'
+
+    implementation project(":player")
+    implementation project(":quickjs")
+
+    implementation 'com.lzy.net:okgo:3.0.4'
+    implementation 'com.owen:tv-recyclerview:3.0.0'
+
+    implementation 'com.github.getActivity:XXPermissions:13.6'
+    implementation 'org.jsoup:jsoup:1.14.1'
+    implementation 'commons-io:commons-io:2.11.0'
+    implementation 'com.googlecode.juniversalchardet:juniversalchardet:1.0.3'
+    //支持http3
+    implementation ('com.google.net.cronet:cronet-okhttp:0.1.0')
+    implementation ('org.chromium.net:cronet-embedded:101.4951.41')
+    implementation 'org.brotli:dec:0.1.2'
+}

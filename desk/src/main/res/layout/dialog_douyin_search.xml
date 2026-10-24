@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  抖音「搜索」弹窗。
+
+  形态照抄登录弹窗（二维码 + 地址 + 一个能直接填的输入框 + 取消），因为要解决的是同一件事：
+  遥控器上打中文要逐字翻候选词，搜一个词比登一次账号还劝退。区别只在内容——
+  这里的二维码指向本机 /search 那张表单，手机扫开敲关键词，提交后电视当场出结果。
+
+  三条出路同样一条都不许堵死（项目里弹窗的老规矩）：
+    1. 扫码 → 手机键盘（最顺手）。
+    2. 下面输入框直接敲（不同网段、或二维码没刷出来）。
+    3. 取消 —— 进来看一眼不想搜，能原路退出。
+
+  整块高度跟着内容走、二维码区给固定高度：二维码拿不到时要把那一整块收掉，
+  写死面板高度就会在中间留半屏空白；窗口本身也是 WRAP_CONTENT，按钮不会被裁。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/settings_dialog_width"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_dialog_panel"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="搜索抖音"
+        android:textColor="@color/text_primary"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/douyin_search_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="正在启动本机推送服务…"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <!-- ============ 二维码 ============ -->
+    <FrameLayout
+        android:id="@+id/douyin_search_qr_area"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp">
+
+        <!-- 白底：深模块浅底才扫得出来，压在深色面板上手机对不上焦 -->
+        <FrameLayout
+            android:id="@+id/douyin_search_qr_box"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="#FFFFFFFF"
+            android:padding="10dp">
+
+            <ImageView
+                android:id="@+id/douyin_search_qr"
+                android:layout_width="168dp"
+                android:layout_height="168dp"
+                android:contentDescription="@null"
+                android:focusable="false" />
+        </FrameLayout>
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/douyin_search_url"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:textColor="@color/text_secondary"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <!-- ============ 直接敲关键词 ============ -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:text="或者直接在电视上敲关键词"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <EditText
+        android:id="@+id/douyin_search_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_dialog_input"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:hint="想看的关键词"
+        android:imeOptions="actionDone|flagNoExtractUi"
+        android:importantForAutofill="no"
+        android:inputType="text"
+        android:maxLines="1"
+        android:minHeight="44dp"
+        android:paddingStart="16dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_tertiary"
+        android:textCursorDrawable="@null"
+        android:textSize="15sp" />
+
+    <!-- ============ 按钮 ============ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/dialog_btn_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_dialog_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="@string/settings_action_cancel"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/douyin_search_go"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_btn_primary"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="搜这个词"
+            android:textColor="@color/text_on_light"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

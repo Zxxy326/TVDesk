@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面内嵌海报墙（取代原来的独立影视页）。
+  顶部让出顶栏的高度，其余整屏交给 GridView；背景透明，露出桌面的氛围光。
+-->
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <com.tvdesk.desk.widget.PageGridView
+        android:id="@+id/wall_grid"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginStart="-14dp"
+        android:layout_marginEnd="-14dp"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:fadingEdge="none"
+        android:focusable="false"
+        android:horizontalSpacing="20dp"
+        android:listSelector="@android:color/transparent"
+        android:numColumns="6"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="46dp"
+        android:scrollbars="none"
+        android:stretchMode="columnWidth"
+        android:verticalSpacing="24dp" />
+
+    <TextView
+        android:id="@+id/wall_empty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center"
+        android:lineSpacingExtra="6dp"
+        android:maxWidth="560dp"
+        android:paddingStart="28dp"
+        android:paddingTop="14dp"
+        android:paddingEnd="28dp"
+        android:paddingBottom="14dp"
+        android:textColor="#C9CFDA"
+        android:textSize="17sp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/wall_footer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="14dp"
+        android:background="@drawable/bg_pill"
+        android:gravity="center"
+        android:paddingStart="18dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="18dp"
+        android:paddingBottom="6dp"
+        android:text="正在加载下一页…"
+        android:textColor="#B9B9C2"
+        android:textSize="13sp"
+        android:visibility="gone" />
+</merge>

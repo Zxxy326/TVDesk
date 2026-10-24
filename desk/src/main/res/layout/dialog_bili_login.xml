@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  B 站登录弹窗。
+
+  和网易云那个的区别：B 站的扫码接口是好的，所以这里自己画二维码，
+  不用 WebView 去渲染别人的网页（电视上 WebView 又慢又吃内存，还经常白屏）。
+  二维码在本地由 zxing 生成，只有那一串 URL 走 B 站的接口。
+
+  两条出路都留着（和音乐页那条规矩一样，弹窗不许只留一条路）：
+    1. 扫码 —— 电视上唯一顺手的登录方式。
+    2. 粘 cookie —— 手机上已经登过、或者二维码刷不出来时的后路。
+
+  高度写死，中间那块用 weight 吃剩余空间：固定高度的内容一旦超了，
+  底部的按钮会被窗口裁掉，遥控器就没有「取消」可按了。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/settings_dialog_width"
+    android:layout_height="600dp"
+    android:background="@drawable/bg_dialog_panel"
+    android:orientation="vertical"
+    android:padding="28dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="登录 B 站"
+        android:textColor="@color/text_primary"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/bili_login_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="正在生成二维码…"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <!-- ============ 二维码 ============ -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="16dp"
+        android:layout_weight="1">
+
+        <!-- 白底：二维码必须是深模块浅底，压在深色面板上手机扫不出来 -->
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="#FFFFFFFF"
+            android:padding="10dp">
+
+            <ImageView
+                android:id="@+id/bili_login_qr"
+                android:layout_width="240dp"
+                android:layout_height="240dp"
+                android:contentDescription="@null"
+                android:focusable="false" />
+        </FrameLayout>
+
+        <ProgressBar
+            android:id="@+id/bili_login_loading"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_gravity="center" />
+    </FrameLayout>
+
+    <!-- ============ 手动粘 cookie ============ -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="或者粘贴一段浏览器里的 B 站 cookie（要含 SESSDATA）"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <EditText
+        android:id="@+id/bili_login_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_dialog_input"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:hint="SESSDATA=…; bili_jct=…; DedeUserID=…"
+        android:imeOptions="actionDone|flagNoExtractUi"
+        android:importantForAutofill="no"
+        android:inputType="text"
+        android:maxLines="2"
+        android:minHeight="44dp"
+        android:paddingStart="16dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_tertiary"
+        android:textCursorDrawable="@null"
+        android:textSize="13sp" />
+
+    <!-- ============ 按钮 ============ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/bili_login_refresh"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_dialog_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="换一张"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/dialog_btn_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_dialog_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="@string/settings_action_cancel"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/bili_login_apply"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_btn_primary"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="用这段 cookie"
+            android:textColor="@color/text_on_light"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

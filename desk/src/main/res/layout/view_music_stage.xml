@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  音乐沉浸播放页。不是独立页面，是盖在音乐模块页上面的一层（activity_music 的最后一个子节点），
+  所以它退出时只要 visibility=gone，底下的列表和焦点都还在原处。
+
+  左黑胶机 + 右歌词，顶部那一行「正在播放 / 按返回收起」已经去掉：这一层从头到尾没有
+  任何控件在页签位置，标题压在上面只会把画面顶下去，沉浸感反而没了。收起的唯一动作
+  就是返回键，而用户是从播放条最右边那颗「展开」进来的，退出往回走是肌肉记忆。
+
+  黑胶机照参考图重画（见 bg_vinyl_disc / bg_vinyl_turntable）：
+  - 盘 400dp、外层机器 460dp。电视三米外，小盘上的沟槽和封面标签根本读不出来；
+  - 盘沿是酒红的一圈，标签也是酒红，封面贴上去还留一圈红边——参考稿最抓眼的就是这个；
+  - 只有 stage_disc 绕中心转，长唱臂、反光和盘心的音符都在静止层。唱臂跟着转就成电风扇了；
+  - 本地歌没有封面时，盘心露一个音符，比空着强（空着像图没加载出来）。
+
+  进度条 + 五颗按钮包在 stage_controls 里：播放时空闲几秒整块淡出，只看盘和词；
+  任意按键再淡回来（见 MusicPage#hideStageControls）。曲名和歌手不藏——那是一直要读的信息。
+
+  进度条是普通直条（WaveProgressView 已改成直条画法），歌词行间距在 LyricView 里给到 56dp。
+  背景是酒红房间底（bg_stage_room）叠一层封面模糊图，再压两头深的蒙版。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_stage_room"
+    android:clickable="true"
+    android:visibility="gone">
+
+    <ImageView
+        android:id="@+id/stage_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0.34"
+        android:scaleType="centerCrop" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_stage_scrim" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingStart="56dp"
+        android:paddingTop="20dp"
+        android:paddingEnd="56dp"
+        android:paddingBottom="@dimen/safe_bottom">
+
+        <!-- ============ 主体：左黑胶机 + 右歌词 ============ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <!-- 黑胶机：只有里面这个 400dp 的盘在转，唱臂、反光和盘心音符都是静止的。
+                 整台机器包一层 id，沉浸收起控制区时跟着曲名一起往下沉（MusicPage#shiftStageHead）。 -->
+            <FrameLayout
+                android:id="@+id/stage_turntable"
+                android:layout_width="460dp"
+                android:layout_height="460dp">
+
+                <FrameLayout
+                    android:id="@+id/stage_disc"
+                    android:layout_width="400dp"
+                    android:layout_height="400dp"
+                    android:layout_gravity="center">
+
+                    <ImageView
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:contentDescription="@null"
+                        android:src="@drawable/bg_vinyl_disc" />
+
+                    <!-- 封面占盘径 40%，标签 48%：露出一圈 16dp 的酒红标签边 -->
+                    <ImageView
+                        android:id="@+id/stage_cover"
+                        android:layout_width="160dp"
+                        android:layout_height="160dp"
+                        android:layout_gravity="center"
+                        android:contentDescription="@null" />
+                </FrameLayout>
+
+                <!-- 本地歌没有专辑封面，盘心不能空着——空着看着像图没加载出来，
+                     给个音符至少能读出「就是没有封面」。它不跟着盘转。 -->
+                <TextView
+                    android:id="@+id/stage_note"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="♪"
+                    android:textColor="#66FFE9DA"
+                    android:textSize="64sp" />
+
+                <ImageView
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:contentDescription="@null"
+                    android:src="@drawable/bg_vinyl_turntable" />
+            </FrameLayout>
+
+            <com.tvdesk.desk.widget.LyricView
+                android:id="@+id/stage_lyric"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginStart="48dp"
+                android:layout_weight="1"
+                android:paddingTop="12dp"
+                android:paddingBottom="12dp" />
+        </LinearLayout>
+
+        <!-- ============ 底部：曲名 + 波浪进度 + 控制 ============ -->
+        <TextView
+            android:id="@+id/stage_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:shadowColor="#B3000000"
+            android:shadowDy="2"
+            android:shadowRadius="8"
+            android:textColor="@color/text_primary"
+            android:textSize="30sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/stage_meta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:shadowColor="#B3000000"
+            android:shadowDy="2"
+            android:shadowRadius="8"
+            android:textColor="@color/text_secondary"
+            android:textSize="15sp" />
+
+        <!-- 控制区：播放时空闲淡出，任意键唤回。曲名/歌手不在这块里 -->
+        <LinearLayout
+            android:id="@+id/stage_controls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/stage_pos"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="44dp"
+                android:text="0:00"
+                android:textColor="@color/text_tertiary"
+                android:textSize="13sp" />
+
+            <com.tvdesk.desk.widget.WaveProgressView
+                android:id="@+id/stage_progress"
+                android:layout_width="0dp"
+                android:layout_height="20dp"
+                android:layout_marginStart="14dp"
+                android:layout_marginEnd="14dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/stage_dur"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:minWidth="44dp"
+                android:textColor="@color/text_tertiary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!--
+          五个按钮：播放方式 / 上一首 / 暂停 / 下一首 / 收藏。
+          两个状态类按钮（方式、收藏）分在传输键两侧，和播放条那排的顺序完全一致——
+          同一个 app 里同一组键换了位置，遥控器上就会按错。
+        -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/stage_mode"
+                style="@style/MusicControlIcon"
+                android:layout_marginStart="0dp"
+                android:contentDescription="播放方式"
+                android:src="@drawable/ic_mode_order" />
+
+            <ImageView
+                android:id="@+id/stage_prev"
+                style="@style/MusicControlIcon"
+                android:contentDescription="上一首"
+                android:src="@drawable/ic_prev" />
+
+            <ImageView
+                android:id="@+id/stage_toggle"
+                style="@style/MusicControlIcon"
+                android:contentDescription="暂停"
+                android:src="@drawable/ic_pause" />
+
+            <ImageView
+                android:id="@+id/stage_next"
+                style="@style/MusicControlIcon"
+                android:contentDescription="下一首"
+                android:src="@drawable/ic_next" />
+
+            <ImageView
+                android:id="@+id/stage_like"
+                style="@style/MusicControlIcon"
+                android:contentDescription="收藏"
+                android:src="@drawable/ic_like" />
+        </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

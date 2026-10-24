@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  回桌面时的续播确认。
+
+  只在当前页真的在出声时才弹：没在放的时候问一句「要不要继续」等于凭空多一道门槛。
+  动作行固定两条（继续 / 停止），底部「取消」和 BACK 都是「留在这一页」——
+  这个弹窗不能出现打开了却退不出去的情况。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="460dp"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_dialog_panel"
+    android:orientation="vertical"
+    android:padding="28dp">
+
+    <TextView
+        android:id="@+id/keep_playing_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="返回桌面"
+        android:textColor="@color/text_primary"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/keep_playing_message"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="还有声音在放，回桌面后要继续吗？"
+        android:textColor="@color/text_secondary"
+        android:textSize="14sp" />
+
+    <LinearLayout
+        android:id="@+id/keep_playing_actions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:orientation="vertical" />
+
+    <TextView
+        android:id="@+id/keep_playing_cancel"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="18dp"
+        android:background="@drawable/bg_dialog_btn"
+        android:clickable="true"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:gravity="center"
+        android:text="取消"
+        android:textColor="@color/text_primary"
+        android:textSize="15sp" />
+</LinearLayout>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  左侧压暗：Hero 文字压在整屏海报上时保证可读。
+  只压到屏幕 60% 处就淡出，右半边留给画面本身——否则整屏会被压成一块黑。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="0"
+        android:centerColor="#73050508"
+        android:endColor="#00050508"
+        android:startColor="#D9050508" />
+</shape>

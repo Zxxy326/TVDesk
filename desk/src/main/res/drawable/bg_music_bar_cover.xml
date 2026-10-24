@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  悬浮播放条左边那颗圆封面：没有封面时露的就是这一层，Glide 拿到图再盖上去。
+  一直占位不许隐藏——它一隐一现，右边的曲名就跟着左右跳。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#26FFFFFF" />
+    <stroke
+        android:width="1dp"
+        android:color="#33FFFFFF" />
+</shape>

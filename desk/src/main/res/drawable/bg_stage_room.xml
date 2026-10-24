@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  沉浸播放页的底：左上角一团酒红，往右下压到近黑。
+  参考稿整页就是一块红丝绒，但这里右半边要读歌词，纯红会顶掉白字的对比，
+  所以只在唱机那一侧亮，越往歌词越暗。封面模糊图压在上面（alpha 0.34），
+  两者叠起来既有参考稿的色调，又保留「背景是这张专辑」的信息。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:centerColor="#FF3E0C13"
+        android:centerX="0.28"
+        android:centerY="0.38"
+        android:endColor="#FF12060A"
+        android:gradientRadius="760dp"
+        android:startColor="#FF7E1A26"
+        android:type="radial" />
+</shape>

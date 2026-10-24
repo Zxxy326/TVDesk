@@ -1,0 +1,29 @@
+// TVDesk 顶层构建配置
+// 基线：q215613905/TVBoxOS (AGPL-3.0)
+// 变更：AGP 7.2.2 -> 8.11.0；仓库全部换国内镜像（沙箱无法直连 google/mavenCentral/jitpack）
+
+buildscript {
+    repositories {
+        maven { url "https://maven.aliyun.com/repository/gradle-plugin" }
+        maven { url "https://maven.aliyun.com/repository/google" }
+        maven { url "https://maven.aliyun.com/repository/public" }
+        maven { url "https://mirrors.cloud.tencent.com/nexus/repository/maven-public" }
+        maven { url "https://repo.huaweicloud.com/repository/maven" }
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.11.0'
+    }
+}
+
+allprojects {
+    repositories {
+        maven { url "https://maven.aliyun.com/repository/google" }
+        maven { url "https://maven.aliyun.com/repository/public" }
+        maven { url "https://mirrors.cloud.tencent.com/nexus/repository/maven-public" }
+        maven { url "https://repo.huaweicloud.com/repository/maven" }
+    }
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
+}

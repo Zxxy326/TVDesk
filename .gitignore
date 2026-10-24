@@ -1,0 +1,55 @@
+# Gradle
+.gradle/
+build/
+*/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Python
+__pycache__/
+*.pyc
+
+# 本地环境
+local.properties
+.idea/
+*.iml
+*.hprof
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 构建产物
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# 真机验证截图
+_shots/
+
+# 探源用的临时抓包（第三方配置内容，不入库）
+_cfg/*.json
+_cfg/*.txt
+
+# 夹具素材与临时产物：第三方 jar（1MB 二进制）、uiautomator 的界面 dump、夹具运行日志
+_cfg/*.jar
+_cfg/*.bin
+_cfg/ui.xml
+_cfg/fixture-*.log
+
+# JVM 崩溃转储（hs_err_pid*.log）与本地构建日志
+hs_err_pid*.log
+*.err.log
+
+# 模拟器启动日志（一次性调试产物，不入库）
+_cfg/emu_win*.log
+_cfg/emu_run.log
+
+# 调试截图（adb screencap 落盘）
+_shot/
+
+# 会话内调试产物（截图、按键脚本、构建日志）
+_tmp/

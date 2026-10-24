@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  弹幕显示设置。从主设置里的「弹幕显示」进，单独一张是为了不把主弹窗撑出屏幕。
+  每行确认键循环取值，改完立刻回调到播放页。
+
+  面板、行、字号和桌面设置页同一套语言（见 SettingsRow），四行也放进可滚动区：
+  行是「标题 + 说明」两行高，加上主弹窗的底边余量，不滚就有裁切风险。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/settings_panel_width"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_settings_panel"
+    android:orientation="vertical"
+    android:padding="18dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="4dp"
+        android:text="弹幕显示"
+        android:textColor="@color/text_primary"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:paddingStart="4dp"
+        android:text="改完立即生效，正在播的弹幕会按新设置重新排"
+        android:textColor="@color/text_secondary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="300dp"
+        android:layout_marginTop="8dp"
+        android:clipToPadding="false"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/bili_danmaku_rows"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/bili_danmaku_done"
+        android:layout_width="wrap_content"
+        android:layout_height="44dp"
+        android:layout_gravity="end"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/bg_btn_primary"
+        android:clickable="true"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:gravity="center"
+        android:minWidth="112dp"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp"
+        android:text="完成"
+        android:textColor="@color/text_on_light"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+</LinearLayout>

@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  音乐音源的扫码导入弹窗。
+
+  音源脚本必须落进应用自己的目录，电视上又没有「打开文件」这种交互。
+  所以这里沿用抖音登录那个思路：电视起一个局域网表单，二维码指向它，
+  手机扫码后选文件上传——键盘和文件选择都在手机手里，遥控器一下都不用按。
+
+  二维码拿不到（不在同一网段 / 服务起不来）时把白框整块收掉，
+  留下地址文本和「重新扫描」这条路，不要摆一块空白。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/settings_dialog_width"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_dialog_panel"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="扫码导入音源"
+        android:textColor="@color/text_primary"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/lx_source_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="正在启动本机接收服务…"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <FrameLayout
+        android:id="@+id/lx_source_qr_area"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp">
+
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="#FFFFFFFF"
+            android:padding="10dp">
+
+            <ImageView
+                android:id="@+id/lx_source_qr"
+                android:layout_width="168dp"
+                android:layout_height="168dp"
+                android:contentDescription="@null"
+                android:focusable="false" />
+        </FrameLayout>
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/lx_source_url"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:textColor="@color/text_secondary"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="手机和电视要连在同一个路由器下。扫码后选一个 LX 音源 .js 上传，电视这边会自动收下。"
+        android:textColor="@color/text_tertiary"
+        android:textSize="@dimen/settings_note_size" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/lx_source_rescan"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/bg_dialog_btn"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="110dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="重新扫描"
+            android:textColor="@color/text_primary"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/lx_source_done"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_btn_primary"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="center"
+            android:minWidth="96dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="完成"
+            android:textColor="@color/text_on_light"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

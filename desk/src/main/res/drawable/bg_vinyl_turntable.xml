@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  黑胶机的静止上层：固定反光 + 主轴 + 长唱臂，盖在转动的 bg_vinyl_disc 上面。
+  必须单独一层——盘在转，这些东西跟着转就成电风扇了。
+
+  照参考稿（vinyl-player.html）重画唱臂：
+  - 臂座在盘外右上角 (92,17)，配重从座后伸到画面边，臂管一路斜穿盘面，
+    落点在右下约 74% 半径处——参考稿的臂就是「架在盘外、探进来」，不是一小截悬在盘上；
+  - 臂管 1.5 宽、唱头是一块沿臂方向的银壳，前端压一块深色唱头，针尖点强调色；
+  - 底座拆成黑盘—外圈—内环—金属轴四层，臂是从轴里伸出来的。
+
+  这一层是 460dp 见方，盘 400dp：盘心在 (50,50)，盘缘半径折成 43.5。
+  针尖落在 r≈32（盘缘的 0.74 倍），正好压在沟槽区中间偏外。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="460dp"
+    android:height="460dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- ===== 固定在盘面上的两处反光（光源不动，盘在下面转） ===== -->
+    <path
+        android:pathData="M15.6,33.9A38,38 0 0 1 33.9,15.6"
+        android:strokeColor="#0EFFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M69,82.9A38,38 0 0 1 50,88"
+        android:strokeColor="#08FFFFFF"
+        android:strokeWidth="6"
+        android:strokeLineCap="round" />
+
+    <!-- ===== 主轴：盖在标签/封面正中，真机上这里就是一根轴 ===== -->
+    <path
+        android:pathData="M50,50m-2.4,0a2.4,2.4 0 1,0 4.8,0a2.4,2.4 0 1,0 -4.8,0z"
+        android:strokeColor="#4DFFE9DA"
+        android:strokeWidth="0.45" />
+    <path
+        android:fillColor="#FFB4ABA0"
+        android:pathData="M50,50m-1.6,0a1.6,1.6 0 1,0 3.2,0a1.6,1.6 0 1,0 -3.2,0z" />
+    <path
+        android:fillColor="#FF1A1614"
+        android:pathData="M50,50m-0.65,0a0.65,0.65 0 1,0 1.3,0a0.65,0.65 0 1,0 -1.3,0z" />
+
+    <!-- ===== 唱臂 ===== -->
+    <!-- 底座投影 -->
+    <path
+        android:fillColor="#55000000"
+        android:pathData="M92.6,18.2m-6.2,0a6.2,6.2 0 1,0 12.4,0a6.2,6.2 0 1,0 -12.4,0z" />
+    <!-- 底座：黑盘 + 两道圈 + 金属轴 -->
+    <path
+        android:fillColor="#FF201A19"
+        android:pathData="M92,17m-6.1,0a6.1,6.1 0 1,0 12.2,0a6.1,6.1 0 1,0 -12.2,0z" />
+    <path
+        android:pathData="M92,17m-6.0,0a6.0,6.0 0 1,0 12,0a6.0,6.0 0 1,0 -12,0z"
+        android:strokeColor="#4DF0E4D4"
+        android:strokeWidth="0.35" />
+    <path
+        android:pathData="M92,17m-4.4,0a4.4,4.4 0 1,0 8.8,0a4.4,4.4 0 1,0 -8.8,0z"
+        android:strokeColor="#26F0E4D4"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M87.6,14.2A5.4,5.4 0 0 1 90.6,11.9"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="0.5" />
+    <path
+        android:fillColor="#FF9A9187"
+        android:pathData="M92,17m-2.0,0a2.0,2.0 0 1,0 4,0a2.0,2.0 0 1,0 -4,0z" />
+    <path
+        android:fillColor="#FF141010"
+        android:pathData="M92,17m-0.8,0a0.8,0.8 0 1,0 1.6,0a0.8,0.8 0 1,0 -1.6,0z" />
+
+    <!-- 配重：座后那一截镀铬圆柱 -->
+    <path
+        android:pathData="M97.96,4.08L95.24,10.32"
+        android:strokeColor="#55000000"
+        android:strokeWidth="5"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M97.56,4.28L94.84,10.52"
+        android:strokeColor="#FFB0A698"
+        android:strokeWidth="4.6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M94.57,5.38L98.79,7.22"
+        android:strokeColor="#55000000"
+        android:strokeWidth="0.45" />
+    <path
+        android:pathData="M93.61,7.58L97.83,9.42"
+        android:strokeColor="#44000000"
+        android:strokeWidth="0.45" />
+    <path
+        android:pathData="M96.46,3.8L93.74,10.04"
+        android:strokeColor="#66FFFFFF"
+        android:strokeWidth="0.5"
+        android:strokeLineCap="round" />
+
+    <!-- 臂管：贯穿支点，落到盘面右下 -->
+    <path
+        android:pathData="M97.5,5.2L70.1,74.5"
+        android:strokeColor="#66000000"
+        android:strokeWidth="2.1"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M96.8,4.4L69.4,73.7"
+        android:strokeColor="#FFD7CFC3"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M97.2,4.6L69.8,73.9"
+        android:strokeColor="#B3FFFFFF"
+        android:strokeWidth="0.35"
+        android:strokeLineCap="round" />
+
+    <!-- 唱头壳：沿臂方向压着的一块银壳，前端是深色唱头和针尖 -->
+    <path
+        android:fillColor="#40000000"
+        android:pathData="M72.2,62.6L77.0,64.6L72.4,76.0L67.6,74.0z" />
+    <path
+        android:fillColor="#FFCFC6BA"
+        android:pathData="M71.6,61.8L76.4,63.8L71.9,74.6L67.1,72.6z" />
+    <path
+        android:pathData="M71.6,61.8L76.4,63.8L71.9,74.6L67.1,72.6z"
+        android:strokeColor="#99FFF6E9"
+        android:strokeWidth="0.25" />
+    <path
+        android:pathData="M72.3,62.5L68.4,73.0"
+        android:strokeColor="#66FFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:fillColor="#FF211C1A"
+        android:pathData="M69.2,68.1L73.6,69.9L71.7,75.5L67.3,73.7z" />
+    <path
+        android:pathData="M69.6,68.8L72.9,70.2"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="0.35" />
+    <path
+        android:fillColor="#FFFF8A3C"
+        android:pathData="M68.4,76.2m-1.15,0a1.15,1.15 0 1,0 2.3,0a1.15,1.15 0 1,0 -2.3,0z" />
+
+</vector>

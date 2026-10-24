@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  设置页里「能点进去」的行。
+  焦点语言和桌面的胶囊/模块菜单保持一致：亮底 + 白描边，而不是白实底。
+  电视上远距离看，白描边比底色变化更容易分辨。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/pill_bg_focused" />
+            <corners android:radius="@dimen/radius_card" />
+            <stroke
+                android:width="2dp"
+                android:color="@color/pill_stroke" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/pill_bg" />
+            <corners android:radius="@dimen/radius_card" />
+        </shape>
+    </item>
+
+</selector>

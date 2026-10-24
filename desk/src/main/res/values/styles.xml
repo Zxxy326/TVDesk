@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 桌面是常驻全屏页，不要 ActionBar，也不要有系统栏动画 -->
+    <style name="DeskTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/desk_bg</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+
+    <!--
+      配置地址弹窗的主题。
+      和 TVBox 的 CustomDialogStyle 同一套做法（透明底 / 悬浮 / 无标题 / 全屏），
+      这不是抄，是因为这几个开关少一个弹窗就不对：
+        透明底 + 无标题  —— 不然会出现系统默认的白色圆角背景和白条，跟深色桌面完全不搭
+        backgroundDim    —— 弹窗要压住背后的设置页，不然两层文字糊在一起
+        adjustResize     —— 弹窗里要输入地址，输入法弹起来时窗口必须能缩，否则输入框被盖住
+    -->
+    <style name="DeskDialogTheme" parent="@android:style/Theme.Dialog">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowFrame">@null</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowSoftInputMode">stateHidden|adjustResize</item>
+    </style>
+
+    <!--
+      音乐播放条上的控制按钮（上一首 / 暂停 / 下一首）。
+      焦点语言沿用桌面的胶囊：亮底 + 白描边。字号给到 14sp 是因为电视上
+      3 米外看 12sp 基本读不出来。
+    -->
+    <style name="MusicControl">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">12dp</item>
+        <item name="android:background">@drawable/bg_module_item</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:gravity">center</item>
+        <item name="android:minWidth">88dp</item>
+        <item name="android:paddingStart">18dp</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingEnd">18dp</item>
+        <item name="android:paddingBottom">10dp</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!--
+      播放条上的图标按钮（上一首 / 播放暂停 / 下一首）。
+      和 MusicControl 同一套焦点语言，只是不放字：这三个图形是播放器通用符号，
+      字反而把按钮撑宽，一排在电视远处看着像三个标签。
+    -->
+    <style name="MusicControlIcon">
+        <item name="android:layout_width">56dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">12dp</item>
+        <item name="android:background">@drawable/bg_module_item</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingTop">12dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:paddingBottom">12dp</item>
+        <item name="android:scaleType">fitCenter</item>
+    </style>
+
+    <!--
+      抖音竖屏信息流右侧互动栏的圆按钮（点赞 / 评论 / 收藏 / 登录）。
+      焦点语言沿用桌面那颗圆形半透明按钮（bg_btn_circle）。
+      只放图标不放字：这四个动作的图形是各家短视频 app 共用的，字反而把圆撑满看不清。
+      状态（已赞 / 已收藏）由代码给图标染色来表达。
+
+      focusable=false 是刻意的：本页的方向键全部被 handleKeyDown 接去做「换条 / 点赞 / 评论」，
+      焦点一旦能进互动栏，上下键就会变成挪光标而不是刷视频，遥控器上等于废掉主操作。
+      保留 clickable=true 是给带触控的设备兜底。
+    -->
+    <style name="DyRailButton">
+        <item name="android:layout_width">46dp</item>
+        <item name="android:layout_height">46dp</item>
+        <item name="android:layout_marginTop">14dp</item>
+        <item name="android:background">@drawable/bg_btn_circle</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">false</item>
+        <item name="android:padding">11dp</item>
+        <item name="android:scaleType">fitCenter</item>
+    </style>
+
+    <!-- 圆按钮下面的数字，跟按钮成一组，单独一行读起来才不像压在按钮上 -->
+    <style name="DyRailLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">4dp</item>
+        <item name="android:focusable">false</item>
+        <item name="android:text">0</item>
+        <item name="android:textColor">@color/text_tertiary</item>
+        <item name="android:textSize">11sp</item>
+    </style>
+
+</resources>

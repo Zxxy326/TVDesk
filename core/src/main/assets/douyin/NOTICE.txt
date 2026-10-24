@@ -1,0 +1,28 @@
+抖音 a_bogus 签名脚本的来源与许可
+================================
+
+本目录里的三个 JS 文件不是同一个来源，许可也不同：
+
+1. utils.js
+2. sm3.js
+   来源：https://github.com/ylcangel/douyin_sign （目录 a_bogus/）
+   许可：Apache License 2.0（文件头自带 SPDX 标识符，全文见仓库根 LICENSE-douyin_sign.txt）
+   取得日期：2026-10-21，对应仓库版本 sdkVersion = 1.0.1.19-fix.01
+   改动：无。逐字节照搬，包括原注释。
+
+3. dy_shim.js
+   来源：本项目自己写的浏览器环境垫片，不含任何上游代码。
+   许可：随本仓库按 AGPL-3.0 分发。
+
+上游同目录还有 vm_decode.js（VM 解释器，82KB）和 env_test.js（环境自检，33KB）。
+这两个只服务于「模拟浏览器环境自检」那条分支，而我们把 EnvTestTurnOn 关掉了：
+实测（2026-10-21）只用 utils.js + sm3.js 就能算出被服务端接受的 a_bogus
+（/aweme/v1/web/comment/list/ 返回 status_code=0、20 条评论），
+所以不打包那两个文件，省 115KB。
+
+按 Apache-2.0 第 4 条的要求，分发本软件时必须保留上面的许可声明；
+衍生作品（dy_shim.js 与 utils.js 的组合运行）需要说明做过修改——这里说明：
+未修改上游文件，修改只发生在新增的垫片里。
+
+不要在这里放 myDV 的 abogus_dy.js（525KB）：mytv-android/myDV 没有公开源码许可，
+它的产物只能当接口参考，不能作为代码分发。
