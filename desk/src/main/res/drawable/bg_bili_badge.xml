@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  卡片封面右下角的角底（时长 / 直播状态）。
+  和影视页的评分角标同一个思路：压在图上，所以要够黑才看得清字。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <solid android:color="#B3000000" />
+    <corners android:radius="@dimen/radius_badge" />
+
+</shape>

@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  信号源模块页。结构、坐标、卡片语言照搬 activity_apps.xml：
+  左上胶囊 + 居中页签 + 6 列卡片墙，ids 换成 signal_*。
+
+  和应用页差三处，都是内容性质决定的：
+  1. 没有搜索框、没有子页签：这一页最多十几张卡（用过的源 + 电视输入），
+     排序和筛选都是多余的一层。
+  2. 没有整页背景 Wash（signal_bg 那块 ImageView 干脆不做）：
+     影视/音乐/B 站页的背景来自封面图，应用页来自应用图标，都是「这张卡自带的颜色」；
+     这一页的卡只有线条图标，洗出来是一团没有信息量的灰，留着氛围底（BackdropView）反而干净。
+  3. 胶囊下拉仍然保留，并且必须排在 root 的最后面（z 序，见下面的注释）。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipChildren="false">
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/desk_bg" />
+
+    <com.tvdesk.desk.widget.BackdropView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_music_scrim" />
+
+    <!-- ============ 左上：模块胶囊 ============ -->
+    <LinearLayout
+        android:id="@+id/signal_switcher"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/switcher_pad_h"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:layout_width="@dimen/switcher_icon"
+            android:layout_height="@dimen/switcher_icon"
+            android:src="@drawable/ic_menu_list" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/switcher_gap"
+            android:text="信号源"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp" />
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="6dp"
+            android:src="@drawable/ic_chevron_down" />
+    </LinearLayout>
+
+    <!-- ============ 顶部中央：栏目 ============ -->
+    <LinearLayout
+        android:id="@+id/signal_nav_items"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:clipChildren="false"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/nav_pad_h"
+        android:paddingEnd="@dimen/nav_pad_h" />
+
+    <!-- paddingTop = top_bar_top + top_bar_height + 16 = 80dp。
+         内容层不裁剪的话，墙整行翻上去会连自己带出边界，压在标题和顶栏上。 -->
+    <LinearLayout
+        android:id="@+id/signal_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:paddingStart="48dp"
+        android:paddingTop="80dp"
+        android:paddingEnd="48dp">
+
+        <TextView
+            android:id="@+id/signal_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="内容源"
+            android:textColor="@color/text_primary"
+            android:textSize="@dimen/module_title_size"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/signal_subtitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text=""
+            android:textColor="@color/text_tertiary"
+            android:textSize="13sp" />
+
+        <!-- 卡片墙。参数和影视/音乐/B 站/应用页一致：6 列 / 20dp 横距 / 24dp 行距 -->
+        <com.tvdesk.desk.widget.PageGridView
+            android:id="@+id/signal_grid"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginStart="-12dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginEnd="-12dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:fadingEdge="none"
+            android:focusable="false"
+            android:horizontalSpacing="20dp"
+            android:listSelector="@android:color/transparent"
+            android:numColumns="6"
+            android:paddingStart="12dp"
+            android:paddingTop="14dp"
+            android:paddingEnd="12dp"
+            android:scrollbars="none"
+            android:stretchMode="columnWidth"
+            android:verticalSpacing="24dp" />
+    </LinearLayout>
+
+    <!-- 电视输入要问系统服务，那段时间给一个明确的「在等」 -->
+    <ProgressBar
+        android:id="@+id/signal_loading"
+        style="?android:attr/progressBarStyle"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_gravity="center"
+        android:visibility="gone" />
+
+    <!--
+      胶囊下拉（默认收起）。必须放在 root 的最后一个子节点：
+      FrameLayout 按子节点顺序绘制，放在内容层前面就会被 32sp 的页面标题压在下面。
+      elevation 在 minSdk 19 上不保证生效，所以用顺序而不是层级。
+    -->
+    <LinearLayout
+        android:id="@+id/signal_menu"
+        android:layout_width="190dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="70dp"
+        android:background="@drawable/bg_module_menu"
+        android:orientation="vertical"
+        android:padding="6dp"
+        android:visibility="gone" />
+
+</FrameLayout>

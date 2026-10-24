@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  选集编号。详情页的封面整屏铺底，数字直接浮在图上会跟封面色块糊在一起，
+  所以给一颗半透明胶囊：平时也看得见边界，避免「一排散字」。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#3D3D48" />
+            <corners android:radius="@dimen/radius_control" />
+            <stroke
+                android:width="2dp"
+                android:color="#FFFFFF" />
+        </shape>
+    </item>
+
+    <item android:state_selected="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#2E2E38" />
+            <corners android:radius="@dimen/radius_control" />
+            <stroke
+                android:width="1dp"
+                android:color="#66FFFFFF" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#59000000" />
+            <corners android:radius="@dimen/radius_control" />
+            <stroke
+                android:width="1dp"
+                android:color="#26FFFFFF" />
+        </shape>
+    </item>
+
+</selector>

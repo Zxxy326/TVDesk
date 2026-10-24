@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 详情页的分区标签：B 站粉描边胶囊，和全站其他标签一样只用描边不填实色 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#1FFB7299" />
+    <corners android:radius="@dimen/radius_badge" />
+    <stroke
+        android:width="1dp"
+        android:color="#99FB7299" />
+</shape>

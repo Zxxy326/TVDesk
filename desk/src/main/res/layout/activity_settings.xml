@@ -1,0 +1,489 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TVDesk 设置页（独立 Activity，从桌面的「桌面 ▾ → 设置」或顶栏提示条进来）
+
+  设计画布：1280x720dp（1920x1080 @ density 1.5）
+  层级：桌面 › 设置 › 配置地址弹窗。面包屑在最上面把这件事说明白，返回键逐层退出。
+
+  布局是两列而不是一条长列表：一列排下来会超过 720dp 画布，最下面的「系统设置」和
+  说明文字永远贴在屏幕外（这就是之前的裁切）。左列放内容源，右列放播放/桌面/系统，
+  两列都远低于画布高度，任何电视上都不用滚。
+
+  关于 clipChildren / clipToPadding：两个都得关，面板（bg_settings_panel）才裁不到放大的行。
+  设置行是 match_parent 的，它的布局边界正好等于面板的内容区，而 Android 判定「要不要裁子节点」
+  用的是 clipChildren || clipToPadding —— clipToPadding 默认就是 true，所以光关 clipChildren
+  没任何变化。行聚焦放大 1.03 往两边各长出十几个像素，全被内容区那条线切掉，
+  看着就是描边少了两个圆角。关掉之后放大的部分落进面板自己的 18dp 内边距里。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/desk_bg" />
+
+    <!-- 和桌面同一套氛围底，从桌面点进来不该有「换了个 app」的感觉 -->
+    <com.tvdesk.desk.widget.BackdropView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/screen_pad"
+            android:paddingTop="24dp"
+            android:paddingEnd="@dimen/screen_pad"
+            android:paddingBottom="@dimen/safe_bottom">
+
+            <!-- ============ 面包屑：说明「我在哪、从哪来的、按返回去哪」 ============ -->
+            <LinearLayout
+                android:id="@+id/crumb"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_chevron_left" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:text="@string/settings_crumb_desk"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="@dimen/settings_crumb_size" />
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_marginStart="4dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_chevron_right" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/settings_title"
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/settings_crumb_size" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:letterSpacing="-0.02"
+                android:text="@string/settings_title"
+                android:textColor="@color/text_primary"
+                android:textSize="@dimen/settings_title_size"
+                android:textStyle="bold" />
+
+            <!-- ============ 两列主体 ============ -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:baselineAligned="false"
+                android:orientation="horizontal">
+
+                <!-- 左列：内容源。最常改的一项，留给最顺手的位置 -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_settings_panel"
+                        android:clipChildren="false"
+                        android:clipToPadding="false"
+                        android:orientation="vertical"
+                        android:padding="18dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:paddingStart="4dp"
+                            android:paddingBottom="10dp"
+                            android:text="@string/settings_group_source"
+                            android:textColor="@color/text_tertiary"
+                            android:textSize="@dimen/settings_group_size" />
+
+                        <!-- 只读行：当前生效的源。背景更暗、点不动，和下面能点进去的行区分开 -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_setting_readonly"
+                            android:gravity="center_vertical"
+                            android:minHeight="@dimen/settings_row_height"
+                            android:orientation="horizontal"
+                            android:paddingStart="@dimen/settings_row_pad_h"
+                            android:paddingTop="14dp"
+                            android:paddingEnd="@dimen/settings_row_pad_h"
+                            android:paddingBottom="14dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/settings_current_source"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="@dimen/settings_item_size" />
+
+                                <TextView
+                                    android:id="@+id/source_note"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="@string/settings_source_none_note"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="@dimen/settings_note_size" />
+                            </LinearLayout>
+
+                            <!-- 地址可能很长，中间省略：头和尾往往都比中间有信息量 -->
+                            <TextView
+                                android:id="@+id/source_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="16dp"
+                                android:ellipsize="middle"
+                                android:maxWidth="300dp"
+                                android:singleLine="true"
+                                android:text="@string/settings_source_none"
+                                android:textColor="@color/text_primary"
+                                android:textSize="@dimen/settings_value_size" />
+                        </LinearLayout>
+
+                        <!-- 入口行：配置地址 -->
+                        <!--
+                          两列布局把四行的上下左右走位写死：左列一行，右列三行上下走，
+                          左右键在两列之间横跳，走到头留在原地。
+                          不写死的话焦点会按几何距离去找，说明文字、面板这些不可聚焦的块
+                          一参与进来，落点就说不准了。
+                        -->
+                        <LinearLayout
+                            android:id="@+id/row_edit_source"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/settings_row_gap"
+                            android:background="@drawable/bg_setting_row"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="@dimen/settings_row_height"
+                            android:nextFocusDown="@+id/row_edit_source"
+                            android:nextFocusLeft="@+id/row_edit_source"
+                            android:nextFocusRight="@+id/row_keep_playing"
+                            android:nextFocusUp="@+id/row_edit_source"
+                            android:orientation="horizontal"
+                            android:paddingStart="@dimen/settings_row_pad_h"
+                            android:paddingTop="14dp"
+                            android:paddingEnd="@dimen/settings_row_pad_h"
+                            android:paddingBottom="14dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/settings_edit_source"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="@dimen/settings_item_size" />
+
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="@string/settings_edit_source_note"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="@dimen/settings_note_size" />
+                            </LinearLayout>
+
+                            <ImageView
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:contentDescription="@null"
+                                android:src="@drawable/ic_chevron_right" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- 底部说明：把「按了应用之后会发生什么」讲清楚 -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:drawablePadding="8dp"
+                        android:lineSpacingExtra="4dp"
+                        android:text="@string/settings_footnote"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="@dimen/settings_hint_size" />
+                </LinearLayout>
+
+                <!-- 右列：播放 / 桌面 / 系统 -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="20dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <!-- ============ 分组：播放 ============ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_settings_panel"
+                        android:clipChildren="false"
+                        android:clipToPadding="false"
+                        android:orientation="vertical"
+                        android:padding="18dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:paddingStart="4dp"
+                            android:paddingBottom="10dp"
+                            android:text="@string/settings_group_play"
+                            android:textColor="@color/text_tertiary"
+                            android:textSize="@dimen/settings_group_size" />
+
+                        <LinearLayout
+                            android:id="@+id/row_keep_playing"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_setting_row"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="@dimen/settings_row_height"
+                            android:nextFocusDown="@+id/row_home"
+                            android:nextFocusLeft="@+id/row_edit_source"
+                            android:nextFocusRight="@+id/row_keep_playing"
+                            android:nextFocusUp="@+id/row_keep_playing"
+                            android:orientation="horizontal"
+                            android:paddingStart="@dimen/settings_row_pad_h"
+                            android:paddingTop="14dp"
+                            android:paddingEnd="@dimen/settings_row_pad_h"
+                            android:paddingBottom="14dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/settings_keep_playing"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="@dimen/settings_item_size" />
+
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="@string/settings_keep_playing_note"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="@dimen/settings_note_size" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/keep_playing_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="16dp"
+                                android:background="@drawable/bg_setting_switch"
+                                android:gravity="center"
+                                android:minWidth="104dp"
+                                android:paddingStart="14dp"
+                                android:paddingTop="7dp"
+                                android:paddingEnd="14dp"
+                                android:paddingBottom="7dp"
+                                android:text="@string/settings_switch_off"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="@dimen/settings_value_size"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- ============ 分组：桌面 ============ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:background="@drawable/bg_settings_panel"
+                        android:clipChildren="false"
+                        android:clipToPadding="false"
+                        android:orientation="vertical"
+                        android:padding="18dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:paddingStart="4dp"
+                            android:paddingBottom="10dp"
+                            android:text="@string/settings_group_desktop"
+                            android:textColor="@color/text_tertiary"
+                            android:textSize="@dimen/settings_group_size" />
+
+                        <LinearLayout
+                            android:id="@+id/row_home"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_setting_row"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="@dimen/settings_row_height"
+                            android:nextFocusDown="@+id/row_system"
+                            android:nextFocusLeft="@+id/row_edit_source"
+                            android:nextFocusRight="@+id/row_home"
+                            android:nextFocusUp="@+id/row_keep_playing"
+                            android:orientation="horizontal"
+                            android:paddingStart="@dimen/settings_row_pad_h"
+                            android:paddingTop="14dp"
+                            android:paddingEnd="@dimen/settings_row_pad_h"
+                            android:paddingBottom="14dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/settings_home"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="@dimen/settings_item_size" />
+
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="@string/settings_home_note"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="@dimen/settings_note_size" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/home_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="16dp"
+                                android:background="@drawable/bg_setting_switch"
+                                android:gravity="center"
+                                android:minWidth="104dp"
+                                android:paddingStart="14dp"
+                                android:paddingTop="7dp"
+                                android:paddingEnd="14dp"
+                                android:paddingBottom="7dp"
+                                android:text="@string/settings_home_off"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="@dimen/settings_value_size"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- ============ 分组：系统 ============ -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:background="@drawable/bg_settings_panel"
+                        android:clipChildren="false"
+                        android:clipToPadding="false"
+                        android:orientation="vertical"
+                        android:padding="18dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:paddingStart="4dp"
+                            android:paddingBottom="10dp"
+                            android:text="@string/settings_group_system"
+                            android:textColor="@color/text_tertiary"
+                            android:textSize="@dimen/settings_group_size" />
+
+                        <LinearLayout
+                            android:id="@+id/row_system"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_setting_row"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="@dimen/settings_row_height"
+                            android:nextFocusDown="@+id/row_system"
+                            android:nextFocusLeft="@+id/row_edit_source"
+                            android:nextFocusRight="@+id/row_system"
+                            android:nextFocusUp="@+id/row_home"
+                            android:orientation="horizontal"
+                            android:paddingStart="@dimen/settings_row_pad_h"
+                            android:paddingTop="14dp"
+                            android:paddingEnd="@dimen/settings_row_pad_h"
+                            android:paddingBottom="14dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/settings_system"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="@dimen/settings_item_size" />
+
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="@string/settings_system_note"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="@dimen/settings_note_size" />
+                            </LinearLayout>
+
+                            <ImageView
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:contentDescription="@null"
+                                android:src="@drawable/ic_chevron_right" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>

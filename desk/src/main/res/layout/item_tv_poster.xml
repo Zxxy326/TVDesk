@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 影视页海报卡片。宽由 GridView 的列宽定，这里只锁高度，保证 2:3 的比例一致 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/poster_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- 和首页海报一致：外框画聚焦白边，图片内缩 3dp 再裁圆角 -->
+    <FrameLayout
+        android:id="@+id/poster_frame"
+        android:layout_width="match_parent"
+        android:layout_height="258dp"
+        android:background="@drawable/bg_poster"
+        android:duplicateParentState="true"
+        android:padding="3dp">
+
+        <ImageView
+            android:id="@+id/poster_img"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/poster_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:singleLine="true"
+        android:textColor="#F2F5FA"
+        android:textSize="17sp" />
+
+    <TextView
+        android:id="@+id/poster_note"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:singleLine="true"
+        android:textColor="#8A93A6"
+        android:textSize="14sp" />
+</LinearLayout>

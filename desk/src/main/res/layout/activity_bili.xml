@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  哔哩哔哩模块页。坐标基准和桌面/音乐页一致：1280×720dp（见 DeskAdaptActivity）。
+
+  顶栏是本页自己的（桌面的页签是内容源的类目，和 B 站无关），视觉语言照搬桌面：
+  左上胶囊 + 居中亮底页签（bg_pill / bg_nav_item）+ FocusScaler 1.06。
+
+  和音乐页多了一层「子页签」（bili_sub_nav）：排行榜要按分区切，直播要按直播分区切。
+  它不放顶栏是因为宽度——分区名连排能到十几个，顶栏胶囊塞不下。
+
+  内容一律铺卡片墙（和影视页/音乐页同一套），没有 ListView：
+  B 站没有「设置型列表」这种需要行式的版块，登录入口也用卡片表达。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipChildren="false">
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/desk_bg" />
+
+    <com.tvdesk.desk.widget.BackdropView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 整页背景。跟着当前聚焦那张卡的封面走，alpha 由代码控制（无封面时淡出回氛围底） -->
+    <ImageView
+        android:id="@+id/bili_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:scaleType="centerCrop" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_music_scrim" />
+
+    <!-- ============ 左上：模块胶囊 ============ -->
+    <!-- 坐标和桌面那颗「桌面 ▾」完全对齐。点开是「返回桌面」——本页没有桌面顶栏，这是唯一常驻出口 -->
+    <LinearLayout
+        android:id="@+id/bili_switcher"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/switcher_pad_h"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:layout_width="@dimen/switcher_icon"
+            android:layout_height="@dimen/switcher_icon"
+            android:src="@drawable/ic_menu_list" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/switcher_gap"
+            android:text="哔哩哔哩"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp" />
+
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="6dp"
+            android:src="@drawable/ic_chevron_down" />
+    </LinearLayout>
+
+    <!-- ============ 顶部中央：栏目 ============ -->
+    <LinearLayout
+        android:id="@+id/bili_nav_items"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:clipChildren="false"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/nav_pad_h"
+        android:paddingEnd="@dimen/nav_pad_h" />
+
+    <!--
+      内容层。clipChildren 这里必须保持默认的「裁剪」：墙整行翻上去时，
+      滚出边界的卡片会被画到内容层外面，不裁剪就直接压在页面标题和顶栏上。
+      卡片焦点放大 1.08 的溢出量由墙自己的 paddingTop（以及左右 -12dp 负边距配 12dp 内边距）吸收。
+    -->
+    <LinearLayout
+        android:id="@+id/bili_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:paddingStart="48dp"
+        android:paddingTop="80dp"
+        android:paddingEnd="48dp">
+
+        <!-- ============ 标题 + 搜索框 ============ -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp">
+
+            <!-- 当前视图的锚点图：分区榜的封面 / 收藏夹封面 / 账号头像 -->
+            <ImageView
+                android:id="@+id/bili_head_cover"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:layout_marginEnd="18dp"
+                android:background="@drawable/bg_cover_placeholder"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/bili_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="推荐"
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/module_title_size"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/bili_subtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text=""
+                    android:textColor="@color/text_tertiary"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- 只在「搜索」栏目露出来（BiliPage 控制显隐） -->
+            <EditText
+                android:id="@+id/bili_search"
+                android:layout_width="420dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="24dp"
+                android:background="@drawable/bg_dialog_input"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:hint="搜视频 / UP 主 / BV 号"
+                android:imeOptions="actionSearch|flagNoExtractUi"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:singleLine="true"
+                android:textColor="#F5F7FA"
+                android:textColorHint="#6F7280"
+                android:textSize="16sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!--
+          子页签（排行榜的分区 / 直播的分区）。横向可滚：分区连排有十几个，
+          一屏放不下，切焦点时由代码把它滚进视口。
+          负 margin 和卡片墙同理——焦点放大 1.06 会不会切掉边缘取决于祖先链有没有 clip，
+          这里的 clipChildren=false 一路给到 root。
+        -->
+        <HorizontalScrollView
+            android:id="@+id/bili_sub_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/bili_sub_nav"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="@drawable/bg_pill"
+                android:clipChildren="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp" />
+        </HorizontalScrollView>
+
+        <!-- 卡片墙。参数和影视页/音乐页一致：6 列 / 20dp 横距 / 24dp 行距 / 透明 selector -->
+        <com.tvdesk.desk.widget.PageGridView
+            android:id="@+id/bili_grid"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginStart="-12dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginEnd="-12dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:fadingEdge="none"
+            android:focusable="false"
+            android:horizontalSpacing="20dp"
+            android:listSelector="@android:color/transparent"
+            android:numColumns="6"
+            android:paddingStart="12dp"
+            android:paddingTop="14dp"
+            android:paddingEnd="12dp"
+            android:scrollbars="none"
+            android:stretchMode="columnWidth"
+            android:verticalSpacing="24dp" />
+
+        <TextView
+            android:id="@+id/bili_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text=""
+            android:textColor="@color/text_tertiary"
+            android:textSize="14sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 首屏加载中：卡片墙空着的时候给一个明确的「在等」，不然是黑屏 -->
+    <ProgressBar
+        android:id="@+id/bili_loading"
+        style="?android:attr/progressBarStyle"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_gravity="center"
+        android:visibility="gone" />
+
+    <!--
+      胶囊下拉（默认收起）。必须放在 root 的最后一个子节点：
+      FrameLayout 按子节点顺序绘制，放在内容层前面就会被 32sp 的页面标题压在下面。
+      elevation 在 minSdk 19 上不保证生效，所以用顺序而不是层级。
+    -->
+    <LinearLayout
+        android:id="@+id/bili_menu"
+        android:layout_width="190dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="70dp"
+        android:background="@drawable/bg_module_menu"
+        android:orientation="vertical"
+        android:padding="6dp"
+        android:visibility="gone" />
+
+</FrameLayout>

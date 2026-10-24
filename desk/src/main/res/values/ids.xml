@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 海报卡片携带的索引，供 M1 焦点引擎定位用 -->
+    <item name="tag_poster_index" type="id" />
+    <!-- 卡片上挂着的入场动画，复用/取消时用 -->
+    <item name="tag_reveal_anim" type="id" />
+    <!-- 按压形变动画，连点时靠它把上一个掐掉 -->
+    <item name="tag_press_fx" type="id" />
+</resources>

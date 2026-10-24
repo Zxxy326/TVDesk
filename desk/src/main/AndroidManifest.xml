@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      「应用」模块要发 ACTION_DELETE 把系统卸载页顶出来，这条权限是self-granted的
+      （装机即生效，没有运行时弹窗），不给的话 Android 8+ 会直接解析不到卸载页。
+
+      枚举已安装应用不需要 QUERY_ALL_PACKAGES：包可见性过滤从 targetSdk 30 才开始生效，
+      本工程 targetSdk 28，PackageManager 天然看得见全部包。
+    -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <application>
+        <!--
+          configChanges 必须写：桌面里内嵌着播放器 Fragment，而 Fragment 会跟着
+          Activity 的重建走恢复流程。切 HDMI 分辨率/投屏时重建一次，正在放的片子就断了，
+          播放状态（App 里的 VodInfo）也接不回来。自己处理配置变更即可跨过去。
+        -->
+        <activity
+            android:name="com.tvdesk.desk.DeskActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@style/DeskTheme">
+            <!--
+              HOME + DEFAULT 让 TVDesk 可以被选为电视桌面（参照 aerial-tv）：
+              用户第一次按「设为电视桌面」时，系统弹出选择框，选中 TVDesk 并确认后
+              HOME 键和开机都会回到这里。LAUNCHER 仍然保留，没设成桌面时照样能从应用列表打开。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          TVDesk 自己的设置页。只由桌面内部跳进来（「桌面 ▾ → 设置」和顶栏提示条），
+          所以 exported=false —— 它没有 LAUNCHER 入口，是一个「独立页面」而不是「独立应用」。
+
+          windowSoftInputMode 必须写：这一页要输入内容源地址，输入法弹起来时
+          窗口得跟着缩，否则配置地址弹窗的输入框会被输入法盖住。
+        -->
+        <activity
+            android:name="com.tvdesk.desk.SettingsActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/DeskTheme"
+            android:windowSoftInputMode="stateHidden|adjustResize" />
+
+        <!--
+          音乐模块。和设置页一样只由桌面内部跳进来（「桌面 ▾ → 音乐」）。
+
+          configChanges 里必须带上 orientation / screenSize：音乐页是常驻横屏，
+          电视上切换 HDMI 分辨率或投屏时系统会重建 Activity，重建会把 MediaPlayer
+          一起释放掉——正在放的歌会断。自己处理配置变更，播放器就能跨过去。
+        -->
+        <activity
+            android:name="com.tvdesk.desk.MusicActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/DeskTheme"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+    </application>
+
+</manifest>

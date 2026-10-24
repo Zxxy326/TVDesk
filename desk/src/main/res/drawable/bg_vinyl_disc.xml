@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  黑胶唱片本体（唱臂、固定反光和主轴在 bg_vinyl_turntable 那一层）。整层由代码绕中心转。
+
+  照参考稿（vinyl-player.html）改的三点：
+  - 盘外沿多出一圈暗红盘沿：唱片不再是浮在背景上的黑圆，而是压在一台红色唱机上；
+  - 标签从深灰改成酒红：参考稿最抓眼的就是中间那块红标。封面贴在标签上，
+    标签留出一圈 16dp 的红边，三米外也能读出「这是一张唱片」；
+  - 加了三道低透明度扇形光泽，跟着盘一起转——封面是深色时，全靠它看出盘在转。
+
+  沟槽密到 32 圈、间距 0.62；每 7 道压亮一道，模拟两首歌之间宽一点的静音槽。
+  全是等距等亮的纹看着像光盘，唱片是一轨一轨刻出来的。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="400dp"
+    android:height="400dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- ===== 转盘外沿：暗红一圈，外面一条细亮边 ===== -->
+    <path
+        android:fillColor="#FF480C14"
+        android:pathData="M50,50m-49.6,0a49.6,49.6 0 1,0 99.2,0a49.6,49.6 0 1,0 -99.2,0z" />
+    <path
+        android:pathData="M50,50m-49.3,0a49.3,49.3 0 1,0 98.6,0a49.3,49.3 0 1,0 -98.6,0z"
+        android:strokeColor="#40FFD0BE"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-48.5,0a48.5,48.5 0 1,0 97,0a48.5,48.5 0 1,0 -97,0z"
+        android:strokeColor="#99000000"
+        android:strokeWidth="1.1" />
+
+    <!-- ===== 盘体：底下一层黑，上面压一层偏蓝的黑 ===== -->
+    <path
+        android:fillColor="#FF07080B"
+        android:pathData="M50,50m-48,0a48,48 0 1,0 96,0a48,48 0 1,0 -96,0z" />
+    <path
+        android:fillColor="#FF101218"
+        android:pathData="M50,50m-47.2,0a47.2,47.2 0 1,0 94.4,0a47.2,47.2 0 1,0 -94.4,0z" />
+
+    <!-- 外缘反光：唱片侧立着看是亮边的 -->
+    <path
+        android:pathData="M50,50m-47.7,0a47.7,47.7 0 1,0 95.4,0a47.7,47.7 0 1,0 -95.4,0z"
+        android:strokeColor="#4DFFFFFF"
+        android:strokeWidth="0.45" />
+
+    <!-- ===== 沟槽 ===== -->
+    <path
+        android:pathData="M50,50m-45.60,0a45.60,45.60 0 1,0 91.2,0a45.60,45.60 0 1,0 -91.2,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-44.98,0a44.98,44.98 0 1,0 89.96,0a44.98,44.98 0 1,0 -89.96,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-44.36,0a44.36,44.36 0 1,0 88.72,0a44.36,44.36 0 1,0 -88.72,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-43.74,0a43.74,43.74 0 1,0 87.48,0a43.74,43.74 0 1,0 -87.48,0z"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="0.5" />
+    <path
+        android:pathData="M50,50m-43.12,0a43.12,43.12 0 1,0 86.24,0a43.12,43.12 0 1,0 -86.24,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-42.50,0a42.50,42.50 0 1,0 85,0a42.50,42.50 0 1,0 -85,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-41.88,0a41.88,41.88 0 1,0 83.76,0a41.88,41.88 0 1,0 -83.76,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-41.26,0a41.26,41.26 0 1,0 82.52,0a41.26,41.26 0 1,0 -82.52,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-40.64,0a40.64,40.64 0 1,0 81.28,0a40.64,40.64 0 1,0 -81.28,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-40.02,0a40.02,40.02 0 1,0 80.04,0a40.02,40.02 0 1,0 -80.04,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-39.40,0a39.40,39.40 0 1,0 78.8,0a39.40,39.40 0 1,0 -78.8,0z"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="0.5" />
+    <path
+        android:pathData="M50,50m-38.78,0a38.78,38.78 0 1,0 77.56,0a38.78,38.78 0 1,0 -77.56,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-38.16,0a38.16,38.16 0 1,0 76.32,0a38.16,38.16 0 1,0 -76.32,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-37.54,0a37.54,37.54 0 1,0 75.08,0a37.54,37.54 0 1,0 -75.08,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-36.92,0a36.92,36.92 0 1,0 73.84,0a36.92,36.92 0 1,0 -73.84,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-36.30,0a36.30,36.30 0 1,0 72.6,0a36.30,36.30 0 1,0 -72.6,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-35.68,0a35.68,35.68 0 1,0 71.36,0a35.68,35.68 0 1,0 -71.36,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-35.06,0a35.06,35.06 0 1,0 70.12,0a35.06,35.06 0 1,0 -70.12,0z"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="0.5" />
+    <path
+        android:pathData="M50,50m-34.44,0a34.44,34.44 0 1,0 68.88,0a34.44,34.44 0 1,0 -68.88,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-33.82,0a33.82,33.82 0 1,0 67.64,0a33.82,33.82 0 1,0 -67.64,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-33.20,0a33.20,33.20 0 1,0 66.4,0a33.20,33.20 0 1,0 -66.4,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-32.58,0a32.58,32.58 0 1,0 65.16,0a32.58,32.58 0 1,0 -65.16,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-31.96,0a31.96,31.96 0 1,0 63.92,0a31.96,31.96 0 1,0 -63.92,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-31.34,0a31.34,31.34 0 1,0 62.68,0a31.34,31.34 0 1,0 -62.68,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-30.72,0a30.72,30.72 0 1,0 61.44,0a30.72,30.72 0 1,0 -61.44,0z"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="0.5" />
+    <path
+        android:pathData="M50,50m-30.10,0a30.10,30.10 0 1,0 60.2,0a30.10,30.10 0 1,0 -60.2,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-29.48,0a29.48,29.48 0 1,0 58.96,0a29.48,29.48 0 1,0 -58.96,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-28.86,0a28.86,28.86 0 1,0 57.72,0a28.86,28.86 0 1,0 -57.72,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-28.24,0a28.24,28.24 0 1,0 56.48,0a28.24,28.24 0 1,0 -56.48,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-27.62,0a27.62,27.62 0 1,0 55.24,0a27.62,27.62 0 1,0 -55.24,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-27.00,0a27.00,27.00 0 1,0 54,0a27.00,27.00 0 1,0 -54,0z"
+        android:strokeColor="#1AFFFFFF"
+        android:strokeWidth="0.4" />
+    <path
+        android:pathData="M50,50m-26.38,0a26.38,26.38 0 1,0 52.76,0a26.38,26.38 0 1,0 -52.76,0z"
+        android:strokeColor="#33FFFFFF"
+        android:strokeWidth="0.5" />
+
+    <!--
+      旋转光泽：三道很淡的扇面。参考稿用 conic-gradient 做，VectorDrawable 没有
+      conic 也没法做渐变（minSdk 19），就按角度把扇面画死。跟着盘转，
+      深色封面时才看得出盘在动。
+    -->
+    <path
+        android:fillColor="#0CFFFFFF"
+        android:pathData="M50,50 L53.3,2.6 A47.5,47.5 0 0 1 66.2,5.3 Z" />
+    <path
+        android:fillColor="#08FFFFFF"
+        android:pathData="M50,50 L68.6,93.7 A47.5,47.5 0 0 1 54.1,97.3 Z" />
+    <path
+        android:fillColor="#0AFFFFFF"
+        android:pathData="M50,50 L13.6,19.5 A47.5,47.5 0 0 1 23.4,10.6 Z" />
+
+    <!-- ===== 标签：酒红底 + 内圈暗边 + 上方一道高光 ===== -->
+    <path
+        android:fillColor="#FF7E1119"
+        android:pathData="M50,50m-24.2,0a24.2,24.2 0 1,0 48.4,0a24.2,24.2 0 1,0 -48.4,0z" />
+    <path
+        android:fillColor="#FFB3242F"
+        android:pathData="M50,50m-23.4,0a23.4,23.4 0 1,0 46.8,0a23.4,23.4 0 1,0 -46.8,0z" />
+    <path
+        android:pathData="M50,50m-23.4,0a23.4,23.4 0 1,0 46.8,0a23.4,23.4 0 1,0 -46.8,0z"
+        android:strokeColor="#66000000"
+        android:strokeWidth="0.5" />
+    <path
+        android:pathData="M39,31.5A21.5,21.5 0 0 1 61,31.5"
+        android:strokeColor="#2EFFFFFF"
+        android:strokeWidth="1.6" />
+</vector>

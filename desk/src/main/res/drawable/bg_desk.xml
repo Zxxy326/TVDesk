@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面氛围底：深色渐变 + 两处光晕，替代 Hero 海报图（接入真实数据后由海报覆盖） -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:centerColor="@color/desk_bg_mid"
+                android:endColor="@color/desk_bg"
+                android:startColor="@color/desk_bg_warm" />
+        </shape>
+    </item>
+
+    <item
+        android:width="860dp"
+        android:height="860dp"
+        android:gravity="top|right"
+        android:right="-180dp"
+        android:top="-260dp">
+        <shape android:shape="oval">
+            <gradient
+                android:endColor="#00FF6B3D"
+                android:gradientRadius="430dp"
+                android:startColor="#66FF5A2A"
+                android:type="radial" />
+        </shape>
+    </item>
+
+    <item
+        android:width="640dp"
+        android:height="640dp"
+        android:bottom="-280dp"
+        android:gravity="bottom|left"
+        android:left="-220dp">
+        <shape android:shape="oval">
+            <gradient
+                android:endColor="#003B7AFF"
+                android:gradientRadius="320dp"
+                android:startColor="#4D3B7AFF"
+                android:type="radial" />
+        </shape>
+    </item>
+
+</layer-list>

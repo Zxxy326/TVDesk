@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  设置页里的只读行（当前源）。
+  故意做得比可聚焦行更暗、只有一圈很淡的边：用户一眼就能看出「这行点不动」，
+  不用按上去试试。设置页上「哪几行能按」是个必须一眼可辨的事。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/settings_readonly_bg" />
+    <corners android:radius="@dimen/radius_card" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/settings_readonly_stroke" />
+</shape>

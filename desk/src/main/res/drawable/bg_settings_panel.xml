@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设置页右侧的分组面板：整块内容源 / 系统设置的底板 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/settings_panel" />
+    <corners android:radius="@dimen/radius_panel" />
+</shape>
