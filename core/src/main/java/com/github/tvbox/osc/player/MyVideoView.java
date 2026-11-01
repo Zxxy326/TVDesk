@@ -77,6 +77,28 @@ public class MyVideoView extends VideoView implements DrawHandler.Callback {
         return mCurrentPosition;
     }
 
+    /**
+     * 播放器安定之后按「实际落到哪儿」再对齐一次弹幕。
+     *
+     * <p>seek 现在落在最近的关键帧（见 {@code ExoPlayer.applySeekParameters}），
+     * 实际位置和请求位置可能差半秒到一两秒。请求位置只用来让界面立刻有反应，
+     * 真正对齐得等播放器把位置更新上来。
+     */
+    private final Runnable danmuResync = new Runnable() {
+        @Override
+        public void run() {
+            if (!isPlaying()) {
+                return;
+            }
+            long actual = getCurrentPosition();
+            if (danmuSeekListener != null) {
+                danmuSeekListener.onDanmuSeek(actual);
+            } else if (haveDanmu()) {
+                danmuView.seekTo(actual);
+            }
+        }
+    };
+
     @Override
     public void seekTo(long pos) {
         super.seekTo(pos);
@@ -85,6 +107,8 @@ public class MyVideoView extends VideoView implements DrawHandler.Callback {
         } else if (haveDanmu()) {
             danmuView.seekTo(pos);
         }
+        removeCallbacks(danmuResync);
+        postDelayed(danmuResync, 700);
     }
 
     @Override

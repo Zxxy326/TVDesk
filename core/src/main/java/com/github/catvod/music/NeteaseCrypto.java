@@ -7,6 +7,7 @@ import java.security.SecureRandom;
 import java.security.interfaces.RSAPublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.security.KeyFactory;
+import java.util.Map;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
@@ -63,6 +64,53 @@ public final class NeteaseCrypto {
         String encSecond = aesCbcBase64(encFirst, secretKey);
         String encSecKey = rsaNoPadding(secretKey);
         return "params=" + urlEncode(encSecond) + "&encSecKey=" + urlEncode(encSecKey);
+    }
+
+    /**
+     * eapi 路由的请求体。
+     *
+     * <p>eapi 与 weapi 是两套加密：eapi 用 AES-128-ECB，密钥写死在客户端里，
+     * 不用 RSA，也就不用随机密钥。报文要先整体倒序再加密。
+     *
+     * @param path     接口路径（形如 {@code /api/song/enhance/player/url}）
+     * @param params   业务参数
+     */
+    public static String eapiBody(String path, Map<String, Object> params) {
+        String json = "{}";
+        try {
+            json = new org.json.JSONObject(params).toString();
+        } catch (Exception ignored) {
+            // 参数里有 JSONObject 放不下的东西就退成空对象，服务端会回参数错误
+        }
+        String message = "zz034b5uj5uju61zo6=" + path + "(" + json + ")";
+        String reversed = new StringBuilder(message).reverse().toString();
+        String hex = aesEcbHex(reversed, EAPI_KEY);
+        return "params=" + hex + "&encSecKey=" + EAPI_SEC_KEY;
+    }
+
+    /** eapi 固定密钥（16 字节） */
+    private static final String EAPI_KEY = "e82ckenh8dichen8";
+    /** eapi 固定 encSecKey */
+    private static final String EAPI_SEC_KEY = "62696c657261696e6573686f6e69656e63";
+
+    /** AES/ECB/PKCS5Padding，结果小写十六进制 */
+    private static String aesEcbHex(String plain, String key) {
+        try {
+            byte[] keyBytes = new byte[16];
+            byte[] raw = key.getBytes("UTF-8");
+            System.arraycopy(raw, 0, keyBytes, 0, Math.min(raw.length, 16));
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(keyBytes, "AES"));
+            byte[] out = cipher.doFinal(plain.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder(out.length * 2);
+            for (byte b : out) {
+                sb.append(Character.forDigit((b >> 4) & 0xf, 16));
+                sb.append(Character.forDigit(b & 0xf, 16));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("eapi AES 失败：" + e, e);
+        }
     }
 
     /** base62 随机串。secretKey 必须是「字母数字」——RSA 那段要求它可逆序成字节 */

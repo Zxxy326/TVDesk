@@ -90,6 +90,8 @@ public class SignalPage extends FrameLayout implements ModulePage {
         int kind;
         String title = "";
         String note = "";
+        /** 输入源的硬件号（input id 里的 HW 数字），厂商路由要用 */
+        int hw = -1;
         /** KIND_URL 是源地址原文（可能是「名\t址」一行），KIND_INPUT 是 input id */
         String value = "";
         Drawable icon;
@@ -134,6 +136,10 @@ public class SignalPage extends FrameLayout implements ModulePage {
         switcherMenu = findViewById(R.id.signal_menu);
         navItems = findViewById(R.id.signal_nav_items);
         grid = findViewById(R.id.signal_grid);
+        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
+            // 整页铺满的墙：最左/最右再按就停住，别让焦点飞到左上角胶囊上
+            ((com.tvdesk.desk.widget.PageGridView) grid).setKeepFocusAtEdges(true);
+        }
         title = findViewById(R.id.signal_title);
         subtitle = findViewById(R.id.signal_subtitle);
         loadingView = findViewById(R.id.signal_loading);
@@ -378,6 +384,7 @@ public class SignalPage extends FrameLayout implements ModulePage {
                 Row row = new Row();
                 row.kind = KIND_INPUT;
                 row.value = info.getId();
+                row.hw = hardwareId(info.getId());
                 CharSequence label = null;
                 try {
                     label = info.loadLabel(context);
@@ -459,6 +466,11 @@ public class SignalPage extends FrameLayout implements ModulePage {
         if (Build.VERSION.SDK_INT < 21) {
             return false;
         }
+        // 小米这类固件没注册通用入口的处理器，直接开就是「没有应用能执行此操作」。
+        // 它自己的播放器认「硬件号 + 18」当端口号（对齐 Aerial TV 的做法）。
+        if (row.hw >= 0 && startIfResolvable(xiaomiRoute(row.hw))) {
+            return true;
+        }
         Uri uri = null;
         try {
             uri = TvContract.buildChannelUriForPassthroughInput(row.value);
@@ -473,6 +485,55 @@ public class SignalPage extends FrameLayout implements ModulePage {
             return true;
         }
         return SystemSettings.startIfResolvable(getContext(), new Intent(Intent.ACTION_VIEW, uri));
+    }
+
+    /**
+     * 小米电视播放器的切源入口。
+     *
+     * <p>它的 {@code ExternalSourceActivity} 认的 {@code input} 不是框架的 id，
+     * 而是自家的端口号：HDMI 从 23 起，等于「硬件号 + 18」（HW5 → 23）。
+     * 这套换算来自 Aerial TV 在 MiTV 系列上的实测。
+     */
+    private Intent xiaomiRoute(int hw) {
+        return new Intent("com.xiaomi.mitv.tvplayer.EXTSRC_PLAY")
+                .setComponent(new android.content.ComponentName(
+                        "com.xiaomi.mitv.tvplayer",
+                        "com.xiaomi.mitv.tvplayer.ExternalSourceActivity"))
+                .putExtra("input", hw + 18)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    }
+
+    /** 能开就开，开不了返回 false（调用方继续试下一条路） */
+    private boolean startIfResolvable(Intent intent) {
+        if (intent == null) {
+            return false;
+        }
+        try {
+            if (intent.resolveActivity(getContext().getPackageManager()) == null) {
+                return false;
+            }
+            getContext().startActivity(intent);
+            return true;
+        } catch (Throwable th) {
+            android.util.Log.w(TAG, "跳转失败：" + th.getMessage());
+            return false;
+        }
+    }
+
+    /** input id 里的硬件号，如 {@code .../HW5} → 5 */
+    private static int hardwareId(String id) {
+        if (TextUtils.isEmpty(id)) {
+            return -1;
+        }
+        int idx = id.lastIndexOf("HW");
+        if (idx < 0) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(id.substring(idx + 2).trim());
+        } catch (Throwable th) {
+            return -1;
+        }
     }
 
     // ---------------------------------------------------------------- 组行
@@ -796,6 +857,10 @@ public class SignalPage extends FrameLayout implements ModulePage {
                     return true;
                 }
             }
+            // 已经在最左/最右列：就地吃掉，别让焦点飞到左上角胶囊
+            if (com.tvdesk.desk.widget.PageGridView.atHorizontalEdge(grid, keyCode)) {
+                return true;
+            }
         }
         return super.dispatchKeyEvent(event);
     }
@@ -900,6 +965,12 @@ public class SignalPage extends FrameLayout implements ModulePage {
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // 焦点还在内容区时，返回先回顶栏（和 B 站 / 音乐同一个口径）：
+            // 顶栏是内容的上一层，一次返回跨两层会让人不知道自己在哪
+            if (grid.findFocus() != null) {
+                focusChip();
+                return Back.consume("信号源·回顶栏");
+            }
             // 这一页没有子视图和搜索框，L2 收完就直接交回宿主关模块页
             return Back.pass("信号源·页内已无层级");
         }

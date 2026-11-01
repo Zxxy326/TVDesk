@@ -179,6 +179,7 @@ public final class NeteaseLoginDialog extends Dialog {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.dialog_netease_login);
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(getWindow().getDecorView());
         sizeWindow();
 
         input = findViewById(R.id.ncm_dialog_input);

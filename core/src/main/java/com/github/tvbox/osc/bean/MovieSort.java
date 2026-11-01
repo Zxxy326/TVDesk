@@ -30,7 +30,15 @@ public class MovieSort implements Serializable {
         public String name;
         public int sort = -1;
         public boolean select = false;
+        /**
+         * 这个类目带的筛选条件。
+         *
+         * <p>源把筛选放在<b>类目列表之外</b>（顶层 {@code filters}，key 是类目 id），
+         * 解析完类目之后要按 id 分发到各个 {@code SortData} 上 ——
+         * 见 {@code SourceFeed.applyFilters}。这里只负责存。
+         */
         public ArrayList<SortFilter> filters = new ArrayList<>();
+        /** 已经选中的筛选：filter 的 key → value */
         public HashMap<String, String> filterSelect = new HashMap<>();
         public String flag; // 类型
 
@@ -74,10 +82,16 @@ public class MovieSort implements Serializable {
         }
     }
 
+    /**
+     * 一个筛选维度（比如「年份」「地区」）。
+     *
+     * <p>值是一个 map：显示名 → 传给源站的参数值。比如
+     * {@code {"2026": "2026", "全部": ""}} —— 显示「全部」时传空串。
+     */
     public static class SortFilter {
         public String key;
         public String name;
-        public LinkedHashMap<String, String> values;
+        public LinkedHashMap<String, String> values = new LinkedHashMap<>();
 
         @Override
         public String toString() {

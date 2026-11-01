@@ -85,6 +85,7 @@ public final class HomeSourceDialog extends Dialog {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.dialog_home_source);
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(getWindow().getDecorView());
         sizeWindow();
 
         grid = findViewById(R.id.home_source_grid);

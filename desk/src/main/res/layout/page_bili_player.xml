@@ -74,11 +74,11 @@
     <LinearLayout
         android:id="@+id/bili_controls"
         android:layout_width="match_parent"
-        android:layout_height="92dp"
+        android:layout_height="76dp"
         android:layout_gravity="bottom"
         android:layout_marginStart="@dimen/safe_side"
         android:layout_marginEnd="@dimen/safe_side"
-        android:layout_marginBottom="@dimen/safe_bottom"
+        android:layout_marginBottom="40dp"
         android:background="@drawable/bg_music_bar"
         android:descendantFocusability="afterDescendants"
         android:focusable="false"
@@ -127,6 +127,12 @@
             style="@style/MusicControlIcon"
             android:contentDescription="暂停"
             android:src="@drawable/ic_pause" />
+
+        <!-- 一键三连：点赞 + 投币 + 收藏，一键完成（要登录） -->
+        <TextView
+            android:id="@+id/bili_triple"
+            style="@style/MusicControl"
+            android:text="三连" />
 
         <TextView
             android:id="@+id/bili_danmu"

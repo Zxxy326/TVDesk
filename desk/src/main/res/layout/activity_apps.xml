@@ -36,6 +36,172 @@
         android:layout_height="match_parent"
         android:background="@drawable/bg_music_scrim" />
 
+    <!-- paddingTop = top_bar_top + top_bar_height + 16 = 80dp。
+         内容层不裁剪的话，墙整行翻上去会连自己带出边界，压在标题和顶栏上。 -->
+    <LinearLayout
+        android:id="@+id/apps_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical"
+        android:paddingStart="48dp"
+        android:paddingTop="80dp"
+        android:paddingEnd="48dp">
+
+        <!-- ============ 标题 + 搜索框 ============ -->
+        <!-- 平时整行收起来：Aerial 顶栏下面直接就是磁贴，中间不夹任何东西。
+             只有「搜索」栏目才露出来。 -->
+        <LinearLayout
+            android:id="@+id/apps_tool_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <!-- 标题与计数不再显示：Aerial 的 Home 只有图标墙，说明文字留给副标题行 -->
+                <TextView
+                    android:id="@+id/apps_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="可启动"
+                    android:textColor="@color/text_primary"
+                    android:textSize="@dimen/module_title_size"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/apps_subtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text=""
+                    android:textColor="@color/text_tertiary"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!--
+              只在「搜索」栏目露出来（AppPage 控制显隐）。
+              flagNoExtractUi 是必须的：电视上输入法默认会切成整屏手写/抽取模式，
+              一敲字卡片墙就被输入法盖满（所有输入框同一个写法，见 dialog_source 等）。
+            -->
+            <EditText
+                android:id="@+id/apps_search"
+                android:layout_width="420dp"
+                android:layout_height="52dp"
+                android:layout_marginStart="24dp"
+                android:background="@drawable/bg_dialog_input"
+                android:focusable="true"
+                android:focusableInTouchMode="true"
+                android:hint="按应用名筛选"
+                android:imeOptions="actionSearch|flagNoExtractUi"
+                android:inputType="text"
+                android:maxLines="1"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:singleLine="true"
+                android:textColor="#F5F7FA"
+                android:textColorHint="#6F7280"
+                android:textSize="16sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!--
+          子页签（排序方式）。和 B 站页的分区签同一个位置、同一套样式，
+          负 margin + clipChildren=false 一路给到 root，焦点放大 1.06 不会切边。
+        -->
+        <!-- 排序方式不再用一排 chips（Aerial 是靠「长按 → 移动」自己排），
+             这一行整条不进布局，代码里也只留空实现 -->
+        <HorizontalScrollView
+            android:id="@+id/apps_sub_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/apps_sub_nav"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="@drawable/bg_pill"
+                android:clipChildren="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp" />
+        </HorizontalScrollView>
+
+        <!-- 磁贴墙。参数照搬 Aerial TV 的 HomeScreen.GridMetrics：5 列 / 28dp 横距 /
+             行距 = 磁贴高 + 50dp 的名字区。磁贴本身 16:9，卡片视图自己量 -->
+        <com.tvdesk.desk.widget.PageGridView
+            android:id="@+id/apps_grid"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginStart="0dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="0dp"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:fadingEdge="none"
+            android:focusable="false"
+            android:horizontalSpacing="28dp"
+            android:listSelector="@android:color/transparent"
+            android:numColumns="5"
+            android:paddingStart="8dp"
+            android:paddingTop="24dp"
+            android:paddingEnd="8dp"
+            android:scrollbars="none"
+            android:stretchMode="columnWidth"
+            android:verticalSpacing="18dp" />
+
+        <TextView
+            android:id="@+id/apps_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text=""
+            android:textColor="@color/text_tertiary"
+            android:textSize="14sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 顶栏压暗罩：卡片墙关掉了 clipChildren（聚焦放大要溢出格子），滚动时上一排的卡
+         会画到内容区以外、直接压在顶栏胶囊上。这一层上面的部分不透明，往下淡出；
+         顺序就是绘制顺序，所以它在内容之后、胶囊之前 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="94dp"
+        android:layout_gravity="top"
+        android:background="@color/desk_bg"
+        android:clickable="false"
+        android:focusable="false" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="26dp"
+        android:layout_gravity="top"
+        android:layout_marginTop="94dp"
+        android:background="@drawable/bg_top_scrim"
+        android:clickable="false"
+        android:focusable="false" />
+
     <!-- ============ 左上：模块胶囊 ============ -->
     <LinearLayout
         android:id="@+id/apps_switcher"
@@ -83,144 +249,8 @@
         android:clipChildren="false"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="@dimen/nav_pad_h"
-        android:paddingEnd="@dimen/nav_pad_h" />
-
-    <!-- paddingTop = top_bar_top + top_bar_height + 16 = 80dp。
-         内容层不裁剪的话，墙整行翻上去会连自己带出边界，压在标题和顶栏上。 -->
-    <LinearLayout
-        android:id="@+id/apps_content"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipToPadding="false"
-        android:orientation="vertical"
-        android:paddingStart="48dp"
-        android:paddingTop="80dp"
-        android:paddingEnd="48dp">
-
-        <!-- ============ 标题 + 搜索框 ============ -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:clipChildren="false"
-            android:clipToPadding="false"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp">
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/apps_title"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="可启动"
-                    android:textColor="@color/text_primary"
-                    android:textSize="@dimen/module_title_size"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/apps_subtitle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text=""
-                    android:textColor="@color/text_tertiary"
-                    android:textSize="13sp" />
-            </LinearLayout>
-
-            <!--
-              只在「搜索」栏目露出来（AppPage 控制显隐）。
-              flagNoExtractUi 是必须的：电视上输入法默认会切成整屏手写/抽取模式，
-              一敲字卡片墙就被输入法盖满（所有输入框同一个写法，见 dialog_source 等）。
-            -->
-            <EditText
-                android:id="@+id/apps_search"
-                android:layout_width="420dp"
-                android:layout_height="52dp"
-                android:layout_marginStart="24dp"
-                android:background="@drawable/bg_dialog_input"
-                android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:hint="按应用名筛选"
-                android:imeOptions="actionSearch|flagNoExtractUi"
-                android:inputType="text"
-                android:maxLines="1"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:singleLine="true"
-                android:textColor="#F5F7FA"
-                android:textColorHint="#6F7280"
-                android:textSize="16sp"
-                android:visibility="gone" />
-        </LinearLayout>
-
-        <!--
-          子页签（排序方式）。和 B 站页的分区签同一个位置、同一套样式，
-          负 margin + clipChildren=false 一路给到 root，焦点放大 1.06 不会切边。
-        -->
-        <HorizontalScrollView
-            android:id="@+id/apps_sub_scroll"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:clipChildren="false"
-            android:clipToPadding="false"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:scrollbars="none"
-            android:visibility="gone">
-
-            <LinearLayout
-                android:id="@+id/apps_sub_nav"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:background="@drawable/bg_pill"
-                android:clipChildren="false"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingStart="6dp"
-                android:paddingEnd="6dp" />
-        </HorizontalScrollView>
-
-        <!-- 卡片墙。参数和影视页/音乐页/B 站页一致：6 列 / 20dp 横距 / 24dp 行距 -->
-        <com.tvdesk.desk.widget.PageGridView
-            android:id="@+id/apps_grid"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:layout_marginStart="-12dp"
-            android:layout_marginTop="20dp"
-            android:layout_marginEnd="-12dp"
-            android:clipChildren="false"
-            android:clipToPadding="false"
-            android:fadingEdge="none"
-            android:focusable="false"
-            android:horizontalSpacing="20dp"
-            android:listSelector="@android:color/transparent"
-            android:numColumns="6"
-            android:paddingStart="12dp"
-            android:paddingTop="14dp"
-            android:paddingEnd="12dp"
-            android:scrollbars="none"
-            android:stretchMode="columnWidth"
-            android:verticalSpacing="24dp" />
-
-        <TextView
-            android:id="@+id/apps_empty"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text=""
-            android:textColor="@color/text_tertiary"
-            android:textSize="14sp"
-            android:visibility="gone" />
-    </LinearLayout>
+        android:paddingStart="10dp"
+        android:paddingEnd="16dp" />
 
     <!-- 首次扫描设备要把图标从磁盘读出来，那段时间给一个明确的「在等」 -->
     <ProgressBar

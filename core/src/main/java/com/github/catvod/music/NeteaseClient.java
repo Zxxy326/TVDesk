@@ -63,7 +63,15 @@ public class NeteaseClient {
 
     private static final String TAG = "Netease";
 
-    private static final String BASE = "https://music.163.com";
+    private static final String OFFICIAL_BASE = "https://music.163.com";
+
+    /**
+     * 当前使用的服务地址。
+     *
+     * <p>默认官方地址；用户在设置里填了自建代理（本机端口、镜像站）就换成它。
+     * 换源链路的最后一步「代理兜底」也是走这里。
+     */
+    private String base = OFFICIAL_BASE;
 
     /**
      * 用 PC 版 Chrome 的 UA。
@@ -377,6 +385,149 @@ public class NeteaseClient {
         return lrc == null ? "" : lrc.optString("lyric", "");
     }
 
+    // ---------------------------------------------------------------- 服务地址
+
+    /** 当前服务地址 */
+    public String base() {
+        return base;
+    }
+
+    /**
+     * 切到代理地址。
+     *
+     * @param proxy 代理根地址；空串或 null 表示回到官方地址
+     */
+    public void setProxy(String proxy) {
+        String p = proxy == null ? "" : proxy.trim();
+        if (p.endsWith("/")) {
+            p = p.substring(0, p.length() - 1);
+        }
+        base = TextUtils.isEmpty(p) ? OFFICIAL_BASE : p;
+    }
+
+    /** 是不是正在走代理 */
+    public boolean usingProxy() {
+        return !OFFICIAL_BASE.equals(base);
+    }
+
+    // ---------------------------------------------------------------- 播放地址
+
+    /**
+     * 用 eapi 路由问官方要播放地址。
+     *
+     * <p>weapi 路由偶尔会把高音质降成「该内容为付费歌曲」的空地址，
+     * eapi 这条路由给的 {@code br} 更实在，所以留作 weapi 之后的补手。
+     *
+     * @param songId  歌曲 id
+     * @param br      码率（320000 / 128000 / 1050000 …）
+     * @return 地址；拿不到返回 null
+     */
+    public String songUrlEapi(String songId, int br) {
+        if (TextUtils.isEmpty(songId) || eapiBroken) {
+            return null;
+        }
+        try {
+            Map<String, Object> p = params();
+            p.put("ids", "[" + songId + "]");
+            p.put("br", br);
+            p.put("level", "standard");
+            p.put("encodeType", "flac");
+            JSONObject json = requestEapi("/api/song/enhance/player/url", p);
+            JSONArray data = arrayOf(json.optJSONArray("data"));
+            if (data == null || data.length() == 0) {
+                return null;
+            }
+            JSONObject first = data.optJSONObject(0);
+            if (first == null) {
+                return null;
+            }
+            String url = first.optString("url", "");
+            if (TextUtils.isEmpty(url)) {
+                return null;
+            }
+            int code = first.optInt("code", 0);
+            if (code != 0 && code != 200) {
+                return null;
+            }
+            return url;
+        } catch (Throwable th) {
+            android.util.Log.i("Netease", "eapi 取链失败：" + th.getMessage());
+            eapiBroken = true;
+            return null;
+        }
+    }
+
+    /**
+     * eapi 路由是不是已经不给内容了。
+     *
+     * <p>2026-10 实测：{@code /eapi/song/enhance/player/url} 返回 HTTP 200 但响应体是空的，
+     * 本机和设备上复刻都一样，是服务端那边关了这条路，不是加密算法写错。
+     * 记住这件事，以后就别再为它白等一次请求了。
+     */
+    private static volatile boolean eapiBroken;
+
+    /** 按歌曲 id 取封面地址；没有返回空串 */
+    public String picUrlOf(String songId) {
+        if (TextUtils.isEmpty(songId)) {
+            return "";
+        }
+        try {
+            Map<String, Object> p = params();
+            p.put("ids", "[" + songId + "]");
+            JSONArray arr = arrayOf(request("/api/song/detail", p).optJSONArray("songs"));
+            if (arr == null || arr.length() == 0) {
+                return "";
+            }
+            JSONObject song = arr.optJSONObject(0);
+            return song == null ? "" : normalize(picOf(song));
+        } catch (Throwable th) {
+            return "";
+        }
+    }
+
+    /**
+     * 直接问官方要播放地址。拿得到就是几百毫秒的事，比跑音源脚本那几十秒快两个数量级。
+     *
+     * <p>拿不到一律返回 null，理由是确定要退回脚本的三种情况：
+     * <ul>
+     *   <li>{@code url} 是空的——VIP/版权受限，官方不给；</li>
+     *   <li>带 {@code freeTrialInfo}——只给 30 秒试听，不如让脚本去取完整版；</li>
+     *   <li>接口本身报错（未登录、风控）——同样交给脚本。</li>
+     * </ul>
+     * 所以调用方看到 null 不要当失败，只当「没这条快路」。
+     */
+    public String songUrl(String songId) {
+        if (TextUtils.isEmpty(songId)) {
+            return null;
+        }
+        try {
+            Map<String, Object> p = params();
+            p.put("ids", "[" + songId + "]");
+            // 320k 是网页端能拿到的上限；官方会按账号权限自动降级
+            p.put("br", 320000);
+            JSONArray data = arrayOf(request("/api/song/enhance/player/url", p)
+                    .optJSONArray("data"));
+            if (data == null || data.length() == 0) {
+                return null;
+            }
+            JSONObject first = data.optJSONObject(0);
+            if (first == null) {
+                return null;
+            }
+            Object trial = first.opt("freeTrialInfo");
+            if (trial != null && !(trial instanceof org.json.JSONObject
+                    && ((JSONObject) trial).length() == 0)
+                    && !"null".equals(String.valueOf(trial))) {
+                return null;
+            }
+            String url = first.optString("url", "");
+            return TextUtils.isEmpty(url) ? null : url;
+        } catch (Throwable th) {
+            android.util.Log.i("NeteaseClient", "官方直链取不到（退回音源脚本）：" + th.getMessage());
+            return null;
+        }
+    }
+
     // ---------------------------------------------------------------- 红心
 
     /**
@@ -468,6 +619,23 @@ public class NeteaseClient {
      * 明文 form POST，不加密。少数老接口只在 {@code /api/} 这条路由上活着（红心就是），
      * 走 {@link #request} 的 weapi 路由会被打成 404。
      */
+    /**
+     * eapi 路由的 POST。
+     *
+     * <p>与 weapi 的区别只在加密方式：eapi 是 AES-128-ECB + 固定 secret，
+     * 不用 RSA，也就不用随机密钥。
+     */
+    private JSONObject requestEapi(String path, Map<String, Object> p) throws Exception {
+        JSONObject payload = new JSONObject();
+        payload.put("params", p);
+        Request request = new Request.Builder()
+                .url(base + "/eapi/" + path.substring("/api/".length()))
+                .headers(Headers.of(buildHeaders()))
+                .post(RequestBody.create(FORM, NeteaseCrypto.eapiBody(path, p)))
+                .build();
+        return execute(request);
+    }
+
     private JSONObject requestApi(String path, Map<String, String> form) throws Exception {
         FormBody.Builder body = new FormBody.Builder();
         for (Map.Entry<String, String> e : form.entrySet()) {
@@ -478,7 +646,7 @@ public class NeteaseClient {
             body.add("csrf_token", csrf);
         }
         Request request = new Request.Builder()
-                .url(BASE + path)
+                .url(base + path)
                 .headers(Headers.of(buildHeaders()))
                 .post(body.build())
                 .build();
@@ -494,6 +662,10 @@ public class NeteaseClient {
             }
             String text = response.body() == null ? "" : response.body().string();
             if (TextUtils.isEmpty(text)) {
+                // eapi 路由现在的常态就是「200 但空体」，别把它当成偶发错误
+                if (request.url().encodedPath().contains("/eapi/")) {
+                    eapiBroken = true;
+                }
                 throw new NeteaseException("网易云没有返回内容（HTTP " + response.code() + "）");
             }
             JSONObject json = new JSONObject(text);
@@ -533,9 +705,9 @@ public class NeteaseClient {
 
     private String weapiUrl(String path) {
         if (path.startsWith("/api/")) {
-            return BASE + "/weapi/" + path.substring("/api/".length());
+            return base + "/weapi/" + path.substring("/api/".length());
         }
-        return BASE + "/weapi/" + path;
+        return base + "/weapi/" + path;
     }
 
     /**
@@ -549,7 +721,7 @@ public class NeteaseClient {
         headers.put("User-Agent", UA);
         headers.put("Accept", "*/*");
         headers.put("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
-        headers.put("Referer", BASE + "/");
+        headers.put("Referer", base + "/");
         headers.put("Content-Type", "application/x-www-form-urlencoded");
         headers.put("X-Real-IP", realIp);
         headers.put("X-Forwarded-For", realIp);

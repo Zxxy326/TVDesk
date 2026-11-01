@@ -107,6 +107,7 @@ public final class BiliSettingsDialog extends Dialog {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.dialog_bili_settings);
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(getWindow().getDecorView());
         sizeWindow();
 
         rows = findViewById(R.id.bili_settings_rows);

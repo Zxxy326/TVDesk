@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  播放页底部控制条的底板 —— 和桌面顶栏那颗胶囊同一套「玻璃」语言。
+
+  为什么不直接用代码取样（桌面的 GlassDrawable）：视频是 SurfaceView 画的，
+  它不在 View 的绘制树里，取样只能拍到底下一片黑，玻璃反而更假。
+  所以这里用静态玻璃：
+  - 半透明深底，透出下面一点画面；
+  - 上沿一道白高光（光从上面下来，玻璃上沿先亮）；
+  - 一圈 1dp 细描边，浮在画面上才看得出是独立的一层。
+  圆角只给上面两角：它是贴着屏幕下沿的一条，下面不需要圆角。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#B31C1C24" />
+            <corners
+                android:topLeftRadius="22dp"
+                android:topRightRadius="22dp" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <corners
+                android:topLeftRadius="22dp"
+                android:topRightRadius="22dp" />
+            <gradient
+                android:angle="270"
+                android:centerColor="#08FFFFFF"
+                android:endColor="#00FFFFFF"
+                android:startColor="#26FFFFFF"
+                android:type="linear" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <corners
+                android:topLeftRadius="22dp"
+                android:topRightRadius="22dp" />
+            <stroke
+                android:width="1dp"
+                android:color="#2EFFFFFF" />
+        </shape>
+    </item>
+
+</layer-list>

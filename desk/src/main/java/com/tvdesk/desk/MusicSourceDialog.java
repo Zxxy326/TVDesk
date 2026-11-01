@@ -58,6 +58,7 @@ public final class MusicSourceDialog extends Dialog {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.dialog_lx_source);
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(getWindow().getDecorView());
         sizeWindow();
 
         qrView = findViewById(R.id.lx_source_qr);

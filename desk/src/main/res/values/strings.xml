@@ -35,6 +35,19 @@
 
     <!-- 入口行：设为电视默认桌面 -->
     <string name="settings_home">设为电视桌面</string>
+    <string name="settings_switch_enabled">开</string>
+    <string name="settings_switch_disabled">关</string>
+    <string name="accessibility_home_desc">按 HOME 键时把 TVDesk 拉回前台。只判断当前窗口是不是电视自带的桌面，不读取界面内容。</string>
+    <string name="accessibility_home_summary">接管 HOME 键</string>
+    <string name="settings_home_guard">无障碍接管 HOME</string>
+    <string name="settings_home_guard_note">电视固件不给「默认桌面」选项时用这个：打开后在系统无障碍里启用 TVDesk，按 HOME 就会回到这里</string>
+    <string name="settings_update">检查更新</string>
+    <string name="settings_update_note">从你填的更新地址取版本清单，有新版就下载并拉起安装</string>
+    <string name="settings_update_check">检查</string>
+    <string name="settings_clock">显示时间</string>
+    <string name="settings_clock_note">桌面右上角显示当前时间。关掉后那一块只剩天气（都关就整块隐藏）</string>
+    <string name="settings_weather">显示天气</string>
+    <string name="settings_weather_note">桌面右上角显示当前天气，数据来自 open-meteo（免密钥，按小时更新）</string>
     <string name="settings_home_note">开机和按 HOME 键都直接进 TVDesk；在系统弹框里选 TVDesk 再确认即可。想换回去在系统设置里改默认桌面</string>
     <string name="settings_home_on">当前桌面</string>
     <string name="settings_home_off">未设置</string>

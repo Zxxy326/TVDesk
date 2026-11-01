@@ -43,7 +43,11 @@ import com.tvdesk.desk.widget.GridScroll;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+
+import android.widget.AbsListView;
 import java.util.Map;
 
 /**
@@ -89,14 +93,17 @@ public class BiliPage extends FrameLayout implements ModulePage {
     }
 
     /** 栏目。顺序就是 SEC_* 的下标 */
-    private static final String[] SECTIONS = {"推荐", "热门", "排行榜", "直播", "我的", "搜索"};
+    private static final String[] SECTIONS =
+            {"推荐", "关注", "热门", "排行榜", "直播", "我的", "搜索"};
 
     private static final int SEC_RECOMMEND = 0;
-    private static final int SEC_POPULAR = 1;
-    private static final int SEC_RANK = 2;
-    private static final int SEC_LIVE = 3;
-    private static final int SEC_MINE = 4;
-    private static final int SEC_SEARCH = 5;
+    /** 已登录用户的关注动态（只收视频投稿） */
+    private static final int SEC_FOLLOW = 1;
+    private static final int SEC_POPULAR = 2;
+    private static final int SEC_RANK = 3;
+    private static final int SEC_LIVE = 4;
+    private static final int SEC_MINE = 5;
+    private static final int SEC_SEARCH = 6;
 
     /** 「我的」里的入口卡 */
     private static final int ENTRY_ACCOUNT = 0;
@@ -141,10 +148,26 @@ public class BiliPage extends FrameLayout implements ModulePage {
         boolean loading;
         boolean loaded;
 
+        /**
+         * 分页状态（跟着这份视图走）。
+         *
+         * <p>{@code nextPage} 用于页码式接口（热门 / 直播 / 收藏夹 / 搜索），
+         * {@code nextOffset} 用于游标式接口（关注动态）。{@code hasMore} 为 false
+         * 表示这个视图已经到底——榜单、分区目录、收藏夹列表这类一次给全的也是它。
+         */
+        int nextPage = 1;
+        String nextOffset = "";
+        boolean hasMore = true;
+        boolean loadingMore;
+
         void clear() {
             cards.clear();
             areas.clear();
             rooms.clear();
+            nextPage = 1;
+            nextOffset = "";
+            hasMore = true;
+            loadingMore = false;
         }
 
         boolean isEmpty() {
@@ -158,18 +181,49 @@ public class BiliPage extends FrameLayout implements ModulePage {
     /** 登录态一变，旧请求的结果就该整包丢掉：回调里比对它 */
     private int epoch;
     private boolean released;
+    /**
+     * 这一趟进来还没把焦点送进内容。
+     *
+     * <p>「首屏数据到达就把焦点从页签送进卡片墙」只在<b>刚进页面</b>时成立。以前没有这个闸，
+     * 每换一个栏目、数据一到就把焦点从页签拽走——用户正在用左右键挑栏目，手一停焦点已经
+     * 掉进列表里了，遥控器上的体感是「想切到直播，结果人钻进卡片」。
+     */
+    private boolean autoFocusPending;
+    /**
+     * 用户最后落在卡片墙的第几张。
+     *
+     * <p>卡片墙一重排（换栏目、加载更多、内容高度变了）就会把带焦点的那个 View 回收掉，
+     * 系统随即把焦点交给窗口里第一个可聚焦控件——左上角那颗「哔哩哔哩▾」。
+     * 用户看到的就是「翻页翻到左上角去了」。记着原来的位置，重排后放回去。
+     */
+    private int lastContentPosition = -1;
+    /**
+     * 钻进了一层（直播分区 / 收藏夹），等这层的内容到了要把焦点送进去。
+     *
+     * <p>钻进那一刻内容还在路上，{@link #focusGrid} 无处可放；等数据到了再补一次。
+     */
+    private boolean pendingDrillFocus;
 
     private final List<Row> rows = new ArrayList<>();
 
     private final CardAdapter adapter = new CardAdapter();
 
     private int section = SEC_RECOMMEND;
+
     /** 排行榜当前分区（fid） */
     private int rankRid = 0;
     /** 推荐的「换一批」游标：只用来换 feed key，接口那边每次都是从头要新的一批 */
     private int recommendIndex = 1;
     /** 直播：非空表示已经钻进某个二级分区 */
     private LiveArea liveArea;
+    /**
+     * 钻到当前分区之前待着的那一层。
+     *
+     * <p>直播分区是两级：一级（网游）→ 二级（英雄联盟）→ 直播间。
+     * 返回要一级一级退：从直播间退到「英雄联盟」那一层，再退才回到分区列表。
+     * 没有这个字段，一次返回就跨两层回去了。
+     */
+    private LiveArea liveAreaParent;
     /** 「我的」：非空表示钻进某个收藏夹 */
     private BiliCard favFolder;
     /**
@@ -230,6 +284,10 @@ public class BiliPage extends FrameLayout implements ModulePage {
         subScroll = findViewById(R.id.bili_sub_scroll);
         subNav = findViewById(R.id.bili_sub_nav);
         grid = findViewById(R.id.bili_grid);
+        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
+            // 整页铺满的墙：最左/最右再按就停住，别让焦点飞到左上角胶囊上
+            ((com.tvdesk.desk.widget.PageGridView) grid).setKeepFocusAtEdges(true);
+        }
         title = findViewById(R.id.bili_title);
         subtitle = findViewById(R.id.bili_subtitle);
         emptyView = findViewById(R.id.bili_empty);
@@ -392,6 +450,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
         for (int i = 0; i < SECTIONS.length; i++) {
             final int index = i;
             TextView item = new TextView(getContext());
+            item.setId(View.generateViewId());
             item.setText(SECTIONS[i]);
             item.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
             item.setTextColor(AppCompatResources.getColorStateList(getContext(),
@@ -432,7 +491,42 @@ public class BiliPage extends FrameLayout implements ModulePage {
                     selectSection(index, false);
                 }
             });
+            // 左右键在页签上只能落到相邻页签。
+            //
+            // 光连 nextFocusRightId 不够：页签是横排的，下方卡片墙也在「右边」，
+            // 内容一重建（切栏目、换分区）几何搜索就会先挑中卡片——遥控器上的体感
+            // 是「想切到直播，人却跳进列表里」。这里直接拦按键，落到哪一格自己说了算。
+            item.setOnKeyListener(new View.OnKeyListener() {
+                @Override
+                public boolean onKey(View v, int keyCode, KeyEvent event) {
+                    if (event.getAction() != KeyEvent.ACTION_DOWN) {
+                        return false;
+                    }
+                    int target = -1;
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                        target = index + 1;
+                    } else if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                        target = index - 1;
+                    }
+                    if (target < 0 || target >= navItems.getChildCount()) {
+                        return false;
+                    }
+                    navItems.getChildAt(target).requestFocus();
+                    return true;
+                }
+            });
             navItems.addView(item);
+        }
+        // 页签之间显式连一条左右链。
+        //
+        // 不连的话，从「热门」按右键会直接跳到下面的卡片墙：页签是横向排列的，
+        // 右边那个页签和下方第一张卡片都算「在右边」，系统的焦点搜索按几何距离挑，
+        // 挑中卡片——遥控器上的体感就是「想切页签，结果人跳到内容里去了」。
+        for (int i = 0; i + 1 < navItems.getChildCount(); i++) {
+            View current = navItems.getChildAt(i);
+            View next = navItems.getChildAt(i + 1);
+            current.setNextFocusRightId(next.getId());
+            next.setNextFocusLeftId(current.getId());
         }
         updateChipSelection();
     }
@@ -465,6 +559,9 @@ public class BiliPage extends FrameLayout implements ModulePage {
             }
         } else if (section == SEC_RECOMMEND) {
             addSubChip("换一批", "");
+        } else if (section == SEC_FOLLOW) {
+            // 关注流会一直有新动态：给一颗「刷新」，原地从头要一遍
+            addSubChip("刷新", "");
         }
         subScroll.setVisibility(subNav.getChildCount() == 0 ? View.GONE : View.VISIBLE);
     }
@@ -508,6 +605,14 @@ public class BiliPage extends FrameLayout implements ModulePage {
             rankRid = rid;
             rebuildRows();
             focusGrid(0, 2);
+            return;
+        }
+        if (section == SEC_FOLLOW) {
+            // 刷新：整份 feed 丢掉（页码/游标状态随之归零），从第一页重新要；
+            // 顺带把网格滚回顶部 —— 否则数据变短时旧的滚动位置会停在空白处
+            feeds.remove(key(SEC_FOLLOW, ""));
+            rebuildRows();
+            grid.setSelection(0);
             return;
         }
         if (section == SEC_RECOMMEND) {
@@ -558,6 +663,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
         }
         section = target;
         liveArea = null;
+        liveAreaParent = null;
         favFolder = null;
         updateChipSelection();
         buildSubNav();
@@ -567,7 +673,17 @@ public class BiliPage extends FrameLayout implements ModulePage {
             if (section == SEC_SEARCH && TextUtils.isEmpty(searchQuery)) {
                 focusSearch();
             } else if (!rows.isEmpty()) {
-                focusGrid(0, 2);
+                // 隔一拍再进列表：按下确定这一下，键的 UP 可能还没走完，
+                // 焦点刚落到第一张卡上就被同一次按键点开 ——
+                // 表现就是「按确定想进栏目，结果直接放起了第一条」
+                navItems.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!released) {
+                            focusGrid(0, 2);
+                        }
+                    }
+                }, 120);
             } else {
                 focusChip();
             }
@@ -579,6 +695,8 @@ public class BiliPage extends FrameLayout implements ModulePage {
         switch (section) {
             case SEC_RECOMMEND:
                 return "recommend:" + recommendIndex;
+            case SEC_FOLLOW:
+                return "follow";
             case SEC_POPULAR:
                 return "popular";
             case SEC_RANK:
@@ -621,6 +739,11 @@ public class BiliPage extends FrameLayout implements ModulePage {
                 appendCards(feed(key(section, "")));
                 subtitle.setText("手机端推荐流 · 点「换一批」再来一轮");
                 break;
+            case SEC_FOLLOW:
+                appendCards(feed(key(section, "")));
+                subtitle.setText(BiliClient.get(getContext()).loggedIn()
+                        ? "关注的 UP 主最近发的视频" : "登录后能看到关注 UP 主的更新 · 去「我的」里登录");
+                break;
             case SEC_POPULAR:
                 appendCards(feed(key(section, "")));
                 subtitle.setText("全站综合热门，不分区");
@@ -637,8 +760,16 @@ public class BiliPage extends FrameLayout implements ModulePage {
                     subtitle.setText("选一个分区看正在播的直播间");
                 } else {
                     title.setText(liveArea.name);
-                    appendRooms(feed("live:" + liveArea.id));
-                    subtitle.setText("按返回回分区列表");
+                    Feed sub = feed("live:" + liveArea.id);
+                    if (!sub.areas.isEmpty()) {
+                        // 一级分区：列子分区
+                        appendAreas(sub);
+                        subtitle.setText("选一个子分区看正在播的直播间");
+                    } else {
+                        // 二级分区：列直播间
+                        appendRooms(sub);
+                        subtitle.setText("按返回回分区列表");
+                    }
                     headCoverUrl = liveArea.cover;
                 }
                 break;
@@ -674,6 +805,14 @@ public class BiliPage extends FrameLayout implements ModulePage {
         String status = statusLine();
         if (!TextUtils.isEmpty(status)) {
             subtitle.setText(status);
+        }
+        // 所有栏目统一的分页提示：滚到底会不会再有、现在一共多少条
+        Feed current = feeds.get(key(section, searchQuery));
+        if (current != null && !current.cards.isEmpty() && !current.loading
+                && subtitle.getVisibility() == View.VISIBLE) {
+            subtitle.setText(subtitle.getText() + " · 已加载 " + current.cards.size() + " 条 · "
+                    + (current.loadingMore ? "正在加载更多…"
+                    : current.hasMore ? "下翻自动加载更多" : "已经到底了"));
         }
         loadingView.setVisibility(rows.isEmpty() && isBusy() ? View.VISIBLE : View.GONE);
         emptyView.setVisibility(rows.isEmpty() ? View.VISIBLE : View.GONE);
@@ -732,7 +871,8 @@ public class BiliPage extends FrameLayout implements ModulePage {
             row.area = area;
             row.title = area.name;
             row.cover = area.cover;
-            row.note = area.children.size() + " 个子分区";
+            row.note = area.children.isEmpty()
+                    ? "进入看正在播的直播间" : area.children.size() + " 个子分区";
             rows.add(row);
         }
     }
@@ -828,7 +968,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
             public void run() {
                 String error = null;
                 try {
-                    fetchInto(feed, key);
+                    fetchInto(feed, key, false);
                 } catch (Exception e) {
                     error = message(e);
                     feed.error = error;
@@ -846,14 +986,99 @@ public class BiliPage extends FrameLayout implements ModulePage {
                             feed.error = failure;
                         }
                         rebuildRows();
-                        // 首屏数据到达时焦点还停在页签上，就把它送进内容
-                        if (!rows.isEmpty() && navItems.findFocus() != null) {
+                        // 钻进一层（分区/收藏夹）之后，这层内容到齐了才把焦点送进去
+                        if (pendingDrillFocus) {
+                            pendingDrillFocus = false;
+                            if (!rows.isEmpty()) {
+                                focusGrid(0, 2);
+                            }
+                        }
+                        // 首屏数据到达时焦点还停在页签上，就把它送进内容。
+                        // 只在刚进页面这一趟做：换栏目时焦点得留在页签上，
+                        // 否则用户正在左右挑栏目，数据一到就被拽进列表。
+                        if (autoFocusPending && !rows.isEmpty() && navItems.findFocus() != null) {
+                            autoFocusPending = false;
                             focusGrid(0, 2);
                         }
                     }
                 });
             }
         }).start();
+    }
+
+    /**
+     * 滚到接近底部时接下一页（所有栏目共用一套）。
+     *
+     * <p>每份视图自己带着分页状态：页码式的往下加一页，游标式的带上一页的 offset，
+     * 一次给全的（榜单 / 分区目录 / 收藏夹列表 / 推荐一批）{@code hasMore} 是 false，
+     * 这里直接不动——所以「到底了」和「本来就没有下一页」是同一条判断。
+     */
+    private void loadMoreCurrent() {
+        Feed feed = feeds.get(key(section, searchQuery));
+        if (feed == null) {
+            return;
+        }
+        loadMore(feed);
+    }
+
+    private void loadMore(final Feed feed) {
+        if (feed.loading || feed.loadingMore || !feed.loaded || !feed.hasMore) {
+            return;
+        }
+        if (feed.cards.isEmpty() && feed.rooms.isEmpty()) {
+            // 没有列表可接（空态、分区目录）就别发请求
+            return;
+        }
+        feed.loadingMore = true;
+        final int mine = epoch;
+        final String key = currentRequestKey(feed);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String error = null;
+                try {
+                    fetchInto(feed, key, true);
+                } catch (Exception e) {
+                    error = message(e);
+                }
+                final String failure = error;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        feed.loadingMore = false;
+                        if (released || mine != epoch) {
+                            return;
+                        }
+                        if (failure != null) {
+                            feed.error = "加载更多失败：" + failure;
+                        } else {
+                            feed.error = null;
+                            dedupe(feed);
+                        }
+                        rebuildRows();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** 翻页偶尔会回带已经显示过的那条：按 bvid/aid 去重，后到的丢掉 */
+    private static void dedupe(Feed feed) {
+        Set<String> seen = new HashSet<>();
+        for (int i = feed.cards.size() - 1; i >= 0; i--) {
+            String key = cardKey(feed.cards.get(i));
+            if (!seen.add(key)) {
+                feed.cards.remove(i);
+            }
+        }
+    }
+
+    /** 翻页去重用的键 */
+    private static String cardKey(BiliCard card) {
+        if (!TextUtils.isEmpty(card.bvid)) {
+            return card.bvid;
+        }
+        return "aid:" + card.aid;
     }
 
     /**
@@ -871,33 +1096,93 @@ public class BiliPage extends FrameLayout implements ModulePage {
         return key(section, searchQuery);
     }
 
-    private void fetchInto(Feed feed, String key) throws Exception {
+    /**
+     * 取一页数据填进 feed。
+     *
+     * <p>每个分支自己更新 {@code feed.nextPage / nextOffset / hasMore}：
+     * 页码式的（热门、直播、收藏夹、搜索）看这一页是不是满的，
+     * 游标式的（关注动态）直接用接口给的 has_more；
+     * 一次给全的（推荐一批、榜单、分区目录、收藏夹列表、历史）标记到底，
+     * 滚到底不再请求。
+     */
+    private void fetchInto(Feed feed, String key, boolean append) throws Exception {
         BiliClient client = BiliClient.get(getContext());
         if (key.startsWith("recommend:")) {
             feed.cards.addAll(client.recommend(parseInt(key.substring(10), 1), PAGE_SIZE));
+            // 推荐流是一次一批的快照，没有「下一页」，要新内容用「换一批」
+            feed.hasMore = false;
+        } else if (key.equals("follow")) {
+            BiliClient.FollowPage page = client.followedFeed(PAGE_SIZE, feed.nextOffset);
+            feed.cards.addAll(page.cards);
+            feed.nextOffset = page.offset;
+            feed.hasMore = page.hasMore;
         } else if (key.startsWith("popular")) {
-            feed.cards.addAll(client.popular(1, PAGE_SIZE));
+            List<BiliCard> more = client.popular(feed.nextPage, PAGE_SIZE);
+            feed.cards.addAll(more);
+            feed.hasMore = more.size() >= PAGE_SIZE;
+            feed.nextPage++;
         } else if (key.startsWith("rank:")) {
             feed.cards.addAll(client.ranking(parseInt(key.substring(5), 0)));
+            feed.hasMore = false;
         } else if (key.equals("live")) {
             feed.areas.addAll(client.liveAreas());
+            feed.hasMore = false;
         } else if (key.startsWith("live:")) {
             int areaId = parseInt(key.substring(5), 0);
-            feed.rooms.addAll(client.liveRooms(parentOfArea(areaId), areaId, "online", 1));
+            LiveArea area = findArea(areaId);
+            if (area != null && !area.children.isEmpty()) {
+                // 一级分区：这一层该列的是它下面的子分区（英雄联盟、CS2…），
+                // 拿一级 id 去查直播间接口是查不到的，结果就是「点进去一片空白」
+                feed.areas.addAll(area.children);
+                feed.hasMore = false;
+            } else {
+                List<LiveRoom> more = client.liveRooms(parentOfArea(areaId), areaId,
+                        "online", feed.nextPage);
+                feed.rooms.addAll(more);
+                feed.hasMore = !more.isEmpty();
+                feed.nextPage++;
+            }
         } else if (key.equals("fav")) {
             feed.cards.addAll(client.favFolders());
+            feed.hasMore = false;
         } else if (key.startsWith("fav:")) {
-            feed.cards.addAll(client.favItems(parseLong(key.substring(4)), 1));
+            List<BiliCard> more = client.favItems(parseLong(key.substring(4)), feed.nextPage);
+            feed.cards.addAll(more);
+            feed.hasMore = more.size() >= 20;
+            feed.nextPage++;
         } else if (key.startsWith("search:")) {
-            feed.cards.addAll(client.search(key.substring(7), 1, PAGE_SIZE));
+            List<BiliCard> more = client.search(key.substring(7), feed.nextPage, PAGE_SIZE);
+            feed.cards.addAll(more);
+            feed.hasMore = more.size() >= PAGE_SIZE;
+            feed.nextPage++;
         } else if (key.equals("history")) {
             feed.cards.addAll(client.history(PAGE_SIZE));
+            feed.hasMore = false;
         } else {
             throw new IllegalStateException("没有这个视图：" + key);
         }
     }
 
     /** 直播二级分区要一级 id，从「分区目录」那份 feed 里现找 */
+    /** 在直播分区表里找一级或二级分区 */
+    private LiveArea findArea(int areaId) {
+        Feed areas = feeds.get("live");
+        if (areas == null) {
+            return null;
+        }
+        for (LiveArea area : areas.areas) {
+            if (area.id == areaId) {
+                return area;
+            }
+            for (LiveArea child : area.children) {
+                if (child.id == areaId) {
+                    return child;
+                }
+            }
+        }
+        return null;
+    }
+
     private int parentOfArea(int areaId) {
         Feed areas = feeds.get("live");
         if (areas == null) {
@@ -1003,13 +1288,17 @@ public class BiliPage extends FrameLayout implements ModulePage {
                 host.openBiliLive(row.room);
             }
         } else if (row.area != null) {
+            // 现在待着的这一层就是下一层的上级
+            liveAreaParent = liveArea;
             liveArea = row.area;
             drillFromPos = pos;
+            pendingDrillFocus = true;
             rebuildRows();
             focusGrid(0, 2);
         } else if (row.card != null && row.card.favId > 0) {
             favFolder = row.card;
             drillFromPos = pos;
+            pendingDrillFocus = true;
             rebuildRows();
             focusGrid(0, 2);
         } else if (row.card != null) {
@@ -1061,7 +1350,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
             public void run() {
                 String error = null;
                 try {
-                    fetchInto(feed, requestKey);
+                    fetchInto(feed, requestKey, false);
                 } catch (Exception e) {
                     error = message(e);
                 }
@@ -1187,9 +1476,54 @@ public class BiliPage extends FrameLayout implements ModulePage {
         grid.setSelector(new ColorDrawable(0));
         grid.setFocusable(false);
         grid.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        // 滚到离底部还有几格时就去接关注流的下一页（动态接口一页只有 20 条）
+        grid.setOnScrollListener(new AbsListView.OnScrollListener() {
+            @Override
+            public void onScrollStateChanged(AbsListView view, int scrollState) {
+            }
+
+            @Override
+            public void onScroll(AbsListView view, int firstVisibleItem,
+                                 int visibleItemCount, int totalItemCount) {
+                if (totalItemCount > 0
+                        && firstVisibleItem + visibleItemCount >= totalItemCount - 6) {
+                    loadMoreCurrent();
+                }
+            }
+        });
+        // 重排之后焦点别落到左上角那颗切换器上：卡片被回收时系统会把焦点交给
+        // 窗口里第一个可聚焦控件，正好就是它。这里把用户原来的位置放回去。
+        grid.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                    int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                restoreContentFocus();
+            }
+        });
+    }
+
+    /**
+     * 卡片墙重排把焦点甩到左上角时，把焦点放回用户刚才站的那一张。
+     *
+     * <p>只在焦点确实落在模块切换器上、而且用户本来在内容里时才动：
+     * 用户自己按上去的不抢。
+     */
+    private void restoreContentFocus() {
+        if (lastContentPosition < 0 || gone()) {
+            return;
+        }
+        View focused = currentFocus();
+        if (focused != switcher) {
+            return;
+        }
+        focusGrid(lastContentPosition, 2);
     }
 
     private void focusChip() {
+        // 用户主动把焦点送去顶栏：墙重排时不要再把焦点抢回列表
+        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
+            ((com.tvdesk.desk.widget.PageGridView) grid).markUserLeft();
+        }
         if (section < navItems.getChildCount()) {
             navItems.getChildAt(section).requestFocus();
         }
@@ -1197,8 +1531,17 @@ public class BiliPage extends FrameLayout implements ModulePage {
 
     /** 把焦点放到第 position 张卡上。目标行还没挂载时先平滑翻一行过去，再补焦 */
     private void focusGrid(final int position, final int retries) {
-        if (gone() || adapter.getCount() == 0) {
-            focusChip();
+        if (gone()) {
+            return;
+        }
+        // 用户（或页面）把焦点送回墙里：撤掉「用户已离开」的标记，
+        // 否则墙重排时不会把焦点还给卡片
+        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
+            ((com.tvdesk.desk.widget.PageGridView) grid).markUserEntered();
+        }
+        if (adapter.getCount() == 0) {
+            // 内容还没到：留在原地，别把人甩到页签上。
+            // 点了分区却「人自己跑回页签」比「暂时没动」更让人以为点错了
             return;
         }
         // 退层带回来的「来处」可能已经不在（换栏目、列表变短），夹到最后一张而不是取到空子 View
@@ -1219,6 +1562,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
             postFocus(target, retries - 1, 60);
             return;
         }
+        lastContentPosition = target;
         if (retries <= 0) {
             return;
         }
@@ -1259,6 +1603,11 @@ public class BiliPage extends FrameLayout implements ModulePage {
                     return true;
                 }
             }
+            // 已经在最左/最右列：这一下就地吃掉。不拦的话几何寻焦会一路摸到
+            // 左上角的模块胶囊上，用户只是想待在最边上
+            if (com.tvdesk.desk.widget.PageGridView.atHorizontalEdge(grid, keyCode)) {
+                return true;
+            }
         }
         return super.dispatchKeyEvent(event);
     }
@@ -1276,15 +1625,17 @@ public class BiliPage extends FrameLayout implements ModulePage {
         if (down) {
             int next = position + columns;
             if (next < adapter.getCount()) {
-                focusGrid(next, 2);
+                focusGrid(next, 4);
             }
             return true;
         }
         int previous = position - columns;
         if (previous >= 0) {
-            focusGrid(previous, 2);
+            focusGrid(previous, 4);
             return true;
         }
+        // 已经在第一行：往上一层是子页签（换一批 / 选分区），再往上是栏目页签。
+        // 注意这里给的是页签那一排，不是左上角那颗模块切换器——后者是再往上一层的事。
         if (subScroll.getVisibility() == View.VISIBLE && subNav.getChildCount() > 0) {
             subNav.getChildAt(0).requestFocus();
         } else {
@@ -1296,6 +1647,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
     @Override
     public void onEnter() {
         released = false;
+        autoFocusPending = true;
         post(new Runnable() {
             @Override
             public void run() {
@@ -1316,7 +1668,10 @@ public class BiliPage extends FrameLayout implements ModulePage {
             return;
         }
         View focused = currentFocus();
-        if (focused != null && navItems.findFocus() == null && switcher.findFocus() == null) {
+        // 只在焦点真的空着、或者还停在左上角那颗模块切换器上时才送进内容。
+        // 焦点已经在页签上（用户正在左右挑栏目）或在内容里（正在浏览）都不抢：
+        // 抢一次就等于把用户从「挑栏目」改成「看内容」，遥控器上像是自己乱跳。
+        if (focused != null && switcher.findFocus() == null) {
             return;
         }
         if (section == SEC_SEARCH && TextUtils.isEmpty(searchQuery)) {
@@ -1436,10 +1791,14 @@ public class BiliPage extends FrameLayout implements ModulePage {
                 return Back.consume("哔哩哔哩·退出收藏夹");
             }
             if (liveArea != null) {
-                liveArea = null;
+                // 逐级退：二级分区退回一级分区，一级分区才退回分区列表
+                LiveArea parent = liveAreaParent;
+                liveAreaParent = null;
+                liveArea = parent;
                 rebuildRows();
                 focusGrid(drillFromPos, 2);
-                return Back.consume("哔哩哔哩·退出直播分区");
+                return Back.consume("哔哩哔哩·退出"
+                        + (parent == null ? "直播分区" : parent.name));
             }
             if (section == SEC_MINE && isHistoryView()) {
                 selectSection(SEC_MINE, false);
@@ -1453,6 +1812,13 @@ public class BiliPage extends FrameLayout implements ModulePage {
                 rebuildRows();
                 focusSearch();
                 return Back.consume("哔哩哔哩·清空搜索词");
+            }
+            // 焦点还在内容区（卡片墙）时，返回先回顶栏。
+            // 顶栏是内容的上一层：一次返回跨两层（内容 → 桌面）会让人不知道自己在哪，
+            // 遥控器上按一下没反应、像是卡住。回顶栏之后再按一次才退出本页。
+            if (grid.findFocus() != null) {
+                focusChip();
+                return Back.consume("哔哩哔哩·回顶栏");
             }
             return Back.pass("哔哩哔哩·页内已无层级");
         }

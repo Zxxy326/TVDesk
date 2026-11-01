@@ -15,6 +15,11 @@ final class DeskPrefs {
 
     /** 切到别的版块或退到后台时，音视频是否继续放。默认停 */
     private static final String KEY_KEEP_PLAYING = "keep_playing";
+    private static final String KEY_MUSIC_PROXY = "music_proxy";
+    private static final String KEY_SHOW_CLOCK = "show_clock";
+    private static final String KEY_SHOW_WEATHER = "show_weather";
+    private static final String KEY_UPDATE_URL = "update_manifest_url";
+    private static final String KEY_HOME_GUARD = "home_guard";
 
     /** 音乐播放模式：0 顺序 / 1 随机 / 2 单首循环 */
     private static final String KEY_MUSIC_MODE = "music_play_mode";
@@ -51,6 +56,66 @@ final class DeskPrefs {
 
     public static void setKeepPlayingOnLeave(Context context, boolean keep) {
         of(context).edit().putBoolean(KEY_KEEP_PLAYING, keep).apply();
+    }
+
+    /**
+     * 网易云代理地址。
+     *
+     * <p>直连不上（地区限制、接口变更）时，用户可以指一个自建代理；
+     * 换源链路的最后一步「代理兜底」就走这里。本机端口这类地址不会被写进播放链接缓存，
+     * 端口一变旧地址就废了。
+     */
+    public static String musicProxy(Context context) {
+        return of(context).getString(KEY_MUSIC_PROXY, "");
+    }
+
+    public static void setMusicProxy(Context context, String proxy) {
+        of(context).edit().putString(KEY_MUSIC_PROXY, proxy == null ? "" : proxy.trim()).apply();
+    }
+
+    /** 桌面右上角要不要显示时间 */
+    public static boolean showClock(Context context) {
+        return of(context).getBoolean(KEY_SHOW_CLOCK, true);
+    }
+
+    public static void setShowClock(Context context, boolean show) {
+        of(context).edit().putBoolean(KEY_SHOW_CLOCK, show).apply();
+    }
+
+    /**
+     * 无障碍接管 HOME 的开关。
+     *
+     * <p>默认开：用户装了 TVDesk 又去系统里开了无障碍，通常就是要它接管。
+     * 关掉之后服务还在跑，但不再往回拉——想临时用回系统桌面时不用去关无障碍权限。
+     */
+    public static boolean homeGuard(Context context) {
+        return of(context).getBoolean(KEY_HOME_GUARD, true);
+    }
+
+    public static void setHomeGuard(Context context, boolean on) {
+        of(context).edit().putBoolean(KEY_HOME_GUARD, on).apply();
+    }
+
+    /**
+     * 在线更新的清单地址。
+     *
+     * <p>留空表示不检查。填 JSON 或纯文本都行，格式见 {@code UpdateClient}。
+     */
+    public static String updateManifestUrl(Context context) {
+        return of(context).getString(KEY_UPDATE_URL, "");
+    }
+
+    public static void setUpdateManifestUrl(Context context, String url) {
+        of(context).edit().putString(KEY_UPDATE_URL, url == null ? "" : url.trim()).apply();
+    }
+
+    /** 桌面右上角要不要显示天气 */
+    public static boolean showWeather(Context context) {
+        return of(context).getBoolean(KEY_SHOW_WEATHER, true);
+    }
+
+    public static void setShowWeather(Context context, boolean show) {
+        of(context).edit().putBoolean(KEY_SHOW_WEATHER, show).apply();
     }
 
     /** 播放模式存这里而不是只记在页面上：这一版没播，下次进音乐页还是该用上次那个模式 */

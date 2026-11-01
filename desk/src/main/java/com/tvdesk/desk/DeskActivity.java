@@ -20,6 +20,7 @@ import android.view.ViewOutlineProvider;
 import android.view.ViewParent;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.GridView;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -317,6 +318,11 @@ public class DeskActivity extends DeskAdaptActivity {
     private LinearLayout heroDots;
     private ImageView heroLikeIcon;
     private TextView deskClock;
+    /** 右上角那颗「天气 + 时间」胶囊（天气可关，关了只剩时间） */
+    private android.view.View deskStatus;
+    private TextView deskWeather;
+    /** 天气上次刷新时刻，用来做半小时节流 */
+    private long weatherAt;
 
     private LinearLayout moduleSwitcher;
     private TextView moduleTitle;
@@ -511,6 +517,12 @@ public class DeskActivity extends DeskAdaptActivity {
 
     /** 类目/首页「查看全部」的内嵌海报墙 */
     private CategoryWall categoryWall;
+    /** 收藏模块的两栏：左收藏、右观看历史（都是本机清单，不翻页） */
+    private CategoryWall favWall;
+    private CategoryWall histWall;
+    private View favoritesDual;
+    private GridView favGrid;
+    private GridView histGrid;
     /** true 表示内容区现在是海报墙，false 是 Hero + 海报行 */
     private boolean wallMode;
     /** 海报墙铺的是本地收藏清单：长按只能在这里生效，类目墙按了不该掉条目 */
@@ -624,6 +636,14 @@ public class DeskActivity extends DeskAdaptActivity {
 
     /** 进沉浸态时提示条是否开着，退出时按它还原 */
     private boolean immersiveHintWasVisible;
+    /**
+     * 进沉浸态那一刻拿着焦点的控件。
+     *
+     * <p>沉浸态会把海报行、顶栏整片藏起来，焦点必须先交出去；退出时如果一律送回顶栏，
+     * 用户的观感是「我明明停在第 4 张海报上，发了会儿呆，一按右键人跑到最上面去了」——
+     * 每一键都像被吞掉。记住来处，能还就还回去。
+     */
+    private View immersiveReturnFocus;
 
     /** 一段时间没按键 → 进沉浸轮播。每次按键都会重新掐这个表 */
     private final Runnable idleToImmersive = new Runnable() {
@@ -658,10 +678,126 @@ public class DeskActivity extends DeskAdaptActivity {
             }
             long now = System.currentTimeMillis();
             deskClock.setText(CLOCK.format(new java.util.Date(now)));
+            // 天气半小时看一次就够：接口有缓存，真要重拉也就一次请求
+            if (now - weatherAt > 30 * 60 * 1000L) {
+                weatherAt = now;
+                refreshWeather();
+            }
             long toNextMinute = 60000L - now % 60000L;
             deskClock.postDelayed(this, toNextMinute);
         }
     };
+
+    /**
+     * 按设置里的两个开关决定右上角显示什么。
+     *
+     * <p>时钟和天气各自独立：只关时间就只留天气，两个都关整块隐藏。
+     * onCreate 和 onResume 都调它 —— 设置页改完返回桌面能立刻看到效果。
+     */
+    private void applyClockWeatherPrefs() {
+        if (deskStatus == null || deskClock == null || deskWeather == null) {
+            return;
+        }
+        boolean clock = DeskPrefs.showClock(this);
+        boolean weather = DeskPrefs.showWeather(this);
+        deskClock.setVisibility(clock ? View.VISIBLE : View.GONE);
+        // 天气那块的实际显隐由 refreshWeather 按「有没有数据」再定一次，
+        // 这里先按开关收起，避免关掉后还挂着一个旧温度
+        if (!weather) {
+            deskWeather.setVisibility(View.GONE);
+        }
+        deskStatus.setVisibility(clock || weather ? View.VISIBLE : View.GONE);
+        if (clock) {
+            deskClock.removeCallbacks(tickClock);
+            tickClock.run();
+        }
+        if (weather) {
+            refreshWeather();
+        }
+    }
+
+    /**
+     * 拉一次天气，刷到右上角那颗胶囊上。
+     *
+     * <p>拿不到就把天气那块藏起来，只留时间——挂着一个空白占位比不显示更难看。
+     */
+    private void refreshWeather() {
+        if (deskWeather == null) {
+            android.util.Log.i("DeskWeather", "没有天气控件，跳过");
+            return;
+        }
+        if (!com.tvdesk.desk.DeskPrefs.showWeather(this)) {
+            android.util.Log.i("DeskWeather", "设置里关了天气");
+            deskWeather.setVisibility(android.view.View.GONE);
+            return;
+        }
+        android.util.Log.i("DeskWeather", "开始取天气");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final com.tvdesk.desk.weather.WeatherClient.Now now =
+                        com.tvdesk.desk.weather.WeatherClient.fetch(
+                                getApplicationContext(), false);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing() || isDestroyed() || deskWeather == null) {
+                            return;
+                        }
+                        if (now == null) {
+                            android.util.Log.i("DeskWeather", "没取到天气，藏起来");
+                            deskWeather.setVisibility(android.view.View.GONE);
+                            return;
+                        }
+                        android.util.Log.i("DeskWeather", "天气到位 " + now.celsius + "° "
+                                + now.place + " kind=" + now.kind);
+                        deskWeather.setText(com.tvdesk.desk.weather.WeatherClient
+                                .glyph(now.kind, now.day) + " "
+                                + com.tvdesk.desk.weather.WeatherClient.temperature(now));
+                        deskWeather.setVisibility(android.view.View.VISIBLE);
+                    }
+                });
+            }
+        }, "desk-weather").start();
+    }
+
+    /**
+     * 把一颗胶囊换成玻璃底板。
+     *
+     * <p>移植自 Aerial TV 的 LiquidGlass：面板显示它背后那块磨砂背景 + 受光的边。
+     * 因为做成了 Drawable，改这里一行就等于换了背景，布局不用动。
+     */
+    private void applyGlass(android.view.View view) {
+        if (view == null) {
+            return;
+        }
+        view.setBackground(new com.tvdesk.desk.widget.GlassDrawable(
+                getResources().getDimension(R.dimen.radius_control)));
+    }
+
+    /**
+     * 桌面玻璃化：顶栏那几颗胶囊挨个换掉。
+     *
+     * <p>先拍一张磨砂背景（Hero 图铺完之后），再换背景——顺序反了的话
+     * 第一帧会画成纯色玻璃。
+     */
+    private void applyDeskGlass() {
+        // 拍「氛围光 + Hero 海报」两层叠起来的效果：只拍海报的话，
+        // 海报还没加载完时拍到的是纯透明，玻璃就退回一块黑
+        android.view.View ambient = findViewById(R.id.desk_ambient);
+        android.view.View hero = findViewById(R.id.hero_bg);
+        com.tvdesk.desk.widget.FrostedBackdrop.capture(ambient, hero);
+        // 右上角的时间天气不要底板，直接浮在画面上
+        if (deskStatus != null) {
+            deskStatus.setBackground(null);
+        }
+        applyGlass(findViewById(R.id.module_switcher));
+        android.view.View hint = findViewById(R.id.source_hint);
+        if (hint != null) {
+            hint.setBackground(new com.tvdesk.desk.widget.GlassDrawable(
+                    getResources().getDimension(R.dimen.radius_panel)));
+        }
+    }
 
     /** 正在加载的行标题，慢响应提示和还原都用它 */
     private String loadingTitle;
@@ -712,7 +848,37 @@ public class DeskActivity extends DeskAdaptActivity {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_desk);
+        // 有触摸板/空中飞鼠的遥控器一点屏幕，窗口就进 touch mode；从那以后
+        // 「只 focusable、不 focusableInTouchMode」的控件（Hero 三颗按钮、海报行标题…
+        // 都是 XML 里只写了 focusable）就再也接不到方向键——表现是「顶栏按向下没反应」，
+        // 而且按多少下方向键都出不来。这里统一补上 inTouchMode，触摸和方向键都走得通。
+        com.tvdesk.desk.motion.FocusScaler.makeFocusableInTouchMode(
+                findViewById(android.R.id.content));
+        // 系统那层方形焦点高亮按外接矩形画，压在圆角按钮上就像「被裁了一角」。
+        // 桌面自己的焦点态（白描边 + 缩放）已经够了，整棵树统一关掉。
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(
+                findViewById(android.R.id.content));
         suppressForeignOverlays();
+
+        // 起本机服务（127.0.0.1:9978 一族）。TVBox 的正片链路一直靠它：
+        // 网盘/解析类片源给的播放地址是 {@code http://127.0.0.1:9978/proxy?do=...}，
+        // 配置中心的网页版也挂在这个服务上。桌面壳以前没起过，于是网盘源能列出条目、
+        // 点开却什么都没有——地址连不上，看起来就像「源坏了」。
+        // 放后台线程：第一次绑定端口要做网络接口枚举，不该卡住首帧。
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    com.github.tvbox.osc.server.ControlManager.init(
+                            DeskActivity.this.getApplicationContext());
+                    com.github.tvbox.osc.server.ControlManager.get().startServer();
+                    android.util.Log.i("DeskActivity", "本机服务就绪 "
+                            + com.github.tvbox.osc.server.ControlManager.get().getAddress(false));
+                } catch (Throwable th) {
+                    android.util.Log.w("DeskActivity", "本机服务起不来（网盘/解析类片源会受影响）", th);
+                }
+            }
+        }, "desk-local-server").start();
 
         // 进程被杀后系统会尝试恢复播放器 Fragment。播放状态（VodInfo）在进程里，
         // 恢复不出来，留着只会得到一个空播放器或者一次容器找不到的崩溃。
@@ -734,9 +900,68 @@ public class DeskActivity extends DeskAdaptActivity {
         setupActions();
         armIdleTimer();
         selectTab(0);
+
+        // 玻璃底板：等背景铺完再拍，否则第一帧的磨砂图是空的
+        deskStatus.post(new Runnable() {
+            @Override
+            public void run() {
+                applyDeskGlass();
+                applyClockWeatherPrefs();
+            }
+        });
     }
 
     // ---------------------------------------------------------------- 视图装配
+
+    /**
+     * 给焦点日志用的短描述：类名 + id 资源名 + （是 TextView 就带上文字）。
+     *
+     * <p>只写类名不够用——桌面上有几十个 TextView 卡片，日志会变成一片
+     * {@code TextView -> TextView}，看不出挪到哪一格。id 名和文字才是能对上的锚点。
+     */
+    private static String describeView(View view) {
+        if (view == null) {
+            return "null";
+        }
+        StringBuilder sb = new StringBuilder(view.getClass().getSimpleName());
+        int id = view.getId();
+        if (id != View.NO_ID) {
+            try {
+                sb.append('#').append(view.getResources().getResourceEntryName(id));
+            } catch (Resources.NotFoundException ignored) {
+                sb.append('#').append(id);
+            }
+        }
+        if (view instanceof TextView) {
+            CharSequence text = ((TextView) view).getText();
+            if (text != null && text.length() > 0) {
+                String flat = text.toString().replace('\n', ' ');
+                sb.append('「').append(flat.length() > 12 ? flat.substring(0, 12) : flat).append('」');
+            }
+        }
+        // 位置和父链：光有类名对不上「哪一个」。海报卡片都是同样的 FrameLayout，
+        // 打上坐标和「在谁家第几个孩子」才认得出是第几张。
+        int[] loc = new int[2];
+        view.getLocationOnScreen(loc);
+        sb.append('@').append(loc[0]).append(',').append(loc[1]);
+        ViewGroup parent = view.getParent() instanceof ViewGroup ? (ViewGroup) view.getParent() : null;
+        for (int depth = 0; parent != null && depth < 3; depth++) {
+            String pname = parent.getClass().getSimpleName();
+            int pid = parent.getId();
+            if (pid != View.NO_ID) {
+                try {
+                    pname += "#" + parent.getResources().getResourceEntryName(pid);
+                } catch (Resources.NotFoundException ignored) {
+                    pname += "#" + pid;
+                }
+            }
+            sb.append(" <- ").append(pname).append('[').append(parent.indexOfChild(view))
+                    .append('/').append(parent.getChildCount()).append(']');
+            parent = parent.getParent() instanceof ViewGroup
+                    ? (ViewGroup) parent.getParent() : null;
+        }
+        return sb.toString();
+    }
 
     private void bindViews() {
         moduleSwitcher = findViewById(R.id.module_switcher);
@@ -780,6 +1005,61 @@ public class DeskActivity extends DeskAdaptActivity {
             }
         });
 
+        favoritesDual = findViewById(R.id.favorites_dual);
+        favWall = findViewById(R.id.fav_wall);
+        histWall = findViewById(R.id.hist_wall);
+        // 左右两栏各占一半宽：墙内网格默认 6 列，挤在半边就成邮票了，各收成 3 列
+        favGrid = (GridView) favWall.findViewById(R.id.wall_grid);
+        histGrid = (GridView) histWall.findViewById(R.id.wall_grid);
+        favGrid.setNumColumns(3);
+        histGrid.setNumColumns(3);
+        favWall.setHost(new CategoryWall.Host() {
+            @Override
+            public void openVideo(Movie.Video vod) {
+                DeskActivity.this.openVideo(vod);
+            }
+
+            @Override
+            public void onNavigateUp() {
+                focusActiveNav();
+            }
+
+            @Override
+            public boolean onItemLongPress(Movie.Video vod) {
+                // 长按取消收藏：条目从上面那栏消失
+                if (vod == null) {
+                    return false;
+                }
+                boolean liked = VodFavorites.toggle(DeskActivity.this, vod);
+                android.util.Log.i("DeskActivity", (liked ? "收藏 " : "取消收藏 ") + vod.name);
+                renderFavorites();
+                return true;
+            }
+        });
+        histWall.setHost(new CategoryWall.Host() {
+            @Override
+            public void openVideo(Movie.Video vod) {
+                DeskActivity.this.openVideo(vod);
+            }
+
+            @Override
+            public void onNavigateUp() {
+                focusActiveNav();
+            }
+
+            @Override
+            public boolean onItemLongPress(Movie.Video vod) {
+                // 长按删掉这条历史：别的记录还在
+                if (vod == null || !VodHistory.remove(DeskActivity.this, vod)) {
+                    return false;
+                }
+                android.util.Log.i("DeskActivity", "删除历史 " + vod.name
+                        + "，剩 " + VodHistory.list(DeskActivity.this).size() + " 条");
+                renderFavorites();
+                return true;
+            }
+        });
+
         heroBlock = findViewById(R.id.hero_block);
         heroActions = findViewById(R.id.hero_actions);
         heroBg = findViewById(R.id.hero_bg);
@@ -790,6 +1070,8 @@ public class DeskActivity extends DeskAdaptActivity {
         heroDesc = findViewById(R.id.hero_desc);
         heroLikeIcon = findViewById(R.id.btn_like_icon);
         deskClock = findViewById(R.id.desk_clock);
+        deskStatus = findViewById(R.id.desk_status);
+        deskWeather = findViewById(R.id.desk_weather);
     }
 
     /**
@@ -1170,6 +1452,15 @@ public class DeskActivity extends DeskAdaptActivity {
         item.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                // 类目自带筛选时，按确定先弹筛选：用户选中这个类目就是想「按条件看」，
+                // 直接铺一屏等于把筛选藏起来了。TVBox 原版是在类目旁挂一个筛选图标，
+                // 电视上多一颗图标就多一次按键，还跟类目名挤在一排里认不出来。
+                MovieSort.SortData target = index < navSorts.size() ? navSorts.get(index) : null;
+                if (target != null && target.filters != null && !target.filters.isEmpty()
+                        && !isActionTab(index)) {
+                    showSortFilter(target);
+                    return;
+                }
                 selectTab(index);
             }
         });
@@ -1345,6 +1636,54 @@ public class DeskActivity extends DeskAdaptActivity {
         }
     }
 
+    /** 这一项是不是「首页 / 收藏 / 更多」这类功能入口（不是真正的类目） */
+    private boolean isActionTab(int index) {
+        if (index < 0 || index >= navActions.size()) {
+            return true;
+        }
+        return navActions.get(index) != ACTION_CATEGORY;
+    }
+
+    /**
+     * 弹出类目筛选。
+     *
+     * <p>筛选条件写在 {@code sort.filterSelect} 里（源站接口就是读这个 map），
+     * 选完重新拉一遍列表。
+     */
+    private void showSortFilter(final MovieSort.SortData sort) {
+        if (sort == null) {
+            return;
+        }
+        new SortFilterDialog(this, sort, new SortFilterDialog.Listener() {
+            @Override
+            public void onFilterChanged(MovieSort.SortData target) {
+                // 筛选变了：这一屏要按新条件重拉。
+                // 先把这一项切成当前页签（用户是在这个类目上点的确定），
+                // 否则重拉的内容会被下一个类目盖掉。
+                for (int i = 0; i < navSorts.size(); i++) {
+                    if (navSorts.get(i) == target) {
+                        currentTab = i;
+                        highlightTab(i);
+                        loadedTab = i;
+                        break;
+                    }
+                }
+                categoryWall.show(target);
+            }
+
+            @Override
+            public void onCancel() {
+                // 什么都没改：还是进这个类目
+                for (int i = 0; i < navSorts.size(); i++) {
+                    if (navSorts.get(i) == sort) {
+                        selectTab(i);
+                        return;
+                    }
+                }
+            }
+        }).show();
+    }
+
     /** 这个类目现在是不是内容区正在铺的那一个 */
     private boolean isActiveSort(MovieSort.SortData sort) {
         for (int i = 0; i < navSorts.size(); i++) {
@@ -1388,7 +1727,7 @@ public class DeskActivity extends DeskAdaptActivity {
         if (loadedTab == index) {
             // 已经在这一页，再按一次确定就走进内容，不用再按一下 DOWN
             if (wallMode) {
-                categoryWall.focusLast();
+                activeWall().focusLast();
             }
             return;
         }
@@ -1538,7 +1877,10 @@ public class DeskActivity extends DeskAdaptActivity {
     /** 内容区二选一：Hero + 海报行，或者整屏海报墙 */
     private void applyContentMode() {
         boolean wall = wallMode && !moduleOpen;
-        categoryWall.setVisibility(wall ? View.VISIBLE : View.GONE);
+        boolean fav = wall && favoritesMode;
+        // 收藏模块用自己的双栏（收藏 + 观看历史），普通类目走整页海报墙
+        categoryWall.setVisibility(wall && !fav ? View.VISIBLE : View.GONE);
+        favoritesDual.setVisibility(fav ? View.VISIBLE : View.GONE);
         int showcase = wall ? View.GONE : View.VISIBLE;
         heroBlock.setVisibility(showcase);
         heroDots.setVisibility(showcase);
@@ -2045,6 +2387,26 @@ public class DeskActivity extends DeskAdaptActivity {
         });
     }
 
+    /** Hero 换图/淡入完成后重拍磨砂图，等 crossfade（320ms）走完再加一点余量 */
+    private final Runnable reFrostBackdrop = new Runnable() {
+        @Override
+        public void run() {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            com.tvdesk.desk.widget.FrostedBackdrop.capture(
+                    findViewById(R.id.desk_ambient), heroBg);
+            // 玻璃 Drawable 只在 draw 时取样，重拍后让它们重画一帧
+            android.view.View switcher = findViewById(R.id.module_switcher);
+            if (switcher != null) {
+                switcher.invalidate();
+            }
+            if (deskStatus != null) {
+                deskStatus.invalidate();
+            }
+        }
+    };
+
     private int posterRadiusPx() {
         return getResources().getDimensionPixelSize(R.dimen.poster_radius);
     }
@@ -2236,6 +2598,8 @@ public class DeskActivity extends DeskAdaptActivity {
         clearPages();
 
         ModulePage page;
+        // 模块页里的实心按钮/行也是 XML 只写 focusable 的，同样要补 inTouchMode
+        // （见 onCreate 里那段注释）
         if (index == MODULE_MUSIC) {
             if (musicPage == null) {
                 // 音乐页自带顶栏（左上「音乐 ▾」→ 返回桌面），回调就是它的回桌面出口
@@ -2323,6 +2687,10 @@ public class DeskActivity extends DeskAdaptActivity {
         pageView.post(new Runnable() {
             @Override
             public void run() {
+                // 模块页整棵树也补一遍 inTouchMode：桌面上要是被鼠标/触摸板点过一下，
+                // 窗口就进了 touch mode，从此只有 focusableInTouchMode 的控件收得到焦点。
+                // 各页的卡片是代码里现 set 的可聚焦，未必带了 inTouchMode，补上最稳。
+                com.tvdesk.desk.motion.FocusScaler.makeFocusableInTouchMode(pageView);
                 // 藏顶栏那一帧之后，焦点可能还留在桌面那颗切换器上（GONE 不自动清焦点）。
                 // 它是 clickable 的，确定键会在它那里被 performClick 吃掉、再也不往 Activity 传——
                 // 模块页里「短按确定暂停、长按确定搜索」这类约定当场全废，而且看起来像没反应。
@@ -2355,7 +2723,13 @@ public class DeskActivity extends DeskAdaptActivity {
                 : (pageReturnFocus.isEmpty() ? null : pageReturnFocus.get(0));
         final ModulePage page = activePage;
         if (keepPlayingPrompt != null) {
-            // 弹窗还开着时又按了返回：别再叠一个，用户先回答这一张
+            // 弹窗还开着又按了一次返回：用户是在「我要离开、别再响」这件事上连按了两下。
+            // 以前这里直接 return，第二次返回被当成「取消」把弹窗收掉、人还留在原页，
+            // 下一按又弹一张——遥控器用户会在这一层反复打转。
+            // 落到「停止播放」：选继续会把声音留到桌面背后，就是「退出来了还在放」。
+            KeepPlayingDialog prompt = keepPlayingPrompt;
+            prompt.dismissAsChosen();
+            leaveAfterPrompt(page, false);
             return;
         }
         if (page == null || !page.hasActivePlayback()) {
@@ -2421,13 +2795,22 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         // 退层要回到来处：从哪颗按钮进的模块，回来还停在那颗。
         // 来处已经不在树上（换过源、海报墙整个重建）才退回默认落点。
-        if (!restoreReturnFocus(back)) {
-            if (wallMode && categoryWall.hasContent()) {
-                categoryWall.focusLast();
+        //
+        // Hero 上那三颗动作按钮是例外：它们不是「一格内容」，而是打开这一层的扳机。
+        // 把焦点还给「开始播放」，屏幕上就是一颗放大的白底按钮，用户以为还要再按一次
+        // 才开始（也从这里接着往下走，还会再进一遍详情）。回桌面统一落左上角那颗
+        //        「桌面」胶囊 —— 那是所有操作的起点，往下按就是内容区。
+        View returnTo = isHeroAction(back) ? null : back;
+        if (!restoreReturnFocus(returnTo)) {
+            if (wallMode && activeWall().hasContent()) {
+                activeWall().focusLast();
             } else {
                 moduleSwitcher.requestFocus();
             }
         }
+        // 模块页盖着的时候，顶栏胶囊和右上角时钟都被藏过；玻璃底板取的是窗口位置的
+        // 磨砂快照，回来要重拍一次并让它们重画，否则那一块还是模块页时期的颜色。
+        refreshDeskGlassLater();
         // 信号源页里换过源的话，到这一步才重扫：桌面顶栏刚恢复可见，
         // 「正在加载配置源…」那条提示才看得见（在本页盖着的时候重扫等于没提示）。
         syncSourceIfChanged();
@@ -2443,6 +2826,61 @@ public class DeskActivity extends DeskAdaptActivity {
         return target != null && target.isAttachedToWindow()
                 && target.getVisibility() == View.VISIBLE
                 && target.isEnabled() && target.isFocusable() && target.requestFocus();
+    }
+
+    /**
+     * 这个控件是不是 Hero 上那三颗动作按钮（开始播放 / 收藏 / 详情）。
+     *
+     * <p>判在整个 {@code hero_actions} 容器上，而不是逐个比对 id：按钮以后加一颗、
+     * 或者把图标和文字拆成子控件，这里都不用跟着改。
+     */
+    private boolean isHeroAction(View view) {
+        View actions = findViewById(R.id.hero_actions);
+        if (actions == null || view == null) {
+            return false;
+        }
+        View cursor = view;
+        while (cursor != null && cursor != actions) {
+            android.view.ViewParent parent = cursor.getParent();
+            cursor = parent instanceof View ? (View) parent : null;
+        }
+        return cursor == actions;
+    }
+
+    /**
+     * 回桌面之后重拍一次磨砂快照，并让玻璃控件重画。
+     *
+     * <p>玻璃底板不是实时模糊：它按自己在窗口里的位置去一张静态小图上取样。
+     * 模块页盖着的那段时间没有重拍，回来时顶栏胶囊、右上角时钟就还显示着
+     * 上一张图（一块看着「擦不掉」的底色）。延迟到 Hero 的 crossfade 走完再拍，
+     * 拍早了 Hero 图还没铺上，又会拍到半透明的一层。
+     */
+    private void refreshDeskGlassLater() {
+        moduleSwitcher.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                reFrostBackdrop.run();
+            }
+        }, 380L);
+    }
+
+    /** 下一帧把顶栏的玻璃底板重画一次（位置这一帧才算得出来） */
+    private void invalidateGlassSoon() {
+        moduleSwitcher.post(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                moduleSwitcher.invalidate();
+                if (deskStatus != null) {
+                    deskStatus.invalidate();
+                }
+            }
+        });
     }
 
     /**
@@ -2549,6 +2987,21 @@ public class DeskActivity extends DeskAdaptActivity {
         if (vod == null || TextUtils.isEmpty(vod.name)) {
             return;
         }
+        // 配置条目（「网页版配置中心」「网盘线路排序」这类）不是片子：它们的备注栏就是
+        // 一个本机网址。以前照普通条目去要详情，爬虫发现没有可解析的视频，会自己把
+        // 应用重启一次，用户看到的是「点一下退回电视首页」。这里直接开网页。
+        if (isWebEntry(vod)) {
+            android.util.Log.i("DeskActivity", "配置条目 -> 内置网页 " + vod.note);
+            openWebPage(vod.note, vod.name);
+            return;
+        }
+        if (isConfigAction(vod)) {
+            // 同屏的动作条目（排序/代理/日志…）：开同一个配置页，让用户在页面里点
+            String configUrl = configActionUrl();
+            android.util.Log.i("DeskActivity", "配置动作 " + vod.id + " -> 内置网页 " + configUrl);
+            openWebPage(configUrl, vod.name);
+            return;
+        }
         boolean hasSource = !TextUtils.isEmpty(vod.sourceKey) && !TextUtils.isEmpty(vod.id);
         android.util.Log.i("DeskActivity", "openVideo: name=" + vod.name
                 + " id=" + vod.id + " sourceKey=" + vod.sourceKey + " hasSource=" + hasSource);
@@ -2563,6 +3016,103 @@ public class DeskActivity extends DeskAdaptActivity {
             page.playWhenReady();
         }
         pushPage(page);
+    }
+
+    /**
+     * 这条「内容」其实是一个网页入口吗。
+     *
+     * <p>判据取备注栏（{@code vod_note}）以 http 开头：配置类站点的这类条目，
+     * 备注栏放的就是本机配置页地址（例如 {@code http://192.168.31.34:19988/config}），
+     * 而正常影片的备注是「更新至 12 集」这种文字。这条规则不依赖具体站点名字，
+     * 换一个网盘源同样成立。
+     */
+    private static boolean isWebEntry(Movie.Video vod) {
+        if (vod == null || vod.note == null) {
+            return false;
+        }
+        String note = vod.note.trim().toLowerCase(java.util.Locale.ROOT);
+        return note.startsWith("http://") || note.startsWith("https://");
+    }
+
+    /**
+     * 配置类屏里的「动作条目」。
+     *
+     * <p>这类条目（{@code panorder}／{@code threadproxy}／{@code qkregister}…）背后
+     * 没有可播的视频，<b>只代表一次配置动作</b>。踩过的坑：照普通条目去要详情，
+     * 爬虫会在 {@code detailContent} 里自己 {@code startActivity} 弹一个二维码窗口，
+     * 而桌面壳没有那个窗口 —— 结果就是「点一下，电视退回自带桌面」，回来的提示还是
+     * 「如果弹窗没有显示，请打开网页版配置中心」。所以这类条目必须在<b>点之前</b>识别出来，
+     * 直接开我们自己的网页。
+     *
+     * <p>三条判据，任一条成立即可（都要求 id 是短英文，片源的 id 是数字/长哈希）：
+     * <ol>
+     *   <li>这一屏本来就有网页入口（「综合设置」那种，备注栏是网址）；</li>
+     *   <li>条目的封面是内嵌 data URI —— 影视源的海报一定是网络地址，
+     *       只有配置类条目才会把图标编进 JSON；</li>
+     *   <li>名字里带「注册/扫码/Cookie/清除…」这类动作词（网盘源那几屏就是这样）。</li>
+     * </ol>
+     */
+    private boolean isConfigAction(Movie.Video vod) {
+        if (vod == null || TextUtils.isEmpty(vod.id)) {
+            return false;
+        }
+        if (!vod.id.matches("[A-Za-z][A-Za-z0-9_]{0,23}")) {
+            return false;
+        }
+        if (categoryWall != null && categoryWall.isConfigCategory()) {
+            return true;
+        }
+        if (vod.pic != null && vod.pic.startsWith("data:image")) {
+            return true;
+        }
+        return vod.name != null && CONFIG_ACTION_WORDS.matcher(vod.name).find();
+    }
+
+    /** 动作条目的名字关键词。网盘那几屏的名字全是「夸克注册 / UC Cookie 扫码登录 / 清除」这种 */
+    private static final java.util.regex.Pattern CONFIG_ACTION_WORDS =
+            java.util.regex.Pattern.compile(
+                    "注册|登录|扫码|二维码|Cookie|cookie|清除|配置|排序|代理|日志|备份|还原"
+                            + "|导出|导入|账号|设备|鸿蒙|弹幕|DNS|模式|管理|切换");
+
+    /**
+     * 配置页地址。
+     *
+     * <p>优先用「综合设置」里那条真实网址；网盘那几屏（夸克/UC/百度…）的备注是
+     * 「未扫码 / 未配置」这种状态文字，没有网址可抄，就自己拼：本机服务上的 pan 控制台
+     * （{@code /proxy?do=pan&action=config}）与那条网址是同一个页面。
+     */
+    private String configActionUrl() {
+        if (categoryWall != null) {
+            String url = categoryWall.configEntryUrl();
+            if (!TextUtils.isEmpty(url)) {
+                return url;
+            }
+        }
+        try {
+            com.github.tvbox.osc.server.ControlManager manager =
+                    com.github.tvbox.osc.server.ControlManager.get();
+            String base = manager.getAddress(false);
+            if (TextUtils.isEmpty(base)) {
+                base = manager.getAddress(true);
+            }
+            if (!TextUtils.isEmpty(base)) {
+                return base + "proxy?do=pan&action=config";
+            }
+        } catch (Throwable th) {
+            android.util.Log.w("DeskActivity", "取本机配置页地址失败", th);
+        }
+        return "";
+    }
+
+    /** 压一层网页页（配置中心），BACK 回上一层模块页 */
+    private void openWebPage(String url, String title) {
+        if (TextUtils.isEmpty(url)) {
+            // 地址都拼不出来的话，至少说一声——点了没反应比报错更让人以为坏了
+            android.widget.Toast.makeText(this, "这一项要联网才能打开配置页，请检查电视网络",
+                    android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        pushPage(new WebPage(this, url, title));
     }
 
     /** 打开内嵌搜索页；keyword 非空时预填，searchImmediately 表示进来就搜 */
@@ -2665,6 +3215,12 @@ public class DeskActivity extends DeskAdaptActivity {
                     return;
                 }
                 ApiConfig.get().setSourceBean(bean);
+                android.util.Log.i("DeskActivity", "首页数据源 -> " + bean.getName()
+                        + " key=" + key + " type=" + bean.getType());
+                // 记成「用户亲手选的」：重扫时这一条跳过内容探测。
+                // 配置中心 / 网盘站天生过不了探测（列表项是内嵌图标的配置条目），
+                // 不记的话用户点了也白点——顶栏还是别的站的。
+                SourceFeed.noteUserPicked(key);
                 SourceFeed.invalidateResolved();
                 onSourceChanged();
                 toastDesk("已切换数据源：" + bean.getName() + " · 正在重扫首页");
@@ -2989,13 +3545,19 @@ public class DeskActivity extends DeskAdaptActivity {
         topNav.setVisibility(visible ? View.VISIBLE : View.GONE);
         // 时钟跟着桌面 chrome 走：模块页有自己的版面，右上角再挂一颗胶囊就重复了。
         // 它不可聚焦，藏它不涉及「焦点留在看不见的内容上」那一层
-        deskClock.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (deskStatus != null) {
+            deskStatus.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
         if (visible) {
             // Hero 还是海报墙由当前内容模式决定，不能一律铺回 Hero
             applyContentMode();
             if (hintWasVisible) {
                 sourceHint.setVisibility(View.VISIBLE);
             }
+            // 藏过再显示时玻璃底板会先画成一块纯色（那一帧还取不到自己在窗口里的位置），
+            // 位置一旦定下来 View 不会自己重画 —— 那块底色就留在顶栏上了。
+            // 这里补一帧重绘，把「桌面」胶囊的底色换成当前背景的取样。
+            invalidateGlassSoon();
         } else {
             heroBlock.setVisibility(View.GONE);
             heroDots.setVisibility(View.GONE);
@@ -3048,6 +3610,8 @@ public class DeskActivity extends DeskAdaptActivity {
         // 按在看不见的内容上（音乐页的悬浮条踩过这个坑，见 M4 §11）
         View focused = getCurrentFocus();
         if (focused != null) {
+            // 记下这一个，退出沉浸时先试着还给它（见 exitImmersive）
+            immersiveReturnFocus = focused;
             focused.clearFocus();
         }
         moduleSwitcher.setFocusable(false);
@@ -3102,6 +3666,8 @@ public class DeskActivity extends DeskAdaptActivity {
         moduleSwitcher.setVisibility(View.VISIBLE);
         moduleSwitcher.setFocusable(true);
         topNav.setVisibility(View.VISIBLE);
+        // 同上：刚从沉浸态露出来，玻璃底板得重画一帧才对得上背景
+        invalidateGlassSoon();
         // Hero / 圆点 / 海报行归位交给 applyContentMode：它按当前内容模式摆，
         // 正在看海报墙的情况不能一律铺回 Hero
         applyContentMode();
@@ -3115,7 +3681,22 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         immersiveHintWasVisible = false;
         if (refocus) {
-            focusActiveNav();
+            // 先试着还回进沉浸前那一格（通常就是某张海报），还不了再退回顶栏。
+            // 判断条件要全：视图被重建（海报行重扫）时人已经不在树上了，
+            // 这时 requestFocus 会静默失败、焦点悬空，下一键就没着落。
+            final View back = immersiveReturnFocus;
+            immersiveReturnFocus = null;
+            boolean restored = false;
+            if (back != null) {
+                boolean alive = back.getParent() != null && back.isShown() && back.isFocusable()
+                        && (back instanceof ViewGroup ? ((ViewGroup) back).getChildCount() >= 0 : true);
+                if (alive) {
+                    restored = back.requestFocus();
+                }
+            }
+            if (!restored) {
+                focusActiveNav();
+            }
         }
         armIdleTimer();
     }
@@ -3190,13 +3771,54 @@ public class DeskActivity extends DeskAdaptActivity {
         wallMode = true;
         favoritesMode = true;
         applyContentMode();
-        rowTitle.setText("收藏");
-        java.util.List<Movie.Video> favorites = VodFavorites.list(this);
+        rowTitle.setText("收藏与历史");
+        // 上面一栏收藏、下面一栏观看历史：收藏是「我想留着以后看」，
+        // 历史是「我刚看过、可能接着看」，混在一排里要靠记忆分辨，
+        // 分开各占一栏一眼就知道去哪找。
         // \uFE0E 强制文本呈现：不加的话 ♥ 会被 emoji 字体接管，画成一颗红心，
         // 和满屏 tabler 描边图标不是一个语言
-        categoryWall.showList(favorites,
+        favWall.showList(VodFavorites.list(this),
                 "还没有收藏。\n回首页选中想看的片子，按 ♥\uFE0E 键收进来。",
                 "长按海报取消收藏");
+        histWall.showList(VodHistory.list(this),
+                "还没有播放历史。\n播过的片子会自动记进这一栏。",
+                "长按海报删除这条历史");
+    }
+
+    /** {@code node} 是不是挂在 {@code ancestor} 底下（含相等） */
+    private static boolean isDescendantOf(View node, ViewGroup ancestor) {
+        while (node != null) {
+            if (node == ancestor) {
+                return true;
+            }
+            node = node.getParent() instanceof View ? (View) node.getParent() : null;
+        }
+        return false;
+    }
+
+    /** 当前该补焦的墙：收藏模块是双栏里的收藏栏，其他类目是整页海报墙 */
+    private CategoryWall activeWall() {
+        return favoritesMode && favWall != null ? favWall : categoryWall;
+    }
+
+    /**
+     * 顶栏按 DOWN 进内容区。
+     *
+     * <p>收藏模块是双栏：收藏栏有货进收藏栏，没货直接进历史栏，
+     * 别让焦点停在空态提示上多按一下；两栏都空才落在提示上。
+     * 其他类目就是整页海报墙。
+     */
+    private boolean focusWallFromNav() {
+        if (favoritesMode && favWall != null) {
+            if (favWall.hasContent() && favWall.focusLast()) {
+                return true;
+            }
+            if (histWall.hasContent() && histWall.focusLast()) {
+                return true;
+            }
+            return favWall.focusLast();
+        }
+        return categoryWall.focusLast();
     }
 
     // ---------------------------------------------------------------- 焦点与交互
@@ -3317,6 +3939,17 @@ public class DeskActivity extends DeskAdaptActivity {
                 } else if (okLongFired) {
                     // 长按已经生效：后面每一帧连发都不再当短按
                     return true;
+                } else if (event.getRepeatCount() > 0 || event.isLongPress()) {
+                    // 连发第一帧基本就落在 450ms 上下，和计时器等价；但有的遥控器
+                    // 只发长按标记不发连发（adb --longpress 注入也是这种），
+                    // 光靠计时器那一下永远等不到，这里补一枪把两种都兜住。
+                    if (playerOpen || !moduleOpen) {
+                        okHandler.removeCallbacks(okLongPress);
+                        okLongPress.run();
+                        if (okLongFired) {
+                            return true;
+                        }
+                    }
                 }
             } else if (event.getAction() == KeyEvent.ACTION_UP) {
                 okHandler.removeCallbacks(okLongPress);
@@ -3354,11 +3987,17 @@ public class DeskActivity extends DeskAdaptActivity {
             // 沉浸轮播里任何键都先当「把桌面唤回来」用，这一键本身不算操作。
             // 电视的交互是按了才有 UI；把第一键同时当成点击，等于让人误开看不见焦点的东西
             if (immersive) {
-                if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
+                boolean isBack = event.getKeyCode() == KeyEvent.KEYCODE_BACK;
+                if (isBack) {
                     Back.consume("桌面·退出沉浸轮播");
                 }
                 exitImmersive(true);
-                return true;
+                // 返回键到这儿就结束（那一按的语义只有「回去」）。方向键/确定不吞：
+                // 焦点已经还回原处，接着往下走就是用户这一下真想要的动作。
+                // 吞掉的话，用户会看到「按了三下右键才挪了两格」，像掉帧。
+                if (isBack) {
+                    return true;
+                }
             }
             // 每次按键重新掐表：不重掐的话，用户操作到第 19 秒时表已经快走完，
             // 停手看海报的工夫顶栏就凭空消失了
@@ -3370,11 +4009,83 @@ public class DeskActivity extends DeskAdaptActivity {
                 && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN
                 && wallMode && !moduleOpen && !menuOpen && !categoryMenuOpen) {
             View focused = getCurrentFocus();
-            if (focused != null && focused.getParent() == topNav && categoryWall.focusLast()) {
+            if (focused != null && focused.getParent() == topNav && focusWallFromNav()) {
                 return true;
             }
         }
-        return super.dispatchKeyEvent(event);
+        // 收藏双栏：某一栏是空的时，往空栏方向的左右键就地吃掉。
+        // 几何寻焦在空栏里找不到落点，会一路蹿到顶栏页签上 ——
+        // 用户只是想在两栏之间挪，焦点却飞到天上去了
+        if (favoritesMode && !moduleOpen
+                && (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
+                || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            View focused = getCurrentFocus();
+            if (focused != null) {
+                boolean inFav = isDescendantOf(focused, favWall);
+                boolean inHist = isDescendantOf(focused, histWall);
+                // 两栏之间的内边交给几何寻焦自然跨过去；只拦两种「出界」：
+                // 对面栏是空的（跨过去没落点，几何会一路蹿到顶栏），
+                // 以及 outer 边（左栏最左 / 右栏最右，再按就出双栏了）
+                if (inFav && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT
+                        && !histWall.hasContent()) {
+                    return true;
+                }
+                if (inHist && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
+                        && !favWall.hasContent()) {
+                    return true;
+                }
+                if (inFav && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
+                        && favGrid.getPositionForView(focused) % favGrid.getNumColumns() == 0) {
+                    return true;
+                }
+                if (inHist && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    GridView pane = histGrid;
+                    int position = pane.getPositionForView(focused);
+                    if (position >= 0 && (position % pane.getNumColumns() == pane.getNumColumns() - 1
+                            || position == pane.getCount() - 1)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        boolean handled = super.dispatchKeyEvent(event);
+        // 焦点变更日志放在 super 之后：方向键的焦点移动就在 super 里同步做完的，
+        // 抬手那一帧打一行「键 -> 我现在落在哪个控件」，遥控器验证时能一句句对。
+        if (event.getAction() == KeyEvent.ACTION_UP) {
+            android.util.Log.i("FocusTrace", KeyEvent.keyCodeToString(event.getKeyCode())
+                    + " -> " + describeView(getCurrentFocus()));
+        }
+        return handled;
+    }
+
+    /**
+     * 焦点是不是停在播放器里某个「真控件」上（底栏按钮、进度条、返回键…）。
+     *
+     * <p>播放层是一整屏的空壳（{@code desk_player_host} + 控制器 rootView），
+     * 它们也能接焦点，但不是可以左右移动的控件 —— 用尺寸区分：满屏的那两个算壳，
+     * 比它窄的才算控件。这样既知道「用户正在底栏里走」，又不会把空壳当成控件放行。
+     */
+    private boolean playerControlFocused() {
+        View focused = getCurrentFocus();
+        if (focused == null || playerHost == null) {
+            return false;
+        }
+        if (!isInside(focused, playerHost)) {
+            return false;
+        }
+        return focused.getWidth() < playerHost.getWidth() - 8;
+    }
+
+    /** {@code view} 是不是挂在 {@code ancestor} 底下 */
+    private static boolean isInside(View view, View ancestor) {
+        View node = view;
+        while (node != null) {
+            if (node == ancestor) {
+                return true;
+            }
+            node = node.getParent() instanceof View ? (View) node.getParent() : null;
+        }
+        return false;
     }
 
     @Override
@@ -3393,7 +4104,16 @@ public class DeskActivity extends DeskAdaptActivity {
             if (playerCall(playerKeyDown, keyCode, event)) {
                 return true;
             }
-            // 没消化也不往下传，否则方向键会把焦点移到被播放器盖住的卡片上
+            // 焦点正停在播放器底栏的按钮上时，方向键必须放行：
+            // Activity.onKeyDown 返回 true 就等于告诉系统「这个键有人管了」，
+            // 而 <b>焦点导航是在这一层之后才做的</b>（dispatchKeyEvent 全链路返回 false
+            // 才会走 ViewRootImpl 的 performFocusNavigation）。以前这里无条件吞掉，
+            // 结果底栏虽然弹出来了、焦点也在「下一集」上，左右键却一个格都挪不动 ——
+            // 遥控器上就等于整条底栏是死的。
+            if (playerControlFocused()) {
+                return false;
+            }
+            // 焦点还在播放器那张空壳上时照旧吞掉，否则方向键会把焦点移到被盖住的顶栏上
             return true;
         }
 
@@ -3415,6 +4135,13 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         // 模块页先拿菜单键：抖音/B 站都有自己的功能抽屉（和参考 App 一致），
         // 页面不认才轮到下面开全局菜单。以前顺序反了，页里的 MENU 分支永远收不到
+        // (i) / 信息键：一次按下就能唤出「首页数据源」。长按确定是熟手的快路，
+        // 但换一支遥控器就未必按得出来（有的只发单击，有的把长按留给系统）；
+        // 这里给一条「按一下就到」的入口，和海报长按落的是同一个弹窗。
+        if (keyCode == KeyEvent.KEYCODE_INFO && !moduleOpen) {
+            showHomeSourceSwitch();
+            return true;
+        }
         if (keyCode == KeyEvent.KEYCODE_MENU && moduleOpen && activePage != null
                 && activePage.handleKeyDown(keyCode, event)) {
             return true;
@@ -3480,6 +4207,8 @@ public class DeskActivity extends DeskAdaptActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // 用户可能刚在设置里关了时间/天气，回来必须立刻反映（不然要等重启）
+        applyClockWeatherPrefs();
         syncSourceIfChanged();
         // 去设置页、系统卸载页、或按 HOME 退到后台再回来：开着的那页要自己决定
         // 是接着放还是重来，跟 onLeave 配成一对。
@@ -3571,8 +4300,8 @@ public class DeskActivity extends DeskAdaptActivity {
                     return;
                 }
                 if (getCurrentFocus() == null) {
-                    if (wallMode && categoryWall.hasContent()) {
-                        categoryWall.focusLast();
+                    if (wallMode && activeWall().hasContent()) {
+                        activeWall().focusLast();
                     } else {
                         moduleSwitcher.requestFocus();
                     }
@@ -3787,6 +4516,9 @@ public class DeskActivity extends DeskAdaptActivity {
                     // 视图上的 alpha 动画只会切在半路，这里才是能对齐的那一层。
                     .transition(DrawableTransitionOptions.withCrossFade(320))
                     .into(heroBg);
+            // 玻璃面板显示的是「它背后那块背景」。Hero 换了图不重拍磨砂图，
+            // 面板就会一直停在上一张海报的色调上（或者干脆是还没图时的纯黑）
+            heroBg.postDelayed(reFrostBackdrop, 420);
         } catch (Throwable th) {
             android.util.Log.w("DeskActivity", "load hero failed: " + url, th);
         }

@@ -127,6 +127,11 @@ public final class DetailFeed {
                     } catch (Throwable th) {
                         android.util.Log.w(TAG, "detail spider failed: " + bean.getName(), th);
                     }
+                    // 配置中心 / 网盘站点的「详情」往往不是一个视频条目，而是一条动作说明
+                    // （id=web 之类）。它到底给了什么，只能看原文；截前 600 字够看清。
+                    android.util.Log.i(TAG, "detail spider " + bean.getName() + " id=" + id
+                            + " -> " + (json == null ? "null"
+                            : json.length() + " chars: " + json.substring(0, Math.min(600, json.length()))));
                     finishDetail(SourceFeed.parseJson(json), sourceKey, callback);
                 }
             });

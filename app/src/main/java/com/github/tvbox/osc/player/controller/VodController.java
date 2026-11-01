@@ -1539,20 +1539,75 @@ public class VodController extends BaseController {
     }
 
     void showBottom() {
-        mHandler.removeMessages(1003);
-        mHandler.sendEmptyMessage(1002);
-        mNextBtn.requestFocus();
+        showBottomFocusing(mNextBtn);
     }
 
     void showUpBottom() {
+        showBottomFocusing(mPlayerTimeStartBtn);
+    }
+
+    /**
+     * 亮出底栏，并把焦点交给 [target]。
+     *
+     * <p>这里是遥控器上一大半「按不动」的来源：以前是「发一条延时消息去显示底栏，
+     * 紧接着给按钮要焦点」，可那一刻底栏还是 GONE —— 对 GONE 的控件 requestFocus
+     * 一定失败，而且是静默失败。结果底栏明明弹出来了，焦点却还在播放器宿主上（
+     * 一整屏可聚焦的空壳），于是左右上下全被当成「拖进度 / 再唤一次底栏」，
+     * 底栏上的按钮一个都选不中，进度条也到不了。
+     *
+     * <p>现在先把可见性设上（同步），再等真正 isShown() 之后要焦点；一帧不够就等两帧。
+     */
+    private void showBottomFocusing(final View target) {
         mHandler.removeMessages(1003);
+        // 先让容器可见：requestFocus 只在 isShown() 的控件上才有效
+        if (mBottomRoot != null) {
+            mBottomRoot.setVisibility(VISIBLE);
+        }
         mHandler.sendEmptyMessage(1002);
-        mPlayerTimeStartBtn.requestFocus();
+        if (target == null) {
+            return;
+        }
+        target.post(new Runnable() {
+            private int tries;
+
+            @Override
+            public void run() {
+                if (tries++ > 6 || target.getVisibility() != VISIBLE) {
+                    return;
+                }
+                if (!target.isShown()) {
+                    // 可见性还没生效（父容器刚 GONE→VISIBLE），下一帧再来
+                    target.postDelayed(this, 32);
+                    return;
+                }
+                if (!target.requestFocus() && tries <= 6) {
+                    target.postDelayed(this, 32);
+                }
+            }
+        });
     }
 
     void hideBottom() {
         mHandler.removeMessages(1002);
         mHandler.sendEmptyMessage(1003);
+        // 底栏收起时被聚焦的按钮会被一起藏掉，焦点会顺手交给窗口里第一个可聚焦控件
+        // （整页播放器底下还压着桌面那层）。这里把焦点收回到控制器自己身上，
+        // 之后按上下键唤底栏、按左右键拖进度都还落在这页里。
+        View root = findViewById(R.id.rootView);
+        if (root != null) {
+            root.post(new Runnable() {
+                @Override
+                public void run() {
+                    View rootView = findViewById(R.id.rootView);
+                    View focus = rootView == null ? null : rootView.findFocus();
+                    if (focus == null || focus.getVisibility() != VISIBLE) {
+                        if (rootView != null) {
+                            rootView.requestFocus();
+                        }
+                    }
+                }
+            });
+        }
     }
 
     @Override

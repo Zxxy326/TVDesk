@@ -1,19 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  悬浮播放条的底。和顶栏那两颗胶囊同一套语言（radius_control 全胶囊 + 半透明深底），
-  但它比 bg_pill 多两件事：
-  - 描边：浮在卡片墙上面，没有一圈亮边就看不出「这是独立的一层」；
-  - 上浅下深的渐变：底部压深一点，白色封面上滚过去时不至于和条子糊成一片。
+  悬浮播放条的底 —— 和顶栏胶囊同一套「玻璃」。
+
+  - 半透明深底：透出下面一点画面，不把墙压死；
+  - 上沿一道白高光（光从上面下来，玻璃上沿先亮，到中段淡掉）；
+  - 一圈 1dp 细描边：浮在卡片墙 / 视频画面上，没有这圈边就看不出是独立的一层。
+
+  以前这里只是一层「上浅下深的渐变 + 描边」，偏实心；顶栏换成玻璃之后，
+  两条栏一眼就能看出不是同一套东西，所以把高光层补齐。
 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <gradient
-        android:angle="270"
-        android:endColor="#F00A0910"
-        android:startColor="#F21A1822"
-        android:type="linear" />
-    <corners android:radius="@dimen/radius_control" />
-    <stroke
-        android:width="1dp"
-        android:color="#2EFFFFFF" />
-</shape>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#A61C1C24" />
+            <corners android:radius="@dimen/radius_control" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="@dimen/radius_control" />
+            <gradient
+                android:angle="270"
+                android:centerColor="#08FFFFFF"
+                android:endColor="#00FFFFFF"
+                android:startColor="#26FFFFFF"
+                android:type="linear" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="@dimen/radius_control" />
+            <stroke
+                android:width="1dp"
+                android:color="#2EFFFFFF" />
+        </shape>
+    </item>
+
+</layer-list>

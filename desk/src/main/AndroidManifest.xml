@@ -9,8 +9,39 @@
       本工程 targetSdk 28，PackageManager 天然看得见全部包。
     -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- 开机后把桌面拉起来（只在已经是默认桌面时才会真的拉） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application>
+        <!--
+          无障碍接管 HOME。电视固件不给第三方「默认桌面」选项时走这条路：
+          监听窗口切换，发现是系统桌面被显示出来就立刻回到 TVDesk。
+          这个服务必须由用户在系统设置里手动开启，我们只能把他送到那一页。
+        -->
+        <service
+            android:name="com.tvdesk.desk.HomeGuardService"
+            android:exported="true"
+            android:label="@string/settings_home_guard"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_home" />
+        </service>
+
+        <receiver
+            android:name="com.tvdesk.desk.BootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
         <!--
           configChanges 必须写：桌面里内嵌着播放器 Fragment，而 Fragment 会跟着
           Activity 的重建走恢复流程。切 HDMI 分辨率/投屏时重建一次，正在放的片子就断了，
@@ -46,7 +77,7 @@
         -->
         <activity
             android:name="com.tvdesk.desk.SettingsActivity"
-            android:exported="false"
+            android:exported="true"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/DeskTheme"
             android:windowSoftInputMode="stateHidden|adjustResize" />

@@ -122,6 +122,16 @@ public class LxRuntime implements Closeable {
      * <p>阻塞调用，必须在后台线程用。内部已经把 JS 执行放进自己的单线程，
      * 这里的阻塞只是在等那一步完成。
      */
+    /**
+     * 运行时是否已经初始化过（脚本跑过、上下文建好了）。
+     *
+     * <p>取链接之前必须先 {@link #test}：没初始化的话调用方会拿到
+     * 「运行时未初始化」这种没法看的错误。
+     */
+    public boolean isReady() {
+        return loaded && ctx != null;
+    }
+
     public Result test(String script, LxSource meta) {
         // 已经跑过就直接给上次的结论。脚本执行成本极高（混淆代码首跑 15~20 秒），
         // 而同一个 runtime 里再跑一遍还会把脚本内部的全局状态初始化两次。
@@ -665,6 +675,208 @@ public class LxRuntime implements Closeable {
             Log.w(TAG, "zlib: " + e);
             return "";
         }
+    }
+
+    // ------------------------------------------------------------- 通用动作调用
+
+    /**
+     * 通用动作调用。
+     *
+     * <p>LX 规范的脚本只注册一个 {@code request} 处理器，自己按 {@code payload.action} 分发，
+     * 所以歌词、封面、搜索这些能力<b>不需要改脚本</b>，Java 侧换个 action 就行。
+     *
+     * @param source    平台 key（wy / tx / kw …）
+     * @param action    动作名（musicUrl / lyric / pic / search）
+     * @param infoJson  {@code payload.info} 的 JSON
+     * @param timeoutSec 超时秒数
+     * @return 脚本返回的原始文本；失败时是空串，错误在 {@link #lastError()}
+     */
+    public String invoke(String source, String action, String infoJson, int timeoutSec) {
+        if (ctx == null) {
+            lastError = "运行时未初始化";
+            return "";
+        }
+        final String payloadJson;
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("source", source);
+            payload.put("action", action);
+            payload.put("info", new JSONObject(TextUtils.isEmpty(infoJson) ? "{}" : infoJson));
+            payloadJson = payload.toString();
+        } catch (Exception e) {
+            lastError = "构造请求失败：" + describe(e);
+            return "";
+        }
+
+        invokeErr = null;
+        invokeData = null;
+        final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        executor.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    JSObject global = ctx.getGlobalObject();
+                    ctx.setProperty(global, "__lx_payload", payloadJson);
+                    ctx.setProperty(global, "__lx_done", new JSCallFunction() {
+                        @Override
+                        public Object call(Object... args) {
+                            invokeErr = str(args, 0);
+                            invokeData = str(args, 1);
+                            latch.countDown();
+                            return null;
+                        }
+                    });
+                    ctx.evaluate("__lx_invoke(__lx_payload, __lx_done)", "invoke.js");
+                } catch (Throwable th) {
+                    invokeErr = describe(th);
+                    latch.countDown();
+                }
+            }
+        });
+        try {
+            if (!latch.await(timeoutSec, TimeUnit.SECONDS)) {
+                lastError = action + " 超时（" + timeoutSec + " 秒）";
+                return "";
+            }
+        } catch (InterruptedException e) {
+            lastError = "被中断";
+            return "";
+        }
+        if (!TextUtils.isEmpty(invokeErr)) {
+            lastError = invokeErr;
+            return "";
+        }
+        lastError = "";
+        return invokeData == null ? "" : invokeData;
+    }
+
+    private volatile String lastError = "";
+
+    /** 最近一次 {@link #invoke} 的错误说明 */
+    public String lastError() {
+        return lastError == null ? "" : lastError;
+    }
+
+    /**
+     * 取歌词。脚本返回 LRC 原文（也可能返回 {@code {lyric: "…"}}）。
+     *
+     * @return 歌词文本；没有就返回空串
+     */
+    public String resolveLyric(String source, String musicInfoJson) {
+        String raw = invoke(source, "lyric", lyricInfo(musicInfoJson), 45);
+        if (TextUtils.isEmpty(raw)) {
+            return "";
+        }
+        try {
+            Object parsed = new org.json.JSONTokener(raw).nextValue();
+            if (parsed instanceof JSONObject) {
+                return ((JSONObject) parsed).optString("lyric", "");
+            }
+            return raw;
+        } catch (Exception e) {
+            return raw;
+        }
+    }
+
+    /** 取封面图地址。脚本返回 URL 字符串（或 {@code {pic: "…"}}）。 */
+    public String resolvePic(String source, String musicInfoJson) {
+        String raw = invoke(source, "pic", lyricInfo(musicInfoJson), 45);
+        if (TextUtils.isEmpty(raw)) {
+            return "";
+        }
+        try {
+            Object parsed = new org.json.JSONTokener(raw).nextValue();
+            if (parsed instanceof JSONObject) {
+                return ((JSONObject) parsed).optString("pic", "");
+            }
+            return raw;
+        } catch (Exception e) {
+            return raw;
+        }
+    }
+
+    /**
+     * 按平台搜索。
+     *
+     * @return 命中列表，每项含 id / title / artist / album；没有就空表
+     */
+    public List<SearchHit> search(String source, String keyword, int page, int limit) {
+        List<SearchHit> hits = new ArrayList<SearchHit>();
+        String info;
+        try {
+            JSONObject o = new JSONObject();
+            o.put("keyword", keyword == null ? "" : keyword);
+            o.put("page", page);
+            o.put("limit", limit);
+            info = o.toString();
+        } catch (Exception e) {
+            return hits;
+        }
+        String raw = invoke(source, "search", info, 60);
+        if (TextUtils.isEmpty(raw)) {
+            return hits;
+        }
+        try {
+            Object parsed = new org.json.JSONTokener(raw).nextValue();
+            JSONArray list = null;
+            if (parsed instanceof JSONObject) {
+                JSONObject o = (JSONObject) parsed;
+                list = o.optJSONArray("list");
+                if (list == null) {
+                    list = o.optJSONArray("data");
+                }
+            } else if (parsed instanceof JSONArray) {
+                list = (JSONArray) parsed;
+            }
+            if (list == null) {
+                return hits;
+            }
+            for (int i = 0; i < list.length(); i++) {
+                JSONObject item = list.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                SearchHit hit = new SearchHit();
+                hit.id = first(item, "id", "songmid", "songid", "song_id");
+                hit.title = first(item, "title", "name", "song");
+                hit.artist = first(item, "artist", "singer", "author");
+                hit.album = first(item, "album", "album_name");
+                if (!TextUtils.isEmpty(hit.id) && !TextUtils.isEmpty(hit.title)) {
+                    hits.add(hit);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "搜索结果解析失败：" + raw);
+        }
+        return hits;
+    }
+
+    private static String first(JSONObject o, String... keys) {
+        for (String k : keys) {
+            String v = o.optString(k, "");
+            if (!TextUtils.isEmpty(v)) {
+                return v;
+            }
+        }
+        return "";
+    }
+
+    private static String lyricInfo(String musicInfoJson) {
+        try {
+            JSONObject info = new JSONObject();
+            info.put("musicInfo", new JSONObject(TextUtils.isEmpty(musicInfoJson) ? "{}" : musicInfoJson));
+            return info.toString();
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    /** 搜索命中项 */
+    public static class SearchHit {
+        public String id = "";
+        public String title = "";
+        public String artist = "";
+        public String album = "";
     }
 
     // ------------------------------------------------------------- 取播放链接

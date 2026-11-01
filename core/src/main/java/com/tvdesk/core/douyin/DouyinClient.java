@@ -108,6 +108,10 @@ public class DouyinClient {
             java.util.Arrays.asList(
                     "/aweme/v1/web/comment/list/",
                     "/aweme/v1/web/aweme/detail/",
+                    // 相关推荐：2026-10 起服务端开始对这条接口要签名，不带 a_bogus 直接回空 body
+                    // （表现是「抖音返回了空响应」，刷流就只剩 tab/feed 那两条）。
+                    // 签名器本来就在本机算，加进来即恢复。
+                    "/aweme/v1/web/aweme/related/",
                     "/aweme/v1/web/general/search/single/",
                     "/aweme/v1/web/search/item/",
                     "/aweme/v1/web/commit/item/digg/",
@@ -197,6 +201,13 @@ public class DouyinClient {
     /** 导入的登录 cookie（{@code k=v; k=v}），没登录就是空 */
     private final Map<String, String> cookies = new LinkedHashMap<>();
     private String ttwid = "";
+    /**
+     * 推荐流的「下拉次数」。
+     *
+     * <p>抖音的 tab/feed 用 refresh_index 区分批次：一直传 1，服务端就永远给首页那批，
+     * 于是续流看起来「怎么刷都是这几个人」。每要一次递增，才是真的往下翻。
+     */
+    private int feedRound;
 
     private DouyinClient(Context context) {
         app = context.getApplicationContext();
@@ -328,6 +339,9 @@ public class DouyinClient {
      * 推荐流。按平板频道要（{@link #PAD_BASE}）。匿名只回 2 条（服务端配额），
      * 所以这个方法只用来起头，续流走 {@link #related}。
      *
+     * <p>{@code refresh_index} 必须逐次递增：服务端把它当「第几次下拉刷新」，
+     * 一直传 1 等于每次都问「首页那批」，回来的自然是同样几条。
+     *
      * @param seenIds 已经看过的作品 id，逗号分隔回传给服务端去重
      */
     public List<DyItem> feed(int count, String seenIds) throws IOException {
@@ -337,14 +351,16 @@ public class DouyinClient {
         params.put("share_aweme_id", "");
         params.put("live_insert_type", "");
         params.put("count", String.valueOf(count));
-        params.put("refresh_index", "1");
+        params.put("refresh_index", String.valueOf(++feedRound));
         params.put("video_type_select", "1");
         params.put("pull_type", "0");
         params.put("view_count", "0");
         params.put("plug_block", "0");
         params.put("aweme_pc_rec_raw_data", "{\"is_client\":false,\"is_dash_user\":true,"
                 + "\"related_recommend\":false,\"is_xigua_user\":false,\"seo_info\":\"\"}");
-        return items(getJson("/aweme/v1/web/tab/feed/", params, true));
+        List<DyItem> items = items(getJson("/aweme/v1/web/tab/feed/", params, true));
+        android.util.Log.i("DouyinClient", "推荐流 round=" + feedRound + " -> " + items.size() + " 条");
+        return items;
     }
 
     /** 相关推荐：一次 10 条，实测免签可用，是竖屏刷流的主力；同样走平板口径 */

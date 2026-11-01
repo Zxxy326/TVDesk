@@ -222,6 +222,10 @@ public class CategoryWall extends FrameLayout {
         hideFooter();
         emptyRetryable = false;
         emptyView.setVisibility(View.GONE);
+        // 本地清单是整份换的：把网格滚回顶部，别留着上一次的偏移 ——
+        // 收藏/历史增删之后行数变少，旧偏移会让卡停在视口外面（y 是负的），
+        // 焦点几何搜索还能摸到它，看起来就是「焦点丢了」
+        grid.setSelection(0);
         applyItems(list, emptyText, true);
         if (!items.isEmpty() && hint != null) {
             showFooterHint(hint);
@@ -328,13 +332,16 @@ public class CategoryWall extends FrameLayout {
                 cacheFirstPage(key);
             }
 
-            @Override
-            public void onError(Throwable th) {
-                if (mySeq != contentSeq || gone()) {
-                    return;
+                @Override
+                public void onError(Throwable th) {
+                    if (mySeq != contentSeq || gone()) {
+                        return;
+                    }
+                    // 失败原因必须落日志：屏幕上只有一句「源站可能不稳定」，
+                    // 而真相可能是签名、网盘没配、jar 没挂上——不记下来就只能靠猜
+                    android.util.Log.w("CategoryWall", "类目首页失败 sort=" + key, th);
+                    showEmpty("这个类目加载失败了。源站可能不稳定，稍后再试。");
                 }
-                showEmpty("这个类目加载失败了。源站可能不稳定，稍后再试。");
-            }
         });
     }
 
@@ -470,6 +477,12 @@ public class CategoryWall extends FrameLayout {
      * 留着旧海报会让人以为这就是新类目的内容。
      */
     private void showEmpty(String text) {
+        // 先看焦点是不是还在墙里：下一行要把 grid 设成 INVISIBLE，
+        // 框架会把「焦点在一个不可见祖先里」的控件直接弃焦，改发给窗口里第一个
+        // 可聚焦的控件（左上角「桌面」）。那一发下去，屏幕上「按「确定」重试」
+        // 就成了空话——按确定弹出来的是模块菜单。
+        boolean focusWasInWall = grid.findFocus() != null || grid.hasFocus();
+
         loadingFirstPage = false;
         skeletonMode = false;
         grid.removeCallbacks(slowLoadingHint);
@@ -485,6 +498,18 @@ public class CategoryWall extends FrameLayout {
         emptyView.setText(emptyRetryable
                 ? (text == null ? "没取到内容" : text) + "\n按「确定」重试"
                 : (text == null ? "这里还是空的" : text));
+        // 焦点原来在墙里（比如翻页翻失败、或者正按着确定重试）就交回给重试提示，
+        // 用户下一按就是真的重试。焦点本来在顶栏时不抢——那不叫帮忙，那叫拽人。
+        if (focusWasInWall && emptyRetryable) {
+            emptyView.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (emptyView.getVisibility() == View.VISIBLE) {
+                        emptyView.requestFocus();
+                    }
+                }
+            });
+        }
     }
 
     private final Runnable hideFooterTask = new Runnable() {
@@ -537,6 +562,32 @@ public class CategoryWall extends FrameLayout {
     }
 
     // ---------------------------------------------------------------- 焦点
+
+    /**
+     * 这一屏里「配置中心」那条的网址；没有就返回空串。
+     *
+     * <p>配置类站点的设置条目（线路排序、多线程代理、日志…）本身不带网址，
+     * 但它们和「网页版配置中心」同属一屏，点开的是同一个配置页。宿主拿这个网址
+     * 兜底，用户点哪一条都能进配置页，而不是被爬虫重启一次应用。
+     */
+    public String configEntryUrl() {
+        for (int i = 0; i < items.size(); i++) {
+            Movie.Video video = items.get(i);
+            if (video == null || video.note == null) {
+                continue;
+            }
+            String note = video.note.trim().toLowerCase(java.util.Locale.ROOT);
+            if (note.startsWith("http://") || note.startsWith("https://")) {
+                return video.note.trim();
+            }
+        }
+        return "";
+    }
+
+    /** 当前这一屏是不是配置类（里面有网页入口）。是的话，短英文 id 的条目一律当动作条目 */
+    public boolean isConfigCategory() {
+        return !configEntryUrl().isEmpty();
+    }
 
     /**
      * 顶栏按 DOWN 进来时，回到上次停留的位置（首次就是第一张）。

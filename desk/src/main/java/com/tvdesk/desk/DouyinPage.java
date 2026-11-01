@@ -150,6 +150,8 @@ public class DouyinPage extends FrameLayout implements ModulePage {
     private boolean resumeOnEnter;
     private boolean loadingFeed;
     private boolean loadingMore;
+    /** 推荐流已经没有下一条了：方向键到头时给一句明确的话，别再空转 */
+    private boolean endReached;
     private boolean commentsOpen;
     /** 换条动画进行中，期间再按键会被吃掉——宁可漏一次按键，也不要两个动画互相打断 */
     private boolean sliding;
@@ -445,7 +447,12 @@ public class DouyinPage extends FrameLayout implements ModulePage {
     @Override
     public boolean hasActivePlayback() {
         try {
-            return player != null && player.isPlaying();
+            // isPlaying() 在缓冲/加载那一瞬是 false，可 playWhenReady 还是 true——
+            // 那时直接离开，缓冲好了声音就自己在桌面背后响起来。
+            // 按「有播放意图」判，只要在放或正要放都算活跃。
+            return player != null && player.getPlayWhenReady()
+                    && player.getPlaybackState() != Player.STATE_IDLE
+                    && player.getPlaybackState() != Player.STATE_ENDED;
         } catch (Throwable ignored) {
             return false;
         }
@@ -684,6 +691,13 @@ public class DouyinPage extends FrameLayout implements ModulePage {
                 // 菜单＝本页的功能抽屉（myDV 同款）。以前宿主先把这个键吃掉，
                 // 页面里这一段永远收不到；现在 DeskActivity 先问模块页
                 if (!burst) {
+                    if (searching) {
+                        // 搜索结果也是一条条能刷的流，抽屉里那些项（刷新推荐/接着刷）
+                        // 全是冲着推荐流去的，在搜索态摊开会让人以为能刷搜索结果。
+                        // 层级表里「输入/搜索态」比内容页靠里，抽屉不该压上来。
+                        say("搜索里没有抽屉 · 按返回回推荐流");
+                        return true;
+                    }
                     toggleMenu();
                 }
                 return true;
@@ -812,12 +826,16 @@ public class DouyinPage extends FrameLayout implements ModulePage {
                 return;
             }
             // 见底了。相关推荐一般早就续上了；真没续上（接口挂/去重去空了）就现取一批新推荐，
-            // 停在原地只说一句「没有了」，用户会以为这个功能到头了
+            // 停在原地只说一句「没有了」，用户会以为这个功能到头了。
+            // 注意这里不能调 loadFeed()——那个会把列表整个换掉、跳回第一条，
+            // 表现就是「刷到一半又被推回开头」。续流一律走 ensureMore()。
             if (loadingMore || loadingFeed) {
                 say("正在取下一条…");
+            } else if (endReached) {
+                say("已经没有更多了 · 菜单里可以「刷新推荐」");
             } else {
                 say("正在取新的推荐…");
-                loadFeed();
+                ensureMore();
             }
             return;
         }
@@ -1022,6 +1040,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
                             return;
                         }
                         append(value);
+                        endReached = false;
                         show(0, true);
                         ensureMore();
                         if (!keysHintShown) {
@@ -1036,7 +1055,21 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         }).start();
     }
 
-    /** 列表快见底时，用最后一条去要 10 条相关推荐 */
+    /**
+     * 列表快见底时续一批。
+     *
+     * <p>主力必须是<b>推荐流</b>（{@code tab/feed}），不是「相关推荐」。
+     * 相关推荐（{@code aweme/related}）的语义就是「和这条相似的作品」——
+     * 拿它当续流，刷过三五条之后整个流就只剩同一类目、同一批作者，
+     * 用户的话是「划几个视频以后会一直推这个类别」。它只能当兜底。
+     *
+     * <p>推荐流这几条改了两处，都为了「真的往下翻」：
+     * <ul>
+     *   <li>{@code refresh_index} 逐次递增（见 {@code DouyinClient#feed}），
+     *       以前固定 1 = 每次都要首页那批；</li>
+     *   <li>带着已看 id 走 {@code filterGids}，服务端把看过的排掉。</li>
+     * </ul>
+     */
     private void ensureMore() {
         // 搜索模式不预取推荐：那会往结果里混进不相干的一条，用户以为是搜索结果
         if (searching || loadingMore || items.isEmpty()
@@ -1044,15 +1077,33 @@ public class DouyinPage extends FrameLayout implements ModulePage {
             return;
         }
         loadingMore = true;
-        final String tail = items.get(items.size() - 1).id;
+        final String seen = seenIds();
+        // 种子取「用户正看着的这条」而不是列表末尾：索引会回翻，末尾那条可能离得很远
+        final String seed = items.get(Math.max(0, Math.min(index, items.size() - 1))).id;
         new Thread(new Runnable() {
             @Override
             public void run() {
                 List<DyItem> result = null;
                 try {
-                    result = client.related(tail);
+                    result = client.feed(15, seen);
                 } catch (Exception e) {
-                    Log.w(TAG, "相关推荐失败", e);
+                    Log.w(TAG, "续流（推荐流）失败", e);
+                }
+                if (result == null || result.size() < 3) {
+                    // 推荐流被限流/签名失效时才轮到相关推荐；它能保证「还有得刷」，
+                    // 代价是同质，所以只在主力没给够的时候补，不做主路径。
+                    try {
+                        List<DyItem> related = client.related(seed);
+                        if (related != null && !related.isEmpty()) {
+                            if (result == null) {
+                                result = related;
+                            } else {
+                                result.addAll(related);
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "续流（相关推荐）失败", e);
+                    }
                 }
                 final List<DyItem> value = result;
                 ui.post(new Runnable() {
@@ -1063,16 +1114,34 @@ public class DouyinPage extends FrameLayout implements ModulePage {
                             return;
                         }
                         if (value == null || value.isEmpty()) {
-                            // 相关推荐续不上（风控、或去重后正好全空）就退回推荐流：
-                            // 匿名 feed 一次哪怕只给 2 条，也比让用户刷到见底强
-                            loadFeed();
+                            endReached = true;
+                            say("已经没有更多了 · 菜单里可以「刷新推荐」");
                             return;
                         }
+                        int before = items.size();
                         append(value);
+                        if (items.size() == before) {
+                            // 服务端把见过的又发了一遍：不算错，但再要也是同一批
+                            endReached = true;
+                            say("已经没有更多了 · 菜单里可以「刷新推荐」");
+                        }
                     }
                 });
             }
         }).start();
+    }
+
+    /** 已看 id 的逗号串（回传给服务端去重） */
+    private String seenIds() {
+        // filterGids 要「,」拼接的已看 id；String.join 是 API 26，minSdk 19 用不了
+        StringBuilder filter = new StringBuilder();
+        for (String id : seenOrder) {
+            if (filter.length() > 0) {
+                filter.append(',');
+            }
+            filter.append(id);
+        }
+        return filter.toString();
     }
 
     private void append(List<DyItem> incoming) {
@@ -1109,6 +1178,18 @@ public class DouyinPage extends FrameLayout implements ModulePage {
             host.openDouyinLogin("搜索要登录 cookie");
             return;
         }
+        // 搜索弹窗是独立窗口，开着的时候本页收不到按键。抽屉/推荐列表/评论
+        // 要是还摊在下面，等弹窗关掉就露出一层没人管的浮层——先把它们收干净。
+        if (menuOpen) {
+            closeMenu();
+        }
+        if (recOpen) {
+            closeRec();
+        }
+        if (commentsOpen) {
+            closeComments();
+        }
+        hideProgress();
         host.openDouyinSearch(new DouyinSearchDialog.Listener() {
             @Override
             public void onSearch(String keyword) {
@@ -1481,7 +1562,9 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         }
         menuOpen = true;
         menuPage = 0;
-        menuIndex = 0;
+        // 不重置 menuIndex：连着开两次菜单，用户多半还想点刚才那一项。
+        // 每次都回到第一行，等于让人重新数一遍。
+        menuIndex = Math.max(0, Math.min(menuIndex, 6));
         buildMenuRows();
         menuPanel.setVisibility(View.VISIBLE);
         menuPanel.setAlpha(0f);
@@ -1542,6 +1625,11 @@ public class DouyinPage extends FrameLayout implements ModulePage {
             row.setBackgroundResource(R.drawable.bg_module_item);
             row.setPadding(dp(10), dp(7), dp(6), dp(7));
             row.setMinimumHeight(dp(50));
+            // 行不参与焦点：抽屉的高亮只由 menuIndex 一处决定（上下键走 moveMenu）。
+            // 以前行是可聚焦的，抽屉一开窗口焦点先落在第一行，于是「焦点行」和
+            // 「menuIndex 行」各画各的——屏幕上同时两行高亮，按一下方向键像错位。
+            row.setFocusable(false);
+            row.setFocusableInTouchMode(false);
             row.setSelected(i == menuIndex);
 
             if (icons != null) {

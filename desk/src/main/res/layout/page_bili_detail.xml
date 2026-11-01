@@ -303,7 +303,7 @@
               分 P 用「集」那种小方块，不是大卡片：一集几 P 到几百 P，
               卡片墙放不下，也看不清第几 P。固定两行高，更多的往下滚。
             -->
-            <GridView
+            <com.tvdesk.desk.widget.PageGridView
                 android:id="@+id/bili_detail_episodes"
                 android:layout_width="match_parent"
                 android:layout_height="92dp"

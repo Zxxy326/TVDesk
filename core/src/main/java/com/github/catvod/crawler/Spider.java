@@ -19,6 +19,7 @@ public class Spider {
     public String siteKey;
 
     protected static Context mContext;
+    protected static SpiderApi api;
 
     public void init(Context context) {
         mContext = context;
@@ -28,7 +29,22 @@ public class Spider {
         init(context);
     }
 
-    public void initApi(SpiderApi api) {
+    /**
+     * 注入宿主能力（本机服务地址、日志、多线程请求、网页解析）。
+     *
+     * <p>这个字段本身不能省：jar 里的爬虫是按「TVBox 家族」的基类编译的，
+     * 有些直接读 {@code Spider.api} 这个静态字段（不是自己存一份）。
+     * 基类里没有它，那些 jar 一碰就 {@link NoSuchFieldError}；
+     * 而这个错误在爬虫内部被当成「宿主不支持」，回一句
+     * 「这个壳没有弹窗」之类的提示——用户看到的就是点一下报错。
+     */
+    public void initApi(SpiderApi spiderApi) {
+        api = spiderApi;
+    }
+
+    /** 给子类/爬虫取宿主能力用；没注入过返回 null，调用方要自己判空 */
+    public static SpiderApi getApi() {
+        return api;
     }
 
     /**

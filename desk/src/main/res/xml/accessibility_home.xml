@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  无障碍接管 HOME 的配置。
+
+  只要一种事件：窗口切换（TYPE_WINDOW_STATE_CHANGED）。够用了——
+  按 HOME 时系统桌面会变成前台窗口，这一条事件就够我们判断「该不该拉回来」。
+
+  不要 canRetrieveWindowContent：我们只读包名，不读界面内容。
+  多要权限只会让用户在系统设置页看到一个更可疑的开关。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="false"
+    android:description="@string/accessibility_home_desc"
+    android:notificationTimeout="100"
+    android:summary="@string/accessibility_home_summary" />

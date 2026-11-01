@@ -9,6 +9,16 @@
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowDisablePreview">true</item>
+        <!--
+          关掉系统焦点高亮（API 26+ 默认开）。
+
+          它按控件的外接矩形铺一层半透明白，而我们的控件全是圆角：
+          白框是直角、按钮是圆角，四个角上就一直露出一小截方边——用户的原话是
+          「按钮被裁切了」。这层高亮**只跟随 View 的边界，不认 drawable 的圆角**，
+          所以逐个控件关不掉源头，必须在主题里一次性关干净。
+          控件自己的焦点态由各自的 bg selector（白描边 + 缩放）负责。
+        -->
+        <item name="android:defaultFocusHighlightEnabled">false</item>
     </style>
 
     <!--
@@ -29,6 +39,8 @@
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowSoftInputMode">stateHidden|adjustResize</item>
+        <!-- 同 DeskTheme：弹窗里的按钮也是圆角，系统那层直角高亮一样会「露角」 -->
+        <item name="android:defaultFocusHighlightEnabled">false</item>
     </style>
 
     <!--

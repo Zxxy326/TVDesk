@@ -65,6 +65,7 @@ public final class BiliDanmakuDialog extends Dialog {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.dialog_bili_danmaku);
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(getWindow().getDecorView());
         sizeWindow();
         rows = findViewById(R.id.bili_danmaku_rows);
         buildRows();

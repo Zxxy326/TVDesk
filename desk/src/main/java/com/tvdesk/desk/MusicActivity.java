@@ -29,6 +29,7 @@ public class MusicActivity extends DeskAdaptActivity {
             }
         });
         setContentView(page);
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(getWindow().getDecorView());
         page.onEnter();
     }
 

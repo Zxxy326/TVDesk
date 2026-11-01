@@ -41,6 +41,12 @@ public final class AppActionDialog extends Dialog {
 
         /** 点了「卸载」 */
         void onUninstall(AppPage.Entry entry);
+
+        /** 点了「移到最前」：把这个应用提到应用墙的最上面 */
+        void onMoveToTop(AppPage.Entry entry);
+
+        /** 点了「移动位置」：进入移动模式，方向键自己摆位置（照搬 Aerial 的 Move） */
+        void onMove(AppPage.Entry entry);
     }
 
     private final AppPage.Entry entry;
@@ -56,6 +62,10 @@ public final class AppActionDialog extends Dialog {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.dialog_app_action);
+        // 系统在 API 26+ 会给焦点控件叠一层半透明矩形高亮，它按外接矩形画，
+        // 圆角行/胶囊按钮的四个角就被「切」出直角边，看着像被裁了一块。
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(
+                getWindow().getDecorView());
         sizeWindow();
 
         ((TextView) findViewById(R.id.dialog_app_title)).setText(entry.name);
@@ -74,6 +84,21 @@ public final class AppActionDialog extends Dialog {
             @Override
             public void run() {
                 listener.onInfo(entry);
+            }
+        }));
+        // 「移动位置」：Aerial 的 Move —— 进移动模式后方向键把卡片挪到想放的格子
+        box.addView(addAction(box, "移动位置", false, new Runnable() {
+            @Override
+            public void run() {
+                listener.onMove(entry);
+            }
+        }));
+        // 「移到最前」：电视上装了几十个应用，常用的那几个每次都要翻半天。
+        // 把它提到最上面，一次排好以后一直有效（做法同 Aerial TV 的 LayoutStore）。
+        box.addView(addAction(box, "移到最前", false, new Runnable() {
+            @Override
+            public void run() {
+                listener.onMoveToTop(entry);
             }
         }));
         if (!entry.system) {

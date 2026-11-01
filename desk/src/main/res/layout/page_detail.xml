@@ -205,24 +205,75 @@
                         android:orientation="horizontal" />
                 </HorizontalScrollView>
 
-                <TextView
-                    android:id="@+id/detail_episode_label"
-                    android:layout_width="wrap_content"
+                <!--
+                  选集区：ScrollView + GridLayout。
+
+                  为什么不是 GridView：GridView 是 AbsListView，高度一旦被钉死成
+                  几行（height=0dp + weight=1），焦点走到最后一行再按「下」就不会
+                  再滚 —— 199 集的剧只能看到前 32 集，后面的集数在电视上等于不存在。
+                  想让它按内容撑开又得塞进 ScrollView，而 AbsListView 在
+                  ScrollView 的 UNSPECIFIED 测量下会在 fillDown 里空指针崩掉（踩过）。
+                  所以换成 GridLayout：它不是滚动容器，高度天然按内容算，
+                  外面套 ScrollView 就能一路翻；焦点移动时 ScrollView 自己会跟。
+                -->
+                <!--
+                  选集标题 + 分段条。
+                  集数一多（比如 199 集）光靠方向键一路往下按太费劲，
+                  这里按 30 集切一段，点一下直接跳到那一段。
+                  集数不到一屏时不显示，免得凑一排没用的按钮。
+                -->
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="选集"
-                    android:textColor="@color/text_tertiary"
-                    android:textSize="13sp" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-                <!-- 左右各留 10dp（配负 margin 回正）：第一列/最后一列聚焦放大时不再贴边被切 -->
-                <GridView
+                    <TextView
+                        android:id="@+id/detail_episode_label"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="选集"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="13sp" />
+
+                    <HorizontalScrollView
+                        android:id="@+id/detail_chunk_scroll"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="14dp"
+                        android:layout_weight="1"
+                        android:scrollbars="none"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:id="@+id/detail_episode_chunks"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
+                </LinearLayout>
+
+                <!--
+                  选集：固定高度网格 + 上方的分段条翻页。
+
+                  为什么不是「可滚动的长网格」：试过两种都不行 ——
+                  GridView 高度一固定就翻不了页（199 集只能看到前 32 集），
+                  塞进 ScrollView 又在 AbsListView 的 UNSPECIFIED 测量里空指针崩溃；
+                  换成 ScrollView + GridLayout 虽然能滚，但这台电视上滚动时
+                  整页会出现重影（集数画到了标题和简介上）。
+
+                  最终按用户提的交互来做：一屏只放 32 集（8 列 × 4 行，正好一页），
+                  想看后面就用上面的分段条（1-30 / 31-60 …）翻页。
+                  不滚动 = 上面那些渲染问题一个都不会出现。
+                -->
+                <com.tvdesk.desk.widget.PageGridView
                     android:id="@+id/detail_episodes"
                     android:layout_width="match_parent"
-                    android:layout_height="0dp"
+                    android:layout_height="204dp"
                     android:layout_marginStart="-10dp"
                     android:layout_marginTop="4dp"
                     android:layout_marginEnd="-10dp"
-                    android:layout_weight="1"
                     android:clipChildren="false"
                     android:clipToPadding="false"
                     android:horizontalSpacing="10dp"

@@ -12,6 +12,7 @@ import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.Renderer;
+import com.google.android.exoplayer2.SeekParameters;
 import com.google.android.exoplayer2.RenderersFactory;
 import com.google.android.exoplayer2.Tracks;
 import com.google.android.exoplayer2.source.TrackGroup;
@@ -44,12 +45,15 @@ public class ExoPlayer extends ExoMediaPlayer {
 
     public ExoPlayer(Context context) {
         super(context);
+        // 缓冲档位：起播 / 回缓冲的等待时间按秒级给，不跟 ExoPlayer 的默认值
+        // （50s/50s/2.5s/5s）—— 快进之后播放器会重新进 BUFFERING，
+        // 默认值要等 2.5 秒缓冲才恢复出声出画，看起来就是「快进完卡一下」。
+        // 30s 上限对局域网 / 云盘片源够用，字节上限 32MB 防止 4K 把内存吃穿。
         setLoadControl(new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(
-                        DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                        DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
-                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                        DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS)
+                .setBufferDurationsMs(15_000, 30_000, 1_000, 2_000)
+                .setTargetBufferBytes(32 * 1024 * 1024)
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .setBackBuffer(0, false)
                 .build());
         setRenderersFactory(buildRenderersFactory(context));
         LOG.i("echo-exo-low-memory-load-control");
@@ -59,6 +63,7 @@ public class ExoPlayer extends ExoMediaPlayer {
     @Override
     public void initPlayer() {
         super.initPlayer();
+        applySeekParameters();
         mInternalPlayer.addListener(new Player.Listener() {
             @Override
             public void onTracksChanged(Tracks tracks) {
@@ -81,6 +86,28 @@ public class ExoPlayer extends ExoMediaPlayer {
             }
         });
         LOG.i("echo-exo-cues-listener-ready");
+    }
+
+    /**
+     * 快进 / 快退落在「最近的关键帧」。
+     *
+     * <p>ExoPlayer 默认是<b>精确 seek</b>（toleranceBefore/After 都是 0）：它要从目标前面
+     * 那个关键帧开始，把中间每一帧都解码出来再丢掉。电视 SoC 上这一步要几百毫秒，
+     * 表现出来就是「快进后卡一下」；更要命的是<b>音频不用等</b>——音频包秒出，
+     * 视频还在解码，于是音画错开几百毫秒，得等播放器自己纠正回来。
+     *
+     * <p>{@link SeekParameters#CLOSEST_SYNC} 直接跳到离目标最近的关键帧：
+     * 不用解码-丢弃，视频立刻有画面，音频视频从同一个点起跑，卡顿和音画不同步
+     * 两个问题一起消失。代价是落点可能差半到一个 GOP（一般 1~2 秒）——
+     * 这也是市面上电视播放器的通行做法。
+     */
+    private void applySeekParameters() {
+        try {
+            mInternalPlayer.setSeekParameters(SeekParameters.CLOSEST_SYNC);
+            LOG.i("echo-exo-seek-closest-sync");
+        } catch (Throwable th) {
+            LOG.i("echo-exo-seek-param-fail:" + th.getClass().getSimpleName());
+        }
     }
 
     @Override

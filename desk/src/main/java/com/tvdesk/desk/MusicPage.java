@@ -45,7 +45,11 @@ import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.github.catvod.music.LxManager;
 import com.github.catvod.music.LxRuntime;
 import com.github.catvod.music.LxSource;
+import com.github.catvod.music.MusicSourceDef;
+import com.github.catvod.music.MusicSourceMarket;
 import com.github.catvod.music.NeteaseClient;
+import com.github.catvod.music.OnlineSourceResolver;
+import com.github.catvod.music.UrlCache;
 import com.tvdesk.desk.motion.FocusScaler;
 import com.tvdesk.desk.motion.PressFx;
 import com.tvdesk.desk.motion.RevealAnim;
@@ -111,6 +115,25 @@ import java.util.Set;
 public class MusicPage extends FrameLayout implements ModulePage {
 
     private static final String TAG = "MusicPage";
+
+    /**
+     * 退层时把焦点还给「来处那一行」的重试次数。
+     *
+     * <p>退层要先 rebuildRows()，列表要两三帧才把卡片真正挂出来；60ms 一帧算，
+     * 原来 2 次（≈120ms）在榜单这种几十张卡片的页面上根本不够，焦点会落空，
+     * 被系统甩给左上角那颗「音乐 ▾」——用户看到的就是「返回一下，人跑到左上角了」。
+     */
+    private static final int BACK_FOCUS_RETRIES = 8;
+
+    /**
+     * 取在线音频用的 UA。
+     *
+     * <p>用桌面浏览器的串而不是手机 UA：CDN 对两者都给 200，但桌面串的命中率更稳，
+     * 也和 {@link com.github.catvod.music.NeteaseClient} 请求接口时用的口径一致。
+     */
+    private static final String ONLINE_UA =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
     /** 顶部栏栏目。顺序就是 SEC_* 常量的下标 */
     private static final String[] SECTIONS = {"每日推荐", "排行榜", "推荐歌单", "我的", "搜索"};
@@ -188,6 +211,14 @@ public class MusicPage extends FrameLayout implements ModulePage {
         String onlineId;
         /** 在线曲目的专辑封面；本地歌曲为空（MediaStore 那点缩略图不值得为它多查一次） */
         String coverUrl;
+        /**
+         * 在线曲目属于哪个平台。
+         *
+         * <p>同一个 id 在不同平台含义不同：网易云是数字 id，QQ 是 songmid，酷我是 musicId。
+         * 搜索页可以按平台找歌（落雪脚本的 search 动作能搜 QQ/酷我/酷狗），
+         * 取链时必须知道这条 id 是哪个平台的，不然脚本会拿着 QQ 的 id 去查网易云。
+         */
+        String onlinePlatform = "wy";
 
         /** 是不是在线曲目 */
         boolean isOnline() {
@@ -245,6 +276,12 @@ public class MusicPage extends FrameLayout implements ModulePage {
         int mineTarget = -1;
         /** 音源页顶部的「扫码导入」入口行 */
         boolean importSource;
+        /** 音源页里的内置源（网易云官方）行 */
+        boolean builtinSource;
+        /** 音源页里的「音源市场」入口行 */
+        boolean marketRow;
+        /** 音源市场里的一个音源 */
+        MusicSourceMarket.Item marketItem;
         /** 在线歌单/榜单行才有 */
         NeteaseClient.Playlist playlist;
         /** 「我的」里账号那一行才有 */
@@ -482,6 +519,40 @@ public class MusicPage extends FrameLayout implements ModulePage {
     private boolean keepPlayingOnce;
     /** 上一次 onLeave 是自己掐断的，回来时接回去 */
     private boolean pausedOnLeave;
+    /**
+     * 用户「想让它在放」的意图，和 {@link MediaPlayer#isPlaying()} 是两回事。
+     *
+     * <p>在线曲目要 prepareAsync，准备期间 isPlaying() 一直是 false。以前 onLeave 拿
+     * isPlaying() 当判据，撞上「还在缓冲就返回」就直接放行，而 onPrepared 里又是无条件
+     * start()——人已经退回桌面，准备一完成声音自己响起来。这就是「概率性返回后还在放」。
+     *
+     * <p>所以另立一个意图位：起播/续播置真，暂停/停播/离页置假，
+     * {@code onPrepared} 只在意图还在时才 start。
+     */
+    private boolean playIntent;
+    /** 上次用成功的音源 id（{@code wy} 或 {@code lx:文件名}）——自动挑源时先试它 */
+    private String lastSourceId = "";
+    /** 上次用成功的音质档 */
+    private String lastSourceQuality = "";
+    /** 换源 / 解析的状态，写在顶栏（播放条副标题、播放页副标题）上 */
+    private String resolveStatus = "";
+    /** 换源后要跳回原来的播放位置；-1 表示不用跳 */
+    private long pendingSeekMs = -1L;
+    /** 内置网易云源的测试结论 */
+    private String builtinProbeResult = "";
+    /** 市场清单 */
+    private final List<com.github.catvod.music.MusicSourceMarket.Item> marketItems =
+            new ArrayList<>();
+    /** 市场清单是否在拉 */
+    private boolean marketLoading;
+    /**
+     * 用户最后落在内容区的第几条。
+     *
+     * <p>列表/卡片墙一重排（换栏目、加载更多）就会把带焦点的那个 View 回收掉，
+     * 系统随即把焦点交给窗口里第一个可聚焦控件——左上角那颗「音乐▾」。
+     * 用户看到的就是「翻页翻到左上角去了」。记着原来的位置，重排后放回去。
+     */
+    private int lastContentPosition = -1;
 
     private MediaPlayer player;
     private int queueIndex = -1;
@@ -538,6 +609,10 @@ public class MusicPage extends FrameLayout implements ModulePage {
         navItems = findViewById(R.id.music_nav_items);
         list = findViewById(R.id.music_list);
         grid = findViewById(R.id.music_grid);
+        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
+            // 整页铺满的墙：最左/最右再按就停住，别让焦点飞到左上角胶囊上
+            ((com.tvdesk.desk.widget.PageGridView) grid).setKeepFocusAtEdges(true);
+        }
         playAllBtn = findViewById(R.id.music_play_all);
         title = findViewById(R.id.music_title);
         subtitle = findViewById(R.id.music_subtitle);
@@ -702,6 +777,27 @@ public class MusicPage extends FrameLayout implements ModulePage {
                     selectSection(index, -1, false);
                 }
             });
+            // 左右键在页签上只能落到相邻页签。页签是横排的、下方卡片墙也算「在右边」，
+            // 交给几何搜索会出现「想切页签，人却跳进标题/卡片里」。
+            item.setOnKeyListener(new View.OnKeyListener() {
+                @Override
+                public boolean onKey(View v, int keyCode, KeyEvent event) {
+                    if (event.getAction() != KeyEvent.ACTION_DOWN) {
+                        return false;
+                    }
+                    int target = -1;
+                    if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                        target = index + 1;
+                    } else if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                        target = index - 1;
+                    }
+                    if (target < 0 || target >= navItems.getChildCount()) {
+                        return false;
+                    }
+                    navItems.getChildAt(target).requestFocus();
+                    return true;
+                }
+            });
 
             navItems.addView(item);
         }
@@ -752,6 +848,10 @@ public class MusicPage extends FrameLayout implements ModulePage {
     }
 
     private void focusChip() {
+        // 用户主动把焦点送去顶栏：墙重排时不要再把焦点抢回列表
+        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
+            ((com.tvdesk.desk.widget.PageGridView) grid).markUserLeft();
+        }
         if (section < navItems.getChildCount()) {
             navItems.getChildAt(section).requestFocus();
         }
@@ -842,6 +942,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
         if (pausedOnLeave && player != null) {
             pausedOnLeave = false;
             try {
+                playIntent = true;
                 player.start();
                 updateBar();
             } catch (Throwable ignored) {
@@ -874,7 +975,10 @@ public class MusicPage extends FrameLayout implements ModulePage {
             return;
         }
         View focused = currentFocus();
-        if (focused != null && navItems.findFocus() == null && switcher.findFocus() == null) {
+        // 只在焦点真的空着、或者还停在左上角那颗模块切换器上时才送进内容。
+        // 焦点已经在页签上（用户正在左右挑栏目）或在内容里（正在浏览）都不抢：
+        // 抢一次就等于把用户从「挑栏目」改成「看内容」，遥控器上像是自己乱跳。
+        if (focused != null && switcher.findFocus() == null) {
             return;
         }
         if (section == SEC_SEARCH && TextUtils.isEmpty(searchQuery)) {
@@ -911,6 +1015,43 @@ public class MusicPage extends FrameLayout implements ModulePage {
         grid.setAdapter(cardAdapter);
         grid.setSelector(new ColorDrawable(0));
         grid.setFocusable(false);
+        // 重排之后焦点别落到左上角那颗「音乐▾」上：带焦点的卡片被回收时，
+        // 系统会把焦点交给窗口里第一个可聚焦控件，正好就是它。这里放回原来的位置。
+        grid.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                    int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                restoreContentFocus();
+            }
+        });
+        list.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override
+            public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                    int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                restoreContentFocus();
+            }
+        });
+    }
+
+    /**
+     * 内容区重排把焦点甩到左上角时，把焦点放回用户刚才站的那一条。
+     *
+     * <p>只在焦点确实落在模块切换器上、而且用户本来在内容里时才动：
+     * 用户自己按上去的不抢。
+     */
+    private void restoreContentFocus() {
+        if (lastContentPosition < 0 || gone()) {
+            return;
+        }
+        View focused = currentFocus();
+        if (focused != switcher) {
+            return;
+        }
+        if (list.getVisibility() == View.VISIBLE) {
+            focusList(lastContentPosition);
+        } else {
+            focusGrid(lastContentPosition, 2);
+        }
     }
 
     // ---------------------------------------------------------------- 播放次数
@@ -1118,6 +1259,14 @@ public class MusicPage extends FrameLayout implements ModulePage {
         } else {
             buildSearchRows();
         }
+        // 播放队列统一在这里重建。
+        //
+        // <p>以前只有 {@code buildTrackRows} 会填队列，而在线榜单 / 歌单 / 我的这些
+        // 页面走的是另一条路（直接往 rows 里塞卡片），队列就一直是空的。
+        // 症状是：歌在放（nowPlaying 有值），但播放页的「上一首 / 下一首」按下去
+        // 什么都不发生 —— {@code advanceQueue} 看到队列为空就直接 return。
+        // 日志里能看见 {@code 下一首 queue=0 idx=0}。
+        rebuildQueue();
 
         // 内容一律铺卡片；只有「音源」是设置型列表，保留行式
         cardMode = !(section == SEC_MINE && mineTab == MINE_SOURCE);
@@ -1148,6 +1297,40 @@ public class MusicPage extends FrameLayout implements ModulePage {
             keepContentFocus(keepFocusFrom, 3);
         }
         syncBackground();
+    }
+
+    /**
+     * 按当前 rows 重建播放队列。
+     *
+     * <p>队列就是「上一首 / 下一首」走的那条路。不管当前页面是列表还是卡片墙，
+     * 只要 rows 里有歌，队列里就该有同样的歌 —— 否则播放页的切歌按钮会静默失灵。
+     *
+     * <p>已经在播的那首要保住它在队列里的位置：重建后用歌的身份重新定位，
+     * 定位不到（换页了、那首不在当前列表里）就把它插到队首。
+     */
+    private void rebuildQueue() {
+        List<Track> ordered = new ArrayList<>();
+        for (Row row : rows) {
+            if (row != null && row.track != null) {
+                ordered.add(row.track);
+            }
+        }
+        Track playing = nowPlaying;
+        queue.clear();
+        queue.addAll(ordered);
+        if (playing == null) {
+            queueIndex = queue.isEmpty() ? -1 : 0;
+            return;
+        }
+        int at = queue.indexOf(playing);
+        if (at >= 0) {
+            queueIndex = at;
+            return;
+        }
+        // 正在放的那首不在当前列表里（切了栏目 / 换源了）：
+        // 把它插到队首，「上一首」至少能回到它
+        queue.add(0, playing);
+        queueIndex = 0;
     }
 
     /** 焦点在内容里是第几行；不在内容里（页签、胶囊、播放条）返回 -1 */
@@ -2035,7 +2218,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
                 List<Track> found = null;
                 String error = null;
                 try {
-                    found = toTracks(netease().search(query, SEARCH_LIMIT));
+                    found = searchByPlatform(query);
                 } catch (Throwable th) {
                     error = describe(th);
                 }
@@ -2066,6 +2249,52 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
     }
 
+    /**
+     * 找歌：网易云官方 + 已装脚本能搜的其它平台，一起搜、结果合并。
+     *
+     * <p>不让人手动挑平台了——搜歌这件事用户只关心「搜到没有」，
+     * 平台是实现细节。落雪规范里同一个脚本能注册多个平台，
+     * 搜 QQ / 酷我 / 酷狗 只是换个 platform 参数，顺手一起搜了。
+     */
+    private List<Track> searchByPlatform(String query) throws Exception {
+        List<Track> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        try {
+            for (Track t : toTracks(netease().search(query, SEARCH_LIMIT))) {
+                if (seen.add(dedupeKey(t))) {
+                    out.add(t);
+                }
+            }
+        } catch (Throwable th) {
+            android.util.Log.i(TAG, "网易云搜索失败：" + describe(th));
+        }
+        for (MusicSourceDef def : OnlineSourceResolver.listSources(getContext(), jsProvider)) {
+            if (!def.supportsSearch) {
+                continue;
+            }
+            LxRuntime runtime = jsProvider.readyRuntime(def.fileName);
+            if (runtime == null) {
+                continue;
+            }
+            List<LxRuntime.SearchHit> hits = runtime.search(def.platform, query, 1, SEARCH_LIMIT);
+            for (LxRuntime.SearchHit hit : hits) {
+                Track t = new Track();
+                t.onlineId = hit.id;
+                t.onlinePlatform = def.platform;
+                t.title = hit.title;
+                t.artist = hit.artist;
+                t.album = hit.album;
+                if (seen.add(dedupeKey(t))) {
+                    out.add(t);
+                }
+            }
+        }
+        if (out.isEmpty()) {
+            throw new IllegalStateException("没搜到");
+        }
+        return out;
+    }
+
     private static List<Track> toTracks(List<NeteaseClient.Song> songs) {
         List<Track> out = new ArrayList<>();
         if (songs == null) {
@@ -2077,6 +2306,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
             }
             Track t = new Track();
             t.onlineId = song.id;
+            t.onlinePlatform = WY;
             t.title = song.name;
             t.artist = song.artist;
             t.album = song.album;
@@ -2345,7 +2575,15 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
     }
 
+    /** 音源市场在 drillKey 里的占位值（普通 drill 用的是脚本文件名） */
+    private static final String MARKET_KEY = "__market__";
+
     private void buildSourceRows() {
+        // 音源市场
+        if (MARKET_KEY.equals(drillKey)) {
+            buildMarketRows();
+            return;
+        }
         // 钻进某个音源看它的平台列表
         if (drillKey != null) {
             com.github.catvod.music.LxSource target = null;
@@ -2398,6 +2636,23 @@ public class MusicPage extends FrameLayout implements ModulePage {
             importRow.sub = "手机扫码上传 LX 音源 .js";
         }
         rows.add(importRow);
+        // 音源市场：电视上直接在线下载，不用再借手机扫码
+        Row marketRow = new Row();
+        marketRow.title = "音源市场";
+        marketRow.marketRow = true;
+        marketRow.glyph = "市";
+        marketRow.sub = "在线下载音源，选完直接用";
+        marketRow.tail = "在线下载";
+        rows.add(marketRow);
+        // 内置源也是源：换源候选里有它，测试列表里也得有，否则用户不知道官方这条路通不通
+        Row builtinRow = new Row();
+        builtinRow.title = "网易云（内置）";
+        builtinRow.builtinSource = true;
+        builtinRow.glyph = "云";
+        builtinRow.sub = "官方接口 · eapi + weapi · 可搜索 / 歌词 / 封面";
+        builtinRow.tail = TextUtils.isEmpty(builtinProbeResult)
+                ? "按「确定」测试" : builtinProbeResult;
+        rows.add(builtinRow);
         for (com.github.catvod.music.LxSource s : sources) {
             Row row = new Row();
             row.title = s.displayName();
@@ -2751,10 +3006,12 @@ public class MusicPage extends FrameLayout implements ModulePage {
         list.setSelection(target);
         View first = list.getChildAt(target - list.getFirstVisiblePosition());
         if (first != null && first.requestFocus()) {
+            lastContentPosition = target;
             confirmListFocus(target, retries - 1);
             return;
         }
         if (retries <= 0) {
+            fallbackFocus();
             return;
         }
         // 还没布局出子 View，等一帧再来
@@ -2798,9 +3055,14 @@ public class MusicPage extends FrameLayout implements ModulePage {
         if (gone() || cardAdapter.getCount() == 0) {
             return;
         }
+        // 用户（或页面）把焦点送回墙里：撤掉「用户已离开」的标记
+        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
+            ((com.tvdesk.desk.widget.PageGridView) grid).markUserEntered();
+        }
         View child = grid.getChildAt(position - grid.getFirstVisiblePosition());
         if (!GridScroll.isFullyVisible(grid, child)) {
             if (retries <= 0) {
+                fallbackFocus();
                 return;
             }
             long wait = GridScroll.smoothToRow(grid, position);
@@ -2808,13 +3070,26 @@ public class MusicPage extends FrameLayout implements ModulePage {
             return;
         }
         if (child.requestFocus()) {
+            lastContentPosition = position;
             confirmGridFocus(position, retries);
             return;
         }
         if (retries <= 0) {
+            fallbackFocus();
             return;
         }
         postFocus(position, retries - 1, 60);
+    }
+
+    /**
+     * 焦点实在还不到来处时的兜底。
+     *
+     * <p>这里<b>不</b>把人扔到页签：遥控器上「按了没动」虽然也烦，但至少位置没变，
+     * 不会打断正在进行的逐行浏览；被弹到左上角那颗「音乐▾」则是直接把人甩出去，
+     * 看着就像翻页翻飞了。要回页签走 MENU 或左上角切换器，那是有意为之的操作。
+     */
+    private void fallbackFocus() {
+        // 留在原地
     }
 
     /** 同 {@link #confirmListFocus(int, int)}：卡片墙重排会把刚挂上焦的卡片回收掉 */
@@ -2867,14 +3142,15 @@ public class MusicPage extends FrameLayout implements ModulePage {
                 // 确定键只负责唤回，免得黑着屏按一下就被当成暂停。
                 if (event.getKeyCode() != KeyEvent.KEYCODE_BACK) {
                     showStageControls(true);
-                    if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT) {
-                        startHoldSeek(-1, event.getRepeatCount());
-                        return true;
-                    }
-                    if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                        startHoldSeek(1, event.getRepeatCount());
-                        return true;
-                    }
+                    // 左右键<b>不</b>在这里当快退快进。
+                    //
+                    // <p>以前这一层把左右直接吞掉拖进度，于是控制区一收起（6 秒自动淡出），
+                    // 用户按右键想切到「下一首」就变成拖进度条 —— 焦点被钉在「暂停」上，
+                    // 永远走不到切歌那颗。表现就是「上一首/下一首按钮无反应」，
+                    // 而且用户根本不知道控制区已经收起来了（它淡出得很安静）。
+                    //
+                    // <p>现在左右键交回焦点导航：控制区亮着时它就是「走到切歌/收藏」，
+                    // 收着时第一下先把控制区唤回来，第二下才走位 —— 两步都符合直觉。
                     if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER
                             || event.getKeyCode() == KeyEvent.KEYCODE_ENTER
                             || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP
@@ -2887,12 +3163,16 @@ public class MusicPage extends FrameLayout implements ModulePage {
             }
         }
         if (event.getAction() == KeyEvent.ACTION_DOWN
-                && !stageOpen && cardMode && grid.getVisibility() == View.VISIBLE) {
+                && !stageOpen && grid.getVisibility() == View.VISIBLE) {
             int keyCode = event.getKeyCode();
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                 if (moveGridVertical(keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
                     return true;
                 }
+            }
+            // 已经在最左/最右列：就地吃掉，别让焦点飞到左上角胶囊
+            if (com.tvdesk.desk.widget.PageGridView.atHorizontalEdge(grid, keyCode)) {
+                return true;
             }
         }
         return super.dispatchKeyEvent(event);
@@ -2911,7 +3191,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
         if (down) {
             int next = position + columns;
             if (next < cardAdapter.getCount()) {
-                focusGrid(next, 2);
+                focusGrid(next, 4);
             } else if (bar.getVisibility() == View.VISIBLE) {
                 toggleBtn.requestFocus();
             }
@@ -2920,13 +3200,43 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
         int previous = position - columns;
         if (previous >= 0) {
-            focusGrid(previous, 2);
+            focusGrid(previous, 4);
             return true;
         }
+        // 已经在第一行：上一层是「播放全部」那颗按钮，再往上是栏目页签。
+        // 焦点守护（restoreContentFocus）保证这里不落到左上角的模块切换器上。
         if (playAllBtn.getVisibility() == View.VISIBLE) {
             playAllBtn.requestFocus();
         } else {
             focusChip();
+        }
+        return true;
+    }
+
+    /**
+     * 内容区（列表 / 卡片墙）现在是不是已经站在第一行。
+     *
+     * <p>只有「顶到最上面且焦点就在第一项」才算顶到：列表已经滚下去的时候
+     * 光看 firstVisiblePosition 会把中间的行也当成顶，UP 一下就飞回页签。
+     */
+    private boolean atContentTop() {
+        View focused = findFocus();
+        if (focused == null) {
+            return true;
+        }
+        if (list.getVisibility() == View.VISIBLE && list.hasFocus()) {
+            if (list.getFirstVisiblePosition() > 0) {
+                return false;
+            }
+            int pos = list.getPositionForView(focused);
+            return pos <= 0;
+        }
+        if (grid.getVisibility() == View.VISIBLE && grid.hasFocus()) {
+            int pos = grid.getPositionForView(focused);
+            if (pos < 0) {
+                return true;
+            }
+            return pos < Math.max(1, grid.getNumColumns());
         }
         return true;
     }
@@ -3079,6 +3389,12 @@ public class MusicPage extends FrameLayout implements ModulePage {
     private void activateRow(Row row) {
         if (row.importSource) {
             openSourceImport();
+        } else if (row.builtinSource) {
+            testBuiltinSource();
+        } else if (row.marketRow) {
+            openSourceMarket();
+        } else if (row.marketItem != null) {
+            installMarketItem(row.marketItem);
         } else if (row.platform != null) {
             probePlatform(row.source, row.platform);
         } else if (row.source != null) {
@@ -3096,6 +3412,154 @@ public class MusicPage extends FrameLayout implements ModulePage {
         } else if (row.track != null) {
             playAt(rows.indexOf(row));
         }
+    }
+
+    /**
+     * 打开音源市场。
+     *
+     * <p>做法跟像素播放器一致：市场内容来自固定 GitHub 仓库的 releases，
+     * 每个 release 是一个 zip 音源包，下载解包后把里面的 .js 收进本地音源目录。
+     */
+    private void openSourceMarket() {
+        drillKey = MARKET_KEY;
+        drillLabel = "音源市场";
+        marketItems.clear();
+        marketLoading = true;
+        rebuildRows();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final List<com.github.catvod.music.MusicSourceMarket.Item> list =
+                        com.github.catvod.music.MusicSourceMarket.fetchMarket();
+                post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (gone()) {
+                            return;
+                        }
+                        marketLoading = false;
+                        marketItems.addAll(list);
+                        rebuildRows();
+                    }
+                });
+            }
+        }, "music-market-list").start();
+    }
+
+    /** 市场清单 */
+    private void buildMarketRows() {
+        title.setText("音源市场");
+        if (marketLoading) {
+            subtitle.setText("正在拉取市场…");
+            return;
+        }
+        if (marketItems.isEmpty()) {
+            subtitle.setText("市场拉不到（网络不通）· 可以用「扫码导入音源」");
+            return;
+        }
+        subtitle.setText(marketItems.size() + " 个音源 · 选一个直接装上 · 按「返回」回音源列表");
+        for (com.github.catvod.music.MusicSourceMarket.Item item : marketItems) {
+            Row row = new Row();
+            row.marketItem = item;
+            row.title = item.name;
+            row.sub = TextUtils.isEmpty(item.category) ? item.version : item.category;
+            row.tail = "下载";
+            row.glyph = "装";
+            rows.add(row);
+        }
+    }
+
+    /**
+     * 从市场装一个音源。
+     *
+     * <p>装完立刻重扫：用户要的是「选完就能听」，
+     * 装完还让他自己去「我的 → 音源」点一遍刷新，是把活推给用户了。
+     */
+    private void installMarketItem(final com.github.catvod.music.MusicSourceMarket.Item item) {
+        if (item == null) {
+            return;
+        }
+        setResolveStatus("正在下载 " + item.name + "…");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final File file = com.github.catvod.music.MusicSourceMarket
+                        .downloadAndInstall(getContext(), item);
+                post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (gone()) {
+                            return;
+                        }
+                        if (file == null) {
+                            setResolveStatus(item.name + " 下载失败");
+                            toast("下载失败：" + item.name + "，可以试试扫码导入");
+                            return;
+                        }
+                        setResolveStatus(item.name + " 已装上");
+                        toast(item.name + " 已装上，正在刷新…");
+                        // 重新扫描：把新装的脚本收进列表，用户马上就能用
+                        scanSources(false);
+                    }
+                });
+            }
+        }, "music-market").start();
+    }
+
+    /**
+     * 测一次内置网易云源。
+     *
+     * <p>和测脚本源一样：真取一次链接才算数，「能加载」不算。
+     */
+    private void testBuiltinSource() {
+        if ("builtin-wy".equals(testingSource)) {
+            return;
+        }
+        testingSource = "builtin-wy";
+        rebuildRows();
+        final String probeId = "186016";
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String outcome;
+                try {
+                    NeteaseClient client = netease();
+                    String url = client.songUrlEapi(probeId, 320000);
+                    if (TextUtils.isEmpty(url)) {
+                        url = client.songUrl(probeId);
+                    }
+                    if (TextUtils.isEmpty(url)) {
+                        outcome = "官方接口没给出地址（未登录，或这首歌受限）";
+                    } else {
+                        outcome = "已取到链接，开始试听";
+                        Track online = new Track();
+                        online.id = 0;
+                        online.path = url;
+                        online.onlineId = probeId;
+                        online.onlinePlatform = WY;
+                        online.title = "试听 · 网易云（内置）";
+                        online.artist = "官方接口";
+                        online.album = "在线音乐";
+                        play(online);
+                    }
+                } catch (Throwable th) {
+                    outcome = "异常：" + th;
+                }
+                final String text = outcome;
+                post(new Runnable() {
+                    @Override
+                    public void run() {
+                        testingSource = null;
+                        if (gone()) {
+                            return;
+                        }
+                        builtinProbeResult = text;
+                        rebuildRows();
+                        toast("网易云（内置）：" + text);
+                    }
+                });
+            }
+        }, "wy-probe").start();
     }
 
     /** 扫码导入：起局域网接收页，手机上传的 .js 落进音源目录 */
@@ -3378,7 +3842,15 @@ public class MusicPage extends FrameLayout implements ModulePage {
                     return true;
                 }
                 if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                    focusChip();
+                    // 上键去右上角那颗「正在播放」胶囊，不是去顶栏页签。
+                    // 「播放全部」这颗在内容区右下角，它上面就是播放条那一排，
+                    // 用户按上键是想回到「正在放的是哪首」那个常驻入口，
+                    // 跳到顶栏页签等于跳到完全不相干的地方。
+                    if (nowChip != null && nowChip.getVisibility() == View.VISIBLE) {
+                        nowChip.requestFocus();
+                    } else {
+                        focusChip();
+                    }
                     return true;
                 }
                 return false;
@@ -3453,6 +3925,30 @@ public class MusicPage extends FrameLayout implements ModulePage {
     }
 
     /**
+     * 是不是一条 http(s) 直链（在线曲目）而不是本地文件路径。
+     */
+    private static boolean isOnlineUrl(String path) {
+        if (path == null) {
+            return false;
+        }
+        return path.startsWith("http://") || path.startsWith("https://");
+    }
+
+    /**
+     * 在线音频要带的请求头。
+     *
+     * <p>网易云的 CDN 认来源：没有浏览器 UA 一律回 403/断流，MediaPlayer 只报
+     * {@code what=-10104}（不告诉你是 403），排查时极容易被当成「链接过期」。
+     * Referer 也一起带上，部分节点会校验。
+     */
+    private java.util.Map<String, String> onlineHeaders() {
+        java.util.Map<String, String> headers = new java.util.HashMap<>();
+        headers.put("User-Agent", ONLINE_UA);
+        headers.put("Referer", "https://music.163.com/");
+        return headers;
+    }
+
+    /**
      * 把一首「已经有可播地址」的曲子交给 MediaPlayer。
      *
      * @return 是否成功开播
@@ -3487,6 +3983,11 @@ public class MusicPage extends FrameLayout implements ModulePage {
             player.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
                 @Override
                 public void onPrepared(MediaPlayer mp) {
+                    // 准备完成时人可能已经走了（返回桌面/切模块/换了歌）。
+                    // 无条件 start 就是「退出来了还在放」的来源，先问意图。
+                    if (!playIntent || gone()) {
+                        return;
+                    }
                     mp.start();
                     updateBar();
                 }
@@ -3497,11 +3998,18 @@ public class MusicPage extends FrameLayout implements ModulePage {
                 // 是稳的，拼成 content URI 交给 MediaPlayer 由系统代理读取。
                 player.setDataSource(getContext(), ContentUris.withAppendedId(
                         MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, track.id));
+            } else if (isOnlineUrl(track.path)) {
+                // 在线直链必须带 UA/Referer 去要：网易云 CDN 对没有来源头的请求直接拒，
+                // MediaPlayer 那边只回一个 what=-10104，看起来像「这首放不出来」。
+                // 光换 setDataSource(String) 是没法带头部的，必须走带 headers 的重载。
+                player.setDataSource(getContext(), android.net.Uri.parse(track.path),
+                        onlineHeaders());
             } else {
                 player.setDataSource(track.path);
             }
             player.prepareAsync();
             nowPlaying = track;
+            playIntent = true;
             countPlay(track);
             updateBar();
             notifyContentChanged();
@@ -3526,48 +4034,28 @@ public class MusicPage extends FrameLayout implements ModulePage {
      * </ul>
      */
     private void playOnline(final Track track) {
+        playOnline(track, "");
+    }
+
+    /**
+     * 解析并播放一首在线歌曲。
+     *
+     * @param sourceId 指定音源（{@code wy} 或 {@code lx:文件名}）；空表示自动挑
+     */
+    private void playOnline(final Track track, final String sourceId) {
         if (resolvingTrack != null) {
-            toast("上一首还在取播放链接，稍等一下");
+            setResolveStatus("上一首还在取链接…");
             return;
         }
         resolvingTrack = track;
         updateBar();
-        toast("正在取「" + shorten(track.title) + "」的播放链接，要等几十秒");
+        // 「正在取播放链接…」不再弹系统 Toast：连着切歌会连着弹三次，
+        // 底部一串提示糊在屏幕下沿，比不看还吵。状态写在顶栏（播放条 / 播放页）上。
 
         runAsync(new Runnable() {
             @Override
             public void run() {
-                String url = null;
-                String error = null;
-                try {
-                    LxSource source = findWySource();
-                    if (source == null) {
-                        error = sources.isEmpty()
-                                ? "还没有音源脚本：把 LX 规范的 .js 放到 "
-                                + LxManager.dir(getContext()).getAbsolutePath() + " 再试"
-                                : "这些音源都没有声明网易云平台";
-                    } else {
-                        String quality = pickQuality(wyPlatform == null ? null : wyPlatform.qualities);
-                        LxRuntime runtime = runtimeFor(source);
-                        String script = LxManager.readAll(
-                                new File(LxManager.dir(getContext()), source.fileName));
-                        LxRuntime.Result init = runtime.test(script, source);
-                        if (!init.ok) {
-                            error = "音源初始化失败：" + init.error;
-                        } else {
-                            LxRuntime.UrlResult result = runtime.resolveUrl(WY, musicInfo(track), quality);
-                            if (result.ok) {
-                                url = result.url;
-                            } else {
-                                error = result.error;
-                            }
-                        }
-                    }
-                } catch (Throwable th) {
-                    error = describe(th);
-                }
-                final String resolved = url;
-                final String failure = error;
+                final OnlineSourceResolver.Result res = resolveTrack(track, sourceId);
                 post(new Runnable() {
                     @Override
                     public void run() {
@@ -3579,21 +4067,169 @@ public class MusicPage extends FrameLayout implements ModulePage {
                             return;
                         }
                         resolvingTrack = null;
-                        if (resolved == null) {
-                            updateBar();
-                            toast("没取到播放链接：" + failure);
+                        if (!res.ok) {
+                            setResolveStatus("解析失败：" + res.error);
+                            toast("没取到播放链接：" + res.error);
                             return;
                         }
-                        android.util.Log.i(TAG, "在线链接 " + track.onlineId + " -> " + resolved);
-                        track.path = resolved;
+                        android.util.Log.i(TAG, "在线链接 " + track.onlineId + " -> " + res.url
+                                + "（" + res.describe() + "）");
+                        track.path = res.url;
+                        lastSourceId = res.sourceId;
+                        lastSourceQuality = res.quality;
                         if (!startPlayer(track)) {
-                            toast("取到的链接放不出来，可能已经失效了");
+                            // 链接取到了却放不出来：这个源的地址已经废了（过期、CDN 拒绝）。
+                            // 自动换一个源再试一次；所有源都不行就自动切下一首，
+                            // 让歌单自己往下走，不把用户撂在这儿。
+                            if (!retryWithAnotherSource(track, res.sourceId)) {
+                                setResolveStatus("这首歌放不出来，换下一首…");
+                                skipToNextTrack();
+                            }
+                            return;
                         }
+                        // 换源只是换链接，播放位置要接回去，不然用户以为跳歌了
+                        if (pendingSeekMs > 0) {
+                            try {
+                                player.seekTo((int) pendingSeekMs);
+                            } catch (Throwable ignored) {
+                                // 跳不回去就算了，歌已经在放了
+                            }
+                            pendingSeekMs = -1L;
+                        }
+                        setResolveStatus(res.fromCache
+                                ? "已从缓存恢复 · " + res.sourceName
+                                : "已切换到 " + res.sourceName);
                     }
                 });
             }
         });
     }
+
+    /**
+     * 把一首歌交给统一解析核心。
+     *
+     * @param sourceId 指定音源；空表示按解析顺序自动挑
+     */
+    private OnlineSourceResolver.Result resolveTrack(Track track, String sourceId) {
+        OnlineSourceResolver.Request req = new OnlineSourceResolver.Request();
+        req.songKey = songKeyOf(track);
+        req.onlineId = track.onlineId == null ? "" : String.valueOf(track.onlineId);
+        req.title = safe(track.title);
+        req.artist = safe(track.artist);
+        req.album = safe(track.album);
+        req.platform = TextUtils.isEmpty(track.onlinePlatform) ? WY : track.onlinePlatform;
+        req.quality = TextUtils.isEmpty(lastSourceQuality) ? "320k" : lastSourceQuality;
+        req.sourceId = sourceId == null ? "" : sourceId;
+        req.preferredSourceId = lastSourceId;
+        req.musicInfoJson = musicInfo(track);
+        req.proxy = DeskPrefs.musicProxy(getContext());
+        if (!TextUtils.isEmpty(pendingRetrySourceId)) {
+            req.excludeSourceId = pendingRetrySourceId;
+            pendingRetrySourceId = "";
+        }
+        return OnlineSourceResolver.resolve(getContext(), req, jsProvider);
+    }
+
+    /**
+     * 换另一个源再解析一次。
+     *
+     * <p>只再试一次：换源不是无限重试，链路上每个源都要跑一次脚本（几十秒），
+     * 试三次用户等不起。
+     *
+     * @return 已经用新源重试了就返回 true
+     */
+    private boolean retryWithAnotherSource(final Track track, String failedSourceId) {
+        if (TextUtils.isEmpty(failedSourceId) || failedSourceId.equals(lastSourceId)) {
+            // 已经是上次成功的那个源了，再换没有意义
+            return false;
+        }
+        pendingRetrySourceId = failedSourceId;
+        setResolveStatus("这个源放不出来，换一个源再试…");
+        playOnline(track, "");
+        return true;
+    }
+
+    /** 上一次失败的源 id，下一次解析要跳过它 */
+    private String pendingRetrySourceId = "";
+
+    /**
+     * 这首实在放不出来，自动切下一首。
+     *
+     * <p>歌单要能自己往下走：用户已经按过「下一首」的意愿很明显，
+     * 停在原地反复报错只会让人以为 App 卡了。
+     */
+    private void skipToNextTrack() {
+        if (queue.isEmpty()) {
+            setResolveStatus("这首歌放不出来");
+            return;
+        }
+        setResolveStatus("这首歌放不出来，换下一首…");
+        playNext();
+    }
+
+    private Activity host() {
+        Context c = getContext();
+        return c instanceof Activity ? (Activity) c : null;
+    }
+
+    /** 缓存键用的歌曲标识：有网易云 id 用 id，没有就用「歌名|歌手」 */
+    private static String songKeyOf(Track track) {
+        if (track == null) {
+            return "";
+        }
+        if (!TextUtils.isEmpty(track.onlineId)) {
+            return "n:" + track.onlineId;
+        }
+        return "t:" + safe(track.title) + "|" + safe(track.artist);
+    }
+
+    /** 把已装脚本的能力递进解析核心 */
+    private final OnlineSourceResolver.JsProvider jsProvider =
+            new OnlineSourceResolver.JsProvider() {
+                @Override
+                public List<LxSource> installedSources() {
+                    return sourceSnapshot();
+                }
+
+                @Override
+                public LxRuntime runtimeFor(String fileName) {
+                    LxSource source = sourceByFile(fileName);
+                    // 必须写全 MusicPage.this：匿名类里也有个 runtimeFor(String)，
+                    // 不写全会解析到它身上去（类型也对不上）
+                    return source == null ? null : MusicPage.this.runtimeFor(source);
+                }
+
+                @Override
+                public LxRuntime readyRuntime(String fileName) {
+                    LxSource source = sourceByFile(fileName);
+                    if (source == null) {
+                        return null;
+                    }
+                    LxRuntime runtime = MusicPage.this.runtimeFor(source);
+                    if (runtime == null) {
+                        return null;
+                    }
+                    if (runtime.isReady()) {
+                        return runtime;
+                    }
+                    // 第一次用这个脚本：得先把它跑起来（墨澜源首跑 15~20 秒），
+                    // 不初始化就取链，脚本那边只会回一句「运行时未初始化」
+                    try {
+                        String script = LxManager.readAll(
+                                new File(LxManager.dir(getContext()), source.fileName));
+                        LxRuntime.Result init = runtime.test(script, source);
+                        if (!init.ok) {
+                            android.util.Log.i(TAG, "音源初始化失败：" + init.error);
+                            return null;
+                        }
+                        publishPlatforms(source, init);
+                    } catch (Throwable th) {
+                        android.util.Log.i(TAG, "音源初始化异常：" + describe(th));
+                        return null;
+                    }
+                    return runtime.isReady() ? runtime : null;
+                }
+            };
 
     /**
      * 找能出网易云链接的音源脚本。
@@ -3721,6 +4357,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
             info.put("name", safe(track.title));
             info.put("singer", safe(track.artist));
             info.put("albumName", safe(track.album));
+            info.put("platform", TextUtils.isEmpty(track.onlinePlatform) ? WY : track.onlinePlatform);
             return info.toString();
         } catch (Throwable th) {
             return "{\"id\":\"" + track.onlineId + "\"}";
@@ -3744,9 +4381,13 @@ public class MusicPage extends FrameLayout implements ModulePage {
             return;
         }
         try {
-            if (player.isPlaying()) {
+            // 按意图而不是 isPlaying() 切：准备中 isPlaying() 是 false，
+            // 那时按暂停会被当成「播放」，反而把它叫醒
+            if (playIntent) {
+                playIntent = false;
                 player.pause();
             } else {
+                playIntent = true;
                 player.start();
             }
             updateBar();
@@ -3815,6 +4456,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
         try {
             player.seekTo(0);
+            playIntent = true;
             player.start();
             updateBar();
             return true;
@@ -4040,6 +4682,17 @@ public class MusicPage extends FrameLayout implements ModulePage {
         return !TextUtils.isEmpty(id) && liked.contains(id);
     }
 
+    /**
+     * 写一条换源状态。
+     *
+     * <p>状态放在顶栏而不是 Toast：Toast 会盖在屏幕下沿，连着切歌连着弹，
+     * 一串提示糊在那里反而看不清。顶栏那行字一直在，用户想看就看得到。
+     */
+    private void setResolveStatus(String text) {
+        resolveStatus = text == null ? "" : text;
+        updateBar();
+    }
+
     private void updateBar() {
         boolean resolving = resolvingTrack != null;
         Track shown = nowPlaying != null ? nowPlaying : resolvingTrack;
@@ -4056,14 +4709,17 @@ public class MusicPage extends FrameLayout implements ModulePage {
             }
             return;
         }
-        bar.setVisibility(View.VISIBLE);
+        // 播放页开着的时候播放条要藏着：两个控件层叠着，焦点会被播放条抢走
+        bar.setVisibility(stageOpen ? View.GONE : View.VISIBLE);
         if (nowChipText != null) {
             nowChipText.setText(TextUtils.isEmpty(shown.title) ? fileName(shown.path) : shown.title);
         }
         nowTitle.setText(TextUtils.isEmpty(shown.title) ? fileName(shown.path) : shown.title);
         // 取链接那几十秒里必须有个说法，否则用户看到的是一首「正在播」但听不到声音的歌
         nowMeta.setText(resolving && nowPlaying == null
-                ? "正在取播放链接…" : join(safe(shown.artist), safe(shown.album)));
+                ? "正在取播放链接…"
+                : (!TextUtils.isEmpty(resolveStatus) ? resolveStatus
+                : join(safe(shown.artist), safe(shown.album))));
         renderBarCover(shown);
         setLikeShown(isLikedNow());
 
@@ -4198,6 +4854,8 @@ public class MusicPage extends FrameLayout implements ModulePage {
         stagePrev.setNextFocusRightId(R.id.stage_toggle);
         stagePrev.setNextFocusUpId(R.id.stage_mode);
         stagePrev.setNextFocusDownId(R.id.stage_like);
+        stageToggle.setNextFocusLeftId(R.id.stage_prev);
+        stageToggle.setNextFocusRightId(R.id.stage_next);
         stageToggle.setNextFocusUpId(R.id.stage_mode);
         stageToggle.setNextFocusDownId(R.id.stage_like);
         stageNext.setNextFocusLeftId(R.id.stage_toggle);
@@ -4208,25 +4866,16 @@ public class MusicPage extends FrameLayout implements ModulePage {
         stageLike.setNextFocusUpId(R.id.stage_mode);
         stageLike.setNextFocusDownId(R.id.stage_like);
 
-        // 「暂停」这颗上的左右是快退/快进：这一层就三个按钮，左右键落不到别处，
-        // 空转不如给个播放器人人都按的动作。OnKeyListener 比焦点搜索先跑，抢得到。
-        stageToggle.setOnKeyListener(new View.OnKeyListener() {
-            @Override
-            public boolean onKey(View v, int keyCode, KeyEvent event) {
-                if (event.getAction() != KeyEvent.ACTION_DOWN) {
-                    return false;
-                }
-                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                    startHoldSeek(-1, event.getRepeatCount());
-                    return true;
-                }
-                if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                    startHoldSeek(1, event.getRepeatCount());
-                    return true;
-                }
-                return false;
-            }
-        });
+        // 「暂停」这颗<b>不抢</b>左右键。
+        //
+        // <p>以前这里用 OnKeyListener 抢左右当快退快进，结果焦点永远走不出「暂停」，
+        // 底栏只有这一颗能到 —— 用户按右键想切到「下一首」却变成拖进度条，
+        // 按确定也只作用在暂停上（表现为「上一首/下一首按钮无反应」）。
+        //
+        // <p>遥控器上快退快进本来就有专门的键；控制区收起时按左右是「唤回控制区 +
+        // 拖进度」，那条路在 {@link #dispatchKeyEvent} 里已经处理了，不依赖这一颗。
+        // 所以这里整个 OnKeyListener 去掉，左右键交回焦点导航。
+        stageToggle.setOnKeyListener(null);
     }
 
     private void openStage() {
@@ -4239,6 +4888,11 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
         stageOpen = true;
         stage.setVisibility(View.VISIBLE);
+        // 播放条必须一起藏掉。播放页和播放条是两个独立的控件层，
+        // 播放条还 VISIBLE 的时候焦点搜索会走到它那边去 ——
+        // 用户在播放页按右键想切到「下一首」，焦点却跳到了底部播放条的暂停键，
+        // 再按确定切的就是播放条（什么也不会发生）。表现就是「上一首/下一首按钮无反应」。
+        bar.setVisibility(View.GONE);
         stage.animate().cancel();
         stage.setAlpha(0f);
         stage.animate().alpha(1f).setDuration(240).start();
@@ -4265,6 +4919,10 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
         stageOpen = false;
         stopHoldSeek();
+        // 播放条放回来（收起时它本来就该在）
+        if (nowPlaying != null || resolvingTrack != null) {
+            bar.setVisibility(View.VISIBLE);
+        }
         ui.removeCallbacks(stageTick);
         ui.removeCallbacks(stageChromeHide);
         stageChromeHidden = false;
@@ -4329,8 +4987,14 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
         stageTitle.animate().translationY(shift).setDuration(320).start();
         stageMeta.animate().translationY(shift).setDuration(320).start();
+        // 唱机和歌词一起沉下去：三块内容（唱机 / 歌词 / 曲名）得同步，
+        // 只动其中一块的话，右侧歌词会停在半空，看着像两层画面错开了
         if (stageTurntable != null) {
             stageTurntable.animate().translationY(down ? shift / 3f : 0f)
+                    .setDuration(320).start();
+        }
+        if (stageLyric != null) {
+            stageLyric.animate().translationY(down ? shift / 3f : 0f)
                     .setDuration(320).start();
         }
     }
@@ -4384,7 +5048,8 @@ public class MusicPage extends FrameLayout implements ModulePage {
     /** 曲名、歌手、封面、背景。换歌和刚展开时各刷一次，不跟着进度走 */
     private void renderStageHead(Track shown) {
         stageTitle.setText(TextUtils.isEmpty(shown.title) ? fileName(shown.path) : shown.title);
-        stageMeta.setText(join(safe(shown.artist), safe(shown.album)));
+        stageMeta.setText(TextUtils.isEmpty(resolveStatus)
+                ? join(safe(shown.artist), safe(shown.album)) : resolveStatus);
         boolean hasCover = !TextUtils.isEmpty(shown.coverUrl);
         stageCover.setVisibility(hasCover ? View.VISIBLE : View.GONE);
         stageNote.setVisibility(hasCover ? View.GONE : View.VISIBLE);
@@ -4564,7 +5229,18 @@ public class MusicPage extends FrameLayout implements ModulePage {
                 try {
                     String songId = track.isOnline()
                             ? track.onlineId : resolveLocalSongId(track);
-                    if (!TextUtils.isEmpty(songId)) {
+                    // 先问 JS 源：有些歌在官方那儿没有词，脚本那边有；
+                    // 官方有词当然先用官方的（更快）。
+                    OnlineSourceResolver.Request req = new OnlineSourceResolver.Request();
+                    req.songKey = songKeyOf(track);
+                    req.onlineId = songId == null ? "" : songId;
+                    req.title = safe(track.title);
+                    req.artist = safe(track.artist);
+                    req.album = safe(track.album);
+                    req.platform = WY;
+                    req.musicInfoJson = musicInfo(track);
+                    lrc = OnlineSourceResolver.lyric(getContext(), req, jsProvider);
+                    if (TextUtils.isEmpty(lrc) && !TextUtils.isEmpty(songId)) {
                         lrc = netease().lyric(songId);
                     }
                 } catch (Throwable th) {
@@ -4686,7 +5362,43 @@ public class MusicPage extends FrameLayout implements ModulePage {
         if (!stageOpen && keyCode == KeyEvent.KEYCODE_DPAD_UP
                 && (list.hasFocus() || grid.hasFocus() || searchInput.hasFocus()
                 || playAllBtn.hasFocus())) {
+            // 搜索框和「播放全部」本来就贴着页签，再往上就是页签
+            if (searchInput.hasFocus()) {
+                hideIme();
+                focusChip();
+                return true;
+            }
+            if (playAllBtn.hasFocus()) {
+                // 「播放全部」上面就是右上角那颗「正在播放」胶囊 ——
+                // 用户按上键是想回到「现在放的是哪首」那个常驻入口，
+                // 跳到顶栏页签等于跳到完全不相干的地方。
+                hideIme();
+                if (nowChip != null && nowChip.getVisibility() == View.VISIBLE) {
+                    nowChip.requestFocus();
+                } else {
+                    focusChip();
+                }
+                return true;
+            }
+            // 列表/卡片墙：只有已经站在第一行才回页签。
+            // 以前不分行数一律跳页签，多行的列表里按一下 UP 人就飞到左上角那颗按钮，
+            // 用户要的明明是「一行一行往上翻」。
+            if (!atContentTop()) {
+                // 交回默认的逐行上移：这一步不能吞，吞了焦点就钉死在原地
+                return false;
+            }
             hideIme();
+            // 已经在内容顶部了：这一下先给「播放全部」那颗按钮。
+            //
+            // <p>它在标题行右侧，和标题是同一行的横向邻居。按几何搜索的话，
+            // 焦点从卡片墙顶部往上走会直奔顶栏页签（更近），「播放全部」永远到不了 ——
+            // 用户想「一键全放」却得先用鼠标点它。
+            //
+            // <p>所以这里显式给焦点：从标题行右侧那颗按钮再往上才轮到页签，
+            // 层级关系跟视觉一致。
+            if (playAllBtn.getVisibility() == View.VISIBLE && playAllBtn.requestFocus()) {
+                return true;
+            }
             focusChip();
             return true;
         }
@@ -4705,7 +5417,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
                     mineTab = -1;
                 }
                 rebuildRows();
-                focusList(drillFromIndex);
+                focusList(drillFromIndex, BACK_FOCUS_RETRIES);
                 return Back.consume("音乐·退出在线歌单");
             }
             // 先进过某个歌单/歌手/专辑/文件夹/音源的，返回一次退到上级列表
@@ -4713,14 +5425,14 @@ public class MusicPage extends FrameLayout implements ModulePage {
                 drillKey = null;
                 drillLabel = null;
                 rebuildRows();
-                focusList(drillFromIndex);
+                focusList(drillFromIndex, BACK_FOCUS_RETRIES);
                 return Back.consume("音乐·退出分组列表");
             }
             // 「我的」的子视图：返回一次回入口列表
             if (mineTab >= 0) {
                 mineTab = -1;
                 rebuildRows();
-                focusList(drillFromIndex);
+                focusList(drillFromIndex, BACK_FOCUS_RETRIES);
                 return Back.consume("音乐·退出「我的」子页");
             }
             // 搜索框里还留着词：返回一次清掉，别直接把人弹出模块
@@ -4732,9 +5444,15 @@ public class MusicPage extends FrameLayout implements ModulePage {
                 focusSearch();
                 return Back.consume("音乐·清空搜索词");
             }
+            // 焦点还在内容区（列表 / 卡片墙）时，返回先回顶栏。
+            // 顶栏是内容区的上一层：一次返回跨两层（内容 → 桌面）会让人不知道自己在哪，
+            // 遥控器上按一下像是没反应。回到顶栏之后再按一次才退出本页。
+            if (list.findFocus() != null || grid.findFocus() != null) {
+                hideIme();
+                focusChip();
+                return Back.consume("音乐·回顶栏");
+            }
             // 没层级可退了，交给宿主关页回桌面。
-            // 注意这里不再「先回页签再退出」：页签和列表是同一个内嵌页里的两块，
-            // 不是两级页面，多要一次 BACK 只会让人以为遥控器失灵。
             return Back.pass("音乐·页内已无层级");
         }
         if (keyCode == KeyEvent.KEYCODE_MENU && !stageOpen) {
@@ -4758,11 +5476,9 @@ public class MusicPage extends FrameLayout implements ModulePage {
 
     @Override
     public boolean hasActivePlayback() {
-        try {
-            return player != null && player.isPlaying();
-        } catch (Throwable ignored) {
-            return false;
-        }
+        // 看意图不看 isPlaying()：准备/缓冲期间 isPlaying() 是 false，
+        // 可准备一完成就会出声，离开时照样得问一句、停干净
+        return player != null && playIntent;
     }
 
     @Override
@@ -4770,6 +5486,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
         if (player == null) {
             return;
         }
+        playIntent = false;
         try {
             player.pause();
         } catch (Throwable ignored) {
@@ -4794,12 +5511,9 @@ public class MusicPage extends FrameLayout implements ModulePage {
     @Override
     public void onLeave() {
         ui.removeCallbacks(stageChromeHide);
-        boolean playing = false;
-        try {
-            playing = player != null && player.isPlaying();
-        } catch (Throwable ignored) {
-        }
-        if (!playing) {
+        // 不能用 isPlaying()：准备/缓冲那一瞬它是 false，可准备完成就会自己 start。
+        // 按「有播放意图」判，只要在放或正要放，离开就得停干净。
+        if (player == null || !playIntent) {
             return;
         }
         if (keepPlayingOnce) {
@@ -4809,10 +5523,12 @@ public class MusicPage extends FrameLayout implements ModulePage {
         if (DeskPrefs.keepPlayingOnLeave(getContext())) {
             return;
         }
+        playIntent = false;
         try {
             player.pause();
         } catch (Throwable ignored) {
-            return;
+            // 准备中 pause 可能被拒：没关系，playIntent 已经置假，
+            // onPrepared 那边看到就不会再 start
         }
         pausedOnLeave = true;
         updateBar();
@@ -4826,6 +5542,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
         stageOpen = false;
         stopSpin();
         lyricFor = null;
+        playIntent = false;
         if (player != null) {
             try {
                 player.release();

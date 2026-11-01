@@ -1,21 +1,76 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  顶栏胶囊的底 —— 「液态玻璃」的静态版。
+
+  桌面那几颗关键胶囊（模块切换器、右上角时间天气）在代码里换成了真的玻璃
+  （GlassDrawable：按自己在窗口里的位置，从背景磨砂图上取样，再补一道受光的边）。
+  剩下几十处胶囊用的还是这个 drawable，没法逐个取样，所以在这里把「玻璃」的
+  视觉语言补齐：
+
+  - 底色更透，背后的画面能透出来一点；
+  - 上沿一道白高光（光从上面下来，玻璃上沿先亮，到中段淡掉）；
+  - 一圈 1dp 细描边（浮在卡片墙上时，没有这圈边就看不出是独立的一层）；
+  - 焦点态描边转白加粗，和 GlassDrawable 的 focused 对得上。
+-->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
 
     <item android:state_focused="true">
-        <shape android:shape="rectangle">
-            <solid android:color="@color/pill_bg_focused" />
-            <corners android:radius="@dimen/radius_control" />
-            <stroke
-                android:width="3dp"
-                android:color="@color/pill_stroke" />
-        </shape>
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#CC2A2A34" />
+                    <corners android:radius="@dimen/radius_control" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/radius_control" />
+                    <gradient
+                        android:angle="270"
+                        android:endColor="#00FFFFFF"
+                        android:startColor="#33FFFFFF"
+                        android:type="linear" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/radius_control" />
+                    <stroke
+                        android:width="3dp"
+                        android:color="@color/pill_stroke" />
+                </shape>
+            </item>
+        </layer-list>
     </item>
 
     <item>
-        <shape android:shape="rectangle">
-            <solid android:color="@color/pill_bg" />
-            <corners android:radius="@dimen/radius_control" />
-        </shape>
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#8A1C1C24" />
+                    <corners android:radius="@dimen/radius_control" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/radius_control" />
+                    <gradient
+                        android:angle="270"
+                        android:centerColor="#08FFFFFF"
+                        android:endColor="#00FFFFFF"
+                        android:startColor="#1FFFFFFF"
+                        android:type="linear" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/radius_control" />
+                    <stroke
+                        android:width="1dp"
+                        android:color="#26FFFFFF" />
+                </shape>
+            </item>
+        </layer-list>
     </item>
 
 </selector>

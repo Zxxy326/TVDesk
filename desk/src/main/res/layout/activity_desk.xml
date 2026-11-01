@@ -12,6 +12,7 @@
 
     <!-- 氛围背景：自绘三层光，接真实数据后由 Hero 海报覆盖 -->
     <com.tvdesk.desk.widget.BackdropView
+        android:id="@+id/desk_ambient"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
@@ -291,12 +292,91 @@
         android:id="@+id/category_wall"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:clipChildren="false"
         android:clipToPadding="false"
         android:paddingStart="50dp"
-        android:paddingTop="86dp"
+        android:paddingTop="104dp"
         android:paddingEnd="50dp"
         android:paddingBottom="16dp"
         android:visibility="gone" />
+
+    <!-- ============ 收藏双栏 ============ -->
+    <!--
+      收藏模块一个页面分两栏：上面收藏、下面观看历史。都是本机清单，
+      不用翻页加载，各栏自管空态提示。藏在模块宿主之前，模块页打开时整页盖住。
+    -->
+    <LinearLayout
+        android:id="@+id/favorites_dual"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="horizontal"
+        android:paddingStart="50dp"
+        android:paddingTop="92dp"
+        android:paddingEnd="50dp"
+        android:paddingBottom="12dp"
+        android:visibility="gone">
+
+        <!-- 左栏：收藏 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/fav_row_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="收藏"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <com.tvdesk.desk.CategoryWall
+                android:id="@+id/fav_wall"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginTop="4dp"
+                android:layout_weight="1"
+                android:clipChildren="false"
+                android:clipToPadding="false" />
+        </LinearLayout>
+
+        <!-- 右栏：观看历史。左右按一下就跨过去，不用上下找 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="22dp"
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/hist_row_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="观看历史"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <com.tvdesk.desk.CategoryWall
+                android:id="@+id/hist_wall"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginTop="4dp"
+                android:layout_weight="1"
+                android:clipChildren="false"
+                android:clipToPadding="false" />
+        </LinearLayout>
+    </LinearLayout>
 
     <!-- ============ 模块页宿主 ============ -->
     <!--
@@ -367,27 +447,52 @@
         android:paddingEnd="@dimen/nav_pad_h" />
 
 
-    <!-- ============ 右上：时钟 ============ -->
+    <!-- ============ 右上：天气 + 时钟 ============ -->
     <!--
       电视上没有别的表盘，看时间只能退出应用——所以沉浸轮播时它是唯一保留的桌面控件。
-      不可聚焦：它没有行为，进了焦点链就是一次按不动的落点。
-      文字每整分由 DeskActivity.tickClock 刷一次。
+      不可聚焦：它们没有行为，进了焦点链就是一次按不动的落点。
+      文字每整分由 DeskActivity.tickClock 刷一次；天气按小时刷新。
+
+      天气和时间分成两个 TextView，是为了各自能在设置里单独关掉：
+      关掉时间只留天气（或反过来）都说得通，所以不做成一句拼死的文案。
     -->
-    <TextView
-        android:id="@+id/desk_clock"
+    <LinearLayout
+        android:id="@+id/desk_status"
         android:layout_width="wrap_content"
         android:layout_height="@dimen/top_bar_height"
         android:layout_gravity="top|end"
         android:layout_marginEnd="@dimen/screen_pad"
         android:layout_marginTop="@dimen/top_bar_top"
-        android:background="@drawable/bg_pill"
-        android:gravity="center"
-        android:paddingStart="18dp"
-        android:paddingEnd="18dp"
-        android:text="12:51"
-        android:textColor="@color/text_primary"
-        android:textSize="17sp"
-        android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <!-- 时间在左 -->
+        <TextView
+            android:id="@+id/desk_clock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:shadowColor="#CC000000"
+            android:shadowDy="2"
+            android:shadowRadius="6"
+            android:text="12:51"
+            android:textColor="@color/text_primary"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <!-- 天气在右。不要底板：这一块浮在海报上，靠阴影保证可读 -->
+        <TextView
+            android:id="@+id/desk_weather"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:shadowColor="#CC000000"
+            android:shadowDy="2"
+            android:shadowRadius="6"
+            android:text=""
+            android:textColor="@color/text_primary"
+            android:textSize="15sp"
+            android:visibility="gone" />
+    </LinearLayout>
 
     <!-- ============ 顶栏下面的提示条 ============ -->
     <!--

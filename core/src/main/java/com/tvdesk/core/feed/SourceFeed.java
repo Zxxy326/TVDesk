@@ -16,6 +16,8 @@ import com.github.tvbox.osc.bean.MovieSort;
 import com.github.tvbox.osc.bean.SourceBean;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 import com.lzy.okgo.OkGo;
@@ -262,6 +264,37 @@ public final class SourceFeed {
             SLIDE_CACHE.evictAll();
         }
         android.util.Log.i(TAG, "已清除上次验证的站点，下次按新的首页数据源重扫");
+    }
+
+    /** 用户在「请选择首页数据源」里亲手点过的站点 key（存 Hawk，跨进程重启仍然有效） */
+    private static final String PICKED_KEY = "desk_home_picked";
+
+    /**
+     * 记下「这是用户亲手选的」。
+     *
+     * <p>为什么不直接用 {@code HawkConfig.HOME_API} 判断：配置一加载完，ApiConfig
+     * 就会把第一条站点写进 HOME_API（见 {@code ApiConfig#parseJson}），所以那个键
+     * 任何时候都非空，区分不出「用户选的」和「程序兜底的」。
+     *
+     * <p>这条记录唯一的用处是让 {@link #tryCategories} 对这一条站点跳过内容探测，
+     * 理由见那里的注释。
+     */
+    public static void noteUserPicked(String key) {
+        try {
+            Hawk.put(PICKED_KEY, key == null ? "" : key);
+        } catch (Throwable th) {
+            android.util.Log.w(TAG, "记不住用户选的站点", th);
+        }
+    }
+
+    /** 用户亲手选的那个站点 key，没选过是空串 */
+    private static String userPickedKey() {
+        try {
+            String key = Hawk.get(PICKED_KEY, "");
+            return key == null ? "" : key;
+        } catch (Throwable th) {
+            return "";
+        }
     }
 
     /** 注册 jar 迟到通知。桌面在 {@code onCreate} 注册、{@code onDestroy} 传 null 注销。 */
@@ -586,6 +619,19 @@ public final class SourceFeed {
                     return;
                 }
                 rememberFallback(bean, categories);
+                // 用户亲手选的站点直接用，不做内容探测。
+                // 探测是为「自动挑一个能出内容的源」准备的，它认的是「海报 + 可播线路」，
+                // 而配置中心 / 网盘站天生不符合：列表项是「网页版配置中心」这种内嵌图标条目，
+                // id 还常带 msearch: 前缀。拿探测去否掉它们，等于用户点了「我的|网盘」
+                // 却永远被换成别的站——「点不开、也就配不了网盘」就是这么来的。
+                // 用户要的就是这一类站，探测在这里没有发言权，只剩「有没有类目」可用。
+                if (bean.getKey().equals(userPickedKey())) {
+                    resolvedSource = bean;
+                    android.util.Log.i(TAG, "用源（用户指定，跳过探测）：" + bean.getName()
+                            + " 类目 " + categories.size() + " 个");
+                    postCategories(callback, categories);
+                    return;
+                }
                 // 有类目不等于有内容：配置中心、网盘站也能列出十几个类目，
                 // 但里面是「网页版配置中心」这种条目。真拉一条列表验证过再用。
                 probePlayable(bean, categories, new ProbeCallback() {
@@ -874,7 +920,23 @@ public final class SourceFeed {
                     android.util.Log.i(TAG, "categoryContent spider sort=" + sort.id
                             + " json=" + (json == null ? "null" : json.length() + " chars: "
                             + json.substring(0, Math.min(120, json.length()))));
-                    postList(callback, videosOf(parseJson(json), bean.getKey()));
+                    List<Movie.Video> videos = videosOf(parseJson(json), bean.getKey());
+                    // 配置中心那类站点的条目全靠 id 区分动作（web / sort / proxy…），
+                    // 界面上只看到名字，出问题时没有任何抓手。逐条打出来才能对着日志排。
+                    if (!videos.isEmpty()) {
+                        StringBuilder dump = new StringBuilder();
+                        for (int i = 0; i < Math.min(videos.size(), 20); i++) {
+                            Movie.Video v = videos.get(i);
+                            dump.append('\n').append(sort.id).append('#').append(i)
+                                    .append(" id=").append(v.id)
+                                    .append(" name=").append(v.name)
+                                    .append(" note=").append(v.note)
+                                    .append(" pic=").append(v.pic != null && v.pic.length() > 40
+                                            ? v.pic.substring(0, 40) : v.pic);
+                        }
+                        android.util.Log.i(TAG, "列表条目 " + dump);
+                    }
+                    postList(callback, videos);
                 }
             });
             return;
@@ -1077,9 +1139,99 @@ public final class SourceFeed {
                     JsonParser.parseString(json).getAsJsonObject(),
                     new TypeToken<AbsSortJson>() {
                     }.getType());
-            return sortJson == null ? null : sortJson.toAbsSortXml();
+            if (sortJson == null) {
+                return null;
+            }
+            AbsSortXml xml = sortJson.toAbsSortXml();
+            // 筛选不在类目模型里：源把它放在顶层 filters（key 是类目 id），
+            // 得单独取出来再按 id 发到各个类目上
+            applyFilters(xml, parseFilters(json));
+            return xml;
         } catch (Throwable th) {
             return null;
+        }
+    }
+
+    /**
+     * 从类目 JSON 里取出筛选条件。
+     *
+     * <p>结构跟 TVBox 原版一致：
+     * <pre>
+     *   "filters": {
+     *     "2": [ {"key":"year","name":"年份",
+     *             "value":[{"n":"2026","v":"2026"},{"n":"全部","v":""}]} ]
+     *   }
+     * </pre>
+     * 顶层 key 是<b>类目 id</b>，值是该类目的筛选维度列表。
+     *
+     * @return 类目 id → 筛选维度列表
+     */
+    private static java.util.Map<String, ArrayList<MovieSort.SortFilter>> parseFilters(String json) {
+        java.util.Map<String, ArrayList<MovieSort.SortFilter>> result = new java.util.LinkedHashMap<>();
+        try {
+            JsonObject obj = JsonParser.parseString(json).getAsJsonObject();
+            if (!obj.has("filters") || !obj.get("filters").isJsonObject()) {
+                return result;
+            }
+            JsonObject filters = obj.getAsJsonObject("filters");
+            for (String categoryId : filters.keySet()) {
+                ArrayList<MovieSort.SortFilter> list = new ArrayList<>();
+                JsonElement one = filters.get(categoryId);
+                if (one != null && one.isJsonObject()) {
+                    list.add(oneFilter(one.getAsJsonObject()));
+                } else if (one != null && one.isJsonArray()) {
+                    for (JsonElement ele : one.getAsJsonArray()) {
+                        if (ele != null && ele.isJsonObject()) {
+                            list.add(oneFilter(ele.getAsJsonObject()));
+                        }
+                    }
+                }
+                if (!list.isEmpty()) {
+                    result.put(categoryId, list);
+                }
+            }
+        } catch (Throwable th) {
+            return new java.util.LinkedHashMap<>();
+        }
+        return result;
+    }
+
+    /** 一个筛选维度：{@code {"key":"year","name":"年份","value":[{"n":"显示名","v":"参数值"}]}} */
+    private static MovieSort.SortFilter oneFilter(JsonObject obj) {
+        MovieSort.SortFilter filter = new MovieSort.SortFilter();
+        filter.key = obj.has("key") ? obj.get("key").getAsString() : "";
+        filter.name = obj.has("name") ? obj.get("name").getAsString() : filter.key;
+        java.util.LinkedHashMap<String, String> values = new java.util.LinkedHashMap<>();
+        if (obj.has("value") && obj.get("value").isJsonArray()) {
+            for (JsonElement ele : obj.getAsJsonArray("value")) {
+                if (ele == null || !ele.isJsonObject()) {
+                    continue;
+                }
+                JsonObject item = ele.getAsJsonObject();
+                String label = item.has("n") ? item.get("n").getAsString() : "";
+                String value = item.has("v") ? item.get("v").getAsString() : "";
+                values.put(label, value);
+            }
+        }
+        filter.values = values;
+        return filter;
+    }
+
+    /** 把筛选按类目 id 发到各个类目上 */
+    private static void applyFilters(AbsSortXml sortXml,
+            java.util.Map<String, ArrayList<MovieSort.SortFilter>> filters) {
+        if (sortXml == null || sortXml.classes == null || sortXml.classes.sortList == null
+                || filters == null || filters.isEmpty()) {
+            return;
+        }
+        for (MovieSort.SortData sort : sortXml.classes.sortList) {
+            if (sort == null || TextUtils.isEmpty(sort.id)) {
+                continue;
+            }
+            ArrayList<MovieSort.SortFilter> list = filters.get(sort.id);
+            if (list != null && !list.isEmpty()) {
+                sort.filters = list;
+            }
         }
     }
 

@@ -103,6 +103,10 @@ public final class SourceDialog extends Dialog {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.dialog_source);
+        // 系统在 API 26+ 会给焦点控件叠一层半透明矩形高亮，它按外接矩形画，
+        // 圆角行/胶囊按钮的四个角就被「切」出直角边，看着像被裁了一块。
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(
+                getWindow().getDecorView());
         sizeWindow();
 
         input = findViewById(R.id.dialog_input);

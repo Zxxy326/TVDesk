@@ -11,7 +11,8 @@
         android:layout_gravity="center|end"
         android:layout_marginEnd="20dp"
         android:layout_marginRight="20dp"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:visibility="gone">
 
         <TextView
             android:id="@+id/video_size"
@@ -50,10 +51,16 @@
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
+        <!-- 这几个要能被遥控器选中：以前它们既不可聚焦也不可点击，
+             焦点在控制条上根本走不过去（用户说「底部按钮选不了」）。
+             焦点态用系统高亮之外再给一点自绘描边（focused 时的 alpha 提亮）。 -->
         <ImageView
             android:id="@+id/iv_play"
             android:layout_width="@dimen/dkplayer_controller_height"
             android:layout_height="@dimen/dkplayer_controller_height"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
             android:padding="@dimen/dkplayer_controller_icon_padding"
             android:src="@drawable/dkplayer_selector_play_button" />
 
@@ -73,6 +80,8 @@
             android:layout_marginStart="10dp"
             android:layout_marginEnd="10dp"
             android:layout_weight="1"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
             android:background="@null"
             android:max="1000"
             android:maxHeight="2dp"
@@ -99,6 +108,9 @@
             android:layout_marginEnd="@dimen/dkplayer_controller_icon_padding"
             android:layout_marginRight="@dimen/dkplayer_controller_icon_padding"
             android:background="@android:color/transparent"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
             android:text="上一集"
             android:textColor="@android:color/white"
             android:textSize="@dimen/dkplayer_controller_time_text_size" />
@@ -110,6 +122,9 @@
             android:layout_marginEnd="@dimen/dkplayer_controller_icon_padding"
             android:layout_marginRight="@dimen/dkplayer_controller_icon_padding"
             android:background="@android:color/transparent"
+            android:clickable="true"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
             android:text="下一集"
             android:textColor="@android:color/white"
             android:textSize="@dimen/dkplayer_controller_time_text_size" />
@@ -134,9 +149,9 @@
         android:background="@drawable/box_controller_top_bg"
         android:orientation="horizontal"
         android:paddingLeft="12mm"
-        android:paddingTop="10mm"
+        android:paddingTop="5mm"
         android:paddingRight="12mm"
-        android:paddingBottom="10mm">
+        android:paddingBottom="5mm">
 
         <TextView
             android:id="@+id/tv_info_name"

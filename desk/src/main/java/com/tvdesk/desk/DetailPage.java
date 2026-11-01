@@ -22,6 +22,7 @@ import com.github.tvbox.osc.api.ApiConfig;
 import com.github.tvbox.osc.bean.Movie;
 import com.github.tvbox.osc.bean.SourceBean;
 import com.github.tvbox.osc.bean.VodInfo;
+import com.github.tvbox.osc.cache.RoomDataManger;
 import com.github.tvbox.osc.util.ImgUtil;
 import com.tvdesk.core.feed.DetailFeed;
 import com.tvdesk.desk.motion.FocusScaler;
@@ -77,10 +78,25 @@ public class DetailPage extends FrameLayout implements ModulePage {
     private LinearLayout lines;
     private TextView episodeLabel;
     private GridView episodes;
+    /** 选集上方的分段条（1-30 / 31-60 …），集数超过一屏才显示 */
+    private android.view.View chunkScroll;
+    private android.widget.LinearLayout chunks;
+    /** 当前显示的是第几段（第一集的索引），分段翻页用 */
+    private int chunkStart;
+    /**
+     * 用户自己翻过段。
+     *
+     * <p>置真之后 {@link #renderEpisodes()} 不再拿「正在播的那一集」把段拉回去 ——
+     * 否则用户翻到 193-199 想看看后面几集，随便一个刷新（返回详情、封面到齐）
+     * 就把网格弹回正在播的那一段，光标还停在原来的格位上，按确定播的是另一集。
+     * 用户点了某一集或换了线路时，这个标记会清掉，段重新跟着播放进度走。
+     */
+    private boolean chunkPinned;
     private ProgressBar loadingView;
     private TextView errorView;
 
     private final List<VodInfo.VodSeries> series = new ArrayList<>();
+    /** 只装「当前这一段」的集数：一屏 32 格，翻页靠换数据而不是滚动 */
     private final EpisodeAdapter adapter = new EpisodeAdapter();
 
     public DetailPage(Context context, Movie.Video seed, Host host) {
@@ -104,6 +120,8 @@ public class DetailPage extends FrameLayout implements ModulePage {
         lines = findViewById(R.id.detail_lines);
         episodeLabel = findViewById(R.id.detail_episode_label);
         episodes = findViewById(R.id.detail_episodes);
+        chunkScroll = findViewById(R.id.detail_chunk_scroll);
+        chunks = findViewById(R.id.detail_episode_chunks);
         loadingView = findViewById(R.id.detail_loading);
         errorView = findViewById(R.id.detail_error);
 
@@ -153,7 +171,28 @@ public class DetailPage extends FrameLayout implements ModulePage {
             return;
         }
         refreshSelection();
-        focusFirst();
+        // 从播放器退回来时落在「正在看的那一集」上：以前一律给「开始播放」，
+        // 看着像是又要从头开一遍。找不到那一格（选集还没铺完、段落对不上）才退回默认落点。
+        if (!focusPlayingEpisode()) {
+            focusFirst();
+        }
+    }
+
+    /** @return 焦点真的落到当前那一集上了 */
+    private boolean focusPlayingEpisode() {
+        if (info == null || series.isEmpty() || episodes.getChildCount() == 0) {
+            return false;
+        }
+        int position = info.playIndex - chunkStart;
+        if (position < 0 || position >= series.size()) {
+            return false;
+        }
+        int child = position - episodes.getFirstVisiblePosition();
+        if (child < 0 || child >= episodes.getChildCount()) {
+            return false;
+        }
+        View item = episodes.getChildAt(child);
+        return item != null && item.requestFocus();
     }
 
     @Override
@@ -248,6 +287,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
         if (TextUtils.isEmpty(activeFlag) && info.seriesMap != null && !info.seriesMap.isEmpty()) {
             activeFlag = info.seriesMap.keySet().iterator().next();
         }
+        applyResume();
         info.playFlag = activeFlag;
         buildLines();
         bindSeries();
@@ -336,6 +376,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
         activeFlag = flag;
         info.playFlag = flag;
         info.playIndex = 0;
+        chunkPinned = false;
         for (int i = 0; i < lines.getChildCount(); i++) {
             View child = lines.getChildAt(i);
             child.setSelected(flag.contentEquals(
@@ -356,7 +397,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
             info.playIndex = Math.max(0, series.size() - 1);
         }
         episodeLabel.setText("选集" + (series.isEmpty() ? "" : " · 共 " + series.size() + " 集"));
-        adapter.notifyDataSetChanged();
+        renderEpisodes();
     }
 
     private void refreshSelection() {
@@ -373,7 +414,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
                         child instanceof TextView ? ((TextView) child).getText() : ""));
             }
         } else {
-            adapter.notifyDataSetChanged();
+            renderEpisodes();
         }
     }
 
@@ -387,7 +428,115 @@ public class DetailPage extends FrameLayout implements ModulePage {
             info.playFlag = activeFlag;
         }
         if (host != null) {
+            // 记一笔播放历史。
+            //
+            // <p>记在这里而不是播放器的入口：首页推的是豆瓣条目（没有源站 id），
+            // 要先在详情页里换成源站的片子才谈得上「播了这一集」。
+            // 在播放入口记的话，豆瓣那一路就永远记不上。
+            recordHistory();
             host.play(info);
+        }
+    }
+
+    /** 把当前这部片子记进本地播放历史 */
+    private void recordHistory() {
+        if (info == null || TextUtils.isEmpty(info.name)) {
+            return;
+        }
+        Movie.Video video = new Movie.Video();
+        video.id = info.id;
+        video.name = info.name;
+        video.pic = info.pic;
+        video.picSlide = info.pic;
+        video.type = info.type;
+        video.area = info.area;
+        video.year = info.year;
+        video.note = info.note;
+        video.des = info.des;
+        video.sourceKey = info.sourceKey;
+        VodHistory.record(getContext(), video);
+        recordResumePoint();
+    }
+
+    // ---------------------------------------------------------------- 断点续播
+
+    /**
+     * 上次看到哪条线路的第几集。
+     *
+     * <p>「看过的片子」由 {@link VodHistory} 记（只有片名/海报，够海报墙用），
+     * 但「看到第几集」这件事只有内核那份历史（{@code vodRecord} 表）记全：
+     * 它存的是整份 {@link VodInfo}，{@code playFlag}／{@code playIndex} 都在里面。
+     * 详情页以前只写 {@code VodHistory}，没碰过那份表，于是每次从「观看历史」
+     * 点回来都停在第 1 集 —— 用户说的「接着上次看」缺的就是这一步。
+     *
+     * <p>一集之内的秒数不在这里：播放器按 {@code 源+id+线路+集数+集名} 自己把
+     * 进度存在缓存里，只要集数对得上，起播就会自动 seek 到上次退出的位置。
+     */
+    private String resumeFlag;
+    private int resumeIndex = -1;
+
+    /** 读回上次的线路和集数，读到就记下来，{@link #applyResume()} 里用 */
+    private void readResumePoint() {
+        resumeFlag = null;
+        resumeIndex = -1;
+        if (info == null || info.seriesMap == null || info.seriesMap.isEmpty()) {
+            return;
+        }
+        String sourceKey = !TextUtils.isEmpty(info.sourceKey) ? info.sourceKey
+                : (seed == null ? "" : seed.sourceKey);
+        if (TextUtils.isEmpty(sourceKey) || TextUtils.isEmpty(info.id)) {
+            return;
+        }
+        try {
+            VodInfo record = RoomDataManger.getVodInfo(sourceKey, info.id);
+            if (record == null) {
+                return;
+            }
+            if (!TextUtils.isEmpty(record.playFlag) && info.seriesMap.containsKey(record.playFlag)) {
+                resumeFlag = record.playFlag;
+            }
+            resumeIndex = record.playIndex;
+        } catch (Throwable th) {
+            android.util.Log.w(TAG, "读播放进度失败：" + th.getMessage());
+        }
+    }
+
+    /**
+     * 把上次的线路/集数盖到这次拉到的详情上。
+     *
+     * <p>夹到列表长度以内：源站删过集、换了线路之后集数会变，
+     * 越界的话 {@code series.get()} 会直接崩在这里。
+     */
+    private void applyResume() {
+        readResumePoint();
+        if (!TextUtils.isEmpty(resumeFlag)) {
+            activeFlag = resumeFlag;
+        }
+        if (info.seriesMap != null && activeFlag != null) {
+            List<VodInfo.VodSeries> list = info.seriesMap.get(activeFlag);
+            if (list != null && !list.isEmpty() && resumeIndex >= 0) {
+                info.playIndex = Math.max(0, Math.min(resumeIndex, list.size() - 1));
+            }
+        }
+    }
+
+    /** 把「这条线路、这一集」写回内核的历史表，下次打开详情页才有得读 */
+    private void recordResumePoint() {
+        if (info == null || info.seriesMap == null || TextUtils.isEmpty(info.id)) {
+            return;
+        }
+        String sourceKey = !TextUtils.isEmpty(info.sourceKey) ? info.sourceKey
+                : (seed == null ? "" : seed.sourceKey);
+        if (TextUtils.isEmpty(sourceKey)) {
+            return;
+        }
+        try {
+            List<VodInfo.VodSeries> list = info.seriesMap.get(info.playFlag);
+            info.playNote = list != null && info.playIndex >= 0 && info.playIndex < list.size()
+                    ? list.get(info.playIndex).name : "";
+            RoomDataManger.insertVodRecord(sourceKey, info);
+        } catch (Throwable th) {
+            android.util.Log.w(TAG, "写播放进度失败：" + th.getMessage());
         }
     }
 
@@ -466,7 +615,6 @@ public class DetailPage extends FrameLayout implements ModulePage {
         if (series.isEmpty()) {
             return;
         }
-        episodes.setSelection(0);
         episodes.post(new Runnable() {
             @Override
             public void run() {
@@ -491,30 +639,234 @@ public class DetailPage extends FrameLayout implements ModulePage {
 
     // ---------------------------------------------------------------- 选集
 
+    /**
+     * 刷新选集。
+     *
+     * <p>网格里只有「当前这一段」的集数（正好一屏 32 格），
+     * 翻页靠换 adapter 的数据，不靠滚动 —— 见布局里那段注释，
+     * 这台电视上滚动方案要么崩要么重影。
+     */
+    private void renderEpisodes() {
+        if (episodes == null) {
+            return;
+        }
+        // 段起点跟着播放进度走：换集之后回到的那一段才是用户想看的那一段。
+        // 但用户手动翻过段之后就不跟了，见 chunkPinned 的说明
+        if (!chunkPinned && info != null && info.playIndex >= 0 && info.playIndex < series.size()) {
+            chunkStart = (info.playIndex / CHUNK_SIZE) * CHUNK_SIZE;
+        }
+        if (chunkStart >= series.size()) {
+            chunkStart = Math.max(0, ((series.size() - 1) / CHUNK_SIZE) * CHUNK_SIZE);
+        }
+        applyEpisodeColumns();
+        adapter.notifyDataSetChanged();
+        renderChunks();
+    }
+
+    /**
+     * 选集按钮的列数按这一段里最长的名字自适应。
+     *
+     * <p>格子改成了「原名显示」，名字长短就看源的了——短的两三个字
+     * （「第 3 集」「预告」），长的十几二十字（网盘源的「4.9 GB 1080P
+     * 国语中字.mp4」）。列数写死 8 的话，长名字在 90dp 的格子里全被截成
+     * 「4.9 GB…」，选集等于没写。
+     *
+     * <p>这里量这一段里最长的名字，按长度挑列数：名字越长列越少、
+     * 每颗按钮越宽。8 列正好一屏 32 格是短名字的福利；长名字时一段
+     * 一屏放不下 32 颗，网格自己滚动，段标签照样翻。
+     */
+    private void applyEpisodeColumns() {
+        if (episodes == null || series.isEmpty()) {
+            return;
+        }
+        int longest = 0;
+        int to = Math.min(chunkStart + CHUNK_SIZE, series.size());
+        for (int i = chunkStart; i < to; i++) {
+            String name = series.get(i) == null ? "" : series.get(i).name;
+            if (name != null && name.length() > longest) {
+                longest = name.length();
+            }
+        }
+        int columns;
+        if (longest <= 4) {
+            columns = 8;      // 「第 3 集」「预告」这个量级：一屏 32 格
+        } else if (longest <= 7) {
+            columns = 6;      // 「S01E03」「1080P 国语」
+        } else if (longest <= 12) {
+            columns = 5;      // 「4.9 GB 1080P.mp4」
+        } else if (longest <= 17) {
+            columns = 4;      // 「[3.2GB]125.mp4」
+        } else if (longest <= 24) {
+            columns = 3;      // 「[2.3GB]E67.mp4【牧S记】」
+        } else {
+            columns = 2;      // 更长的文件名：一行两颗，名字尽量显示全。
+            // 集数藏在名字中段（[338.1MB]01.mp4【斗罗大陆2】），列数再多
+            // 就截断在体积前缀上，用户根本看不到是第几集 —— 2 列是下限，
+            // 再长也是它，截断交给省略号
+        }
+        if (episodes.getNumColumns() != columns) {
+            episodes.setNumColumns(columns);
+        }
+    }
+
+    /**
+     * 每段多少集。
+     *
+     * <p>取 32 —— 一屏正好 8 列 × 4 行 = 32 格。以前按 30 分，每段末尾都空两个格，
+     * 一屏里看着像「少了两集」；而且段标签写「31-60」，第 31 集的格子却在第一列第二行，
+     * 跟标签对不上。按 32 分之后，段号、格位、集数三者完全重合。
+     */
+    private static final int CHUNK_SIZE = 32;
+    /** 超过一屏（32 集）才做分段条 */
+    private static final int CHUNK_THRESHOLD = CHUNK_SIZE;
+
+    /**
+     * 选集上方的分段条。
+     *
+     * <p>199 集的剧靠方向键一路按下去太费劲，这里按 32 集切一段，
+     * 点一下就把网格换成那一段（焦点落在该段第一集）。
+     * 集数不到一屏就不显示 —— 20 集的剧顶上一排「1-30」只是噪音。
+     */
+    private void renderChunks() {
+        if (chunks == null || chunkScroll == null) {
+            return;
+        }
+        chunks.removeAllViews();
+        int total = series.size();
+        if (total <= CHUNK_THRESHOLD) {
+            chunkScroll.setVisibility(View.GONE);
+            return;
+        }
+        chunkScroll.setVisibility(View.VISIBLE);
+        for (int start = 0; start < total; start += CHUNK_SIZE) {
+            final int first = start;
+            final int end = Math.min(start + CHUNK_SIZE, total);
+            TextView chip = new TextView(getContext());
+            // 段标签用位置区间：格子里显示的是原始名称，没有统一的「集号」可指，
+            // 写「1-32」就是「这段里是列表的第 1 到 32 项」
+            chip.setText((first + 1) + "-" + end);
+            chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
+            chip.setTextColor(androidx.appcompat.content.res.AppCompatResources
+                    .getColorStateList(getContext(), R.color.episode_text));
+            chip.setBackgroundResource(R.drawable.bg_episode_chip);
+            chip.setGravity(android.view.Gravity.CENTER);
+            chip.setPadding(dp(14), dp(6), dp(14), dp(6));
+            // 当前这一段高亮，让用户知道自己停在哪
+            chip.setSelected(first == chunkStart);
+            chip.setFocusable(true);
+            chip.setClickable(true);
+            chip.setFocusableInTouchMode(true);
+            FocusScaler.attach(chip, 1.03f);
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    chunkStart = first;
+                    chunkPinned = true;
+                    adapter.notifyDataSetChanged();
+                    // 只改高亮，不要 removeAllViews 重建整排。
+                    // 以前这里调的是 renderChunks()，它一上来就把所有分段按钮删掉 ——
+                    // 被删的正好是刚按下、还带着焦点的那一颗。焦点没了，系统顺手把它交给
+                    // 页面里第一个可聚焦控件（「播放」按钮），用户按一下分段，光标直接飞走；
+                    // 这时候再按确定，播的是「上一次点的集」，看起来就是「选了 197，播的是别的集」。
+                    updateChunkSelection();
+                    // 焦点落进这一段的第一集（网格刚换数据，要等一帧才有子 View）
+                    focusEpisode(0, 4);
+                }
+            });
+            android.widget.LinearLayout.LayoutParams lp =
+                    new android.widget.LinearLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT, dp(32));
+            lp.rightMargin = dp(8);
+            chunks.addView(chip, lp);
+        }
+    }
+
+    /** 只改分段条的高亮，不动视图（删视图会把焦点一起删掉） */
+    private void updateChunkSelection() {
+        if (chunks == null) {
+            return;
+        }
+        for (int i = 0; i < chunks.getChildCount(); i++) {
+            View child = chunks.getChildAt(i);
+            int first = i * CHUNK_SIZE;
+            child.setSelected(first == chunkStart);
+        }
+    }
+
+    /**
+     * 把焦点送进网格的第 {@code position} 格（段内下标）。
+     *
+     * <p>换段之后 adapter 的数据变了，但子 View 要等下一次 layout 才重建，
+     * 所以这里带重试：拿到子 View 就挂焦，拿不到就等一帧再来。
+     */
+    private void focusEpisode(final int position, final int retries) {
+        if (episodes == null || gone()) {
+            return;
+        }
+        episodes.post(new Runnable() {
+            @Override
+            public void run() {
+                if (gone()) {
+                    return;
+                }
+                View child = episodes.getChildAt(position);
+                if (child == null || !child.isShown()) {
+                    if (retries > 0) {
+                        focusEpisode(position, retries - 1);
+                    }
+                    return;
+                }
+                child.requestFocus();
+            }
+        });
+    }
+
+    /** 一屏一页：只装当前这一段 */
     private final class EpisodeAdapter extends BaseAdapter {
         @Override
         public int getCount() {
-            return series.size();
+            if (series.isEmpty()) {
+                return 0;
+            }
+            int from = Math.min(chunkStart, series.size() - 1);
+            return Math.min(CHUNK_SIZE, series.size() - from);
         }
 
         @Override
         public Object getItem(int position) {
-            return series.get(position);
+            return series.get(chunkStart + position);
         }
 
         @Override
         public long getItemId(int position) {
-            return position;
+            return chunkStart + position;
         }
 
         @Override
-        public View getView(final int position, View convertView, ViewGroup parent) {
+        public View getView(int position, View convertView, ViewGroup parent) {
             TextView item = convertView instanceof TextView ? (TextView) convertView
                     : (TextView) LayoutInflater.from(getContext())
                     .inflate(R.layout.item_episode, parent, false);
-            VodInfo.VodSeries vodSeries = series.get(position);
-            item.setText(episodeLabel(vodSeries, position));
-            item.setSelected(info != null && position == info.playIndex);
+            final int index = chunkStart + position;
+            if (index >= series.size()) {
+                return item;
+            }
+            final VodInfo.VodSeries vodSeries = series.get(index);
+            String label = episodeLabel(vodSeries, index);
+            item.setText(label);
+            // 名字越长字号越小，配合自适应列宽把名字尽量显示全；
+            // 再长也不缩到看不清，截断交给省略号
+            float textSizeSp;
+            int len = label.length();
+            if (len <= 7) {
+                textSizeSp = 14f;
+            } else if (len <= 12) {
+                textSizeSp = 12f;
+            } else {
+                textSizeSp = 10f;
+            }
+            item.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, textSizeSp);
+            item.setSelected(info != null && index == info.playIndex);
             // 选集以前只靠背景区分焦点，系统在 API 26+ 又叠了一层方形默认高亮，
             // 圆角胶囊外面套个直角方框，看着就像被裁了一刀。挂上缩放后由 FocusScaler
             // 统一关掉系统高亮，焦点语言和其他按钮一致。
@@ -522,11 +874,19 @@ public class DetailPage extends FrameLayout implements ModulePage {
             item.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    if (info == null || position >= series.size()) {
+                    if (info == null) {
                         return;
                     }
-                    info.playIndex = position;
-                    notifyDataSetChanged();
+                    // 按「这一格绑定的那一集」定位，而不是拿 getView 时的下标直接用：
+                    // 段起点（chunkStart）在重排、刷新、切换线路时都会变，
+                    // 现算出来的下标可能已经指向另一集 —— 表现就是「选第 197 集，播的是别的集」。
+                    int at = series.indexOf(vodSeries);
+                    if (at < 0 || at >= series.size()) {
+                        at = index;
+                    }
+                    info.playIndex = at;
+                    chunkPinned = false;
+                    adapter.notifyDataSetChanged();
                     playCurrent();
                 }
             });
@@ -541,21 +901,24 @@ public class DetailPage extends FrameLayout implements ModulePage {
      * 十来个字在 80dp 的格子里全被截成同一截「4.9 GB…」，选集等于没写。
      * 认得出是文件名的就退回序号；真正的「第 3 集」这类短标签照原样显示。
      */
+    /**
+     * 这一格显示的文字：源里给什么就显示什么。
+     *
+     * <p>以前试过两版：拿「位置 + 1」当集号，结果源里两套编号混排时
+     * 界面写的号和播出来的集对不上；后来又解析文件名里的集号，可源给的
+     * 名字五花八门（体积前缀、扩展名、音轨标注），解析总有漏网的，
+     * 显示出来的号还是可能和名字对不上。
+     *
+     * <p>最后回到最简单的做法：<b>原名显示，不动源的数据</b>。
+     * 名字长就让按钮长（列数按名字长度自适应，见 {@link #applyEpisodeColumns()}），
+     * 名字是空的才退回「位置 + 1」占位。
+     */
     private static String episodeLabel(VodInfo.VodSeries vodSeries, int position) {
         String name = vodSeries == null ? "" : vodSeries.name;
-        if (TextUtils.isEmpty(name) || looksLikeFileName(name)) {
+        if (TextUtils.isEmpty(name)) {
             return String.valueOf(position + 1);
         }
-        return name;
-    }
-
-    private static boolean looksLikeFileName(String name) {
-        String lower = name.toLowerCase(java.util.Locale.US);
-        if (lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".ts")
-                || lower.endsWith(".avi") || lower.endsWith(".m3u8") || lower.endsWith(".rmvb")) {
-            return true;
-        }
-        return lower.contains(" gb") || lower.contains(" mb") || name.length() > 14;
+        return name.trim();
     }
 
     private void loadImage(ImageView target, String url, Drawable fallback) {

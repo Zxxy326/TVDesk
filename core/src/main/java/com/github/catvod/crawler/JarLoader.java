@@ -221,7 +221,8 @@ public class JarLoader {
             spider.initApi(new SpiderApi());
             spider.init(App.getInstance(), ext);
             spiders.put(spKey, spider);
-            Log.i(TAG, "getSpider success key=" + spKey);
+            Log.i(TAG, "getSpider success key=" + spKey + " api=" + api
+                    + " jar=" + (jar.isEmpty() ? "main" : jar));
             return spider;
         } catch (Throwable e) {
             Log.i(TAG, "getSpider error key=" + spKey + ", msg=" + e.getMessage());

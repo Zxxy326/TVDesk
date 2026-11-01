@@ -7,6 +7,7 @@ import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -63,6 +64,10 @@ public final class KeepPlayingDialog extends Dialog {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.dialog_keep_playing);
+        // 系统在 API 26+ 会给焦点控件叠一层半透明矩形高亮，它按外接矩形画，
+        // 圆角行/胶囊按钮的四个角就被「切」出直角边，看着像被裁了一块。
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(
+                getWindow().getDecorView());
         sizeWindow();
 
         LinearLayout box = findViewById(R.id.keep_playing_actions);
@@ -86,6 +91,56 @@ public final class KeepPlayingDialog extends Dialog {
                 }
             }
         });
+    }
+
+    /**
+     * 外部已经替用户决定了去向（例如连按返回）。
+     *
+     * <p>直接 {@link #dismiss()} 会走 dismiss 监听里的「没选过就当取消」那条，
+     * 把调用方刚定的去向又改回「留在原地」。这里先把 {@code chosen} 立起来再关，
+     * 保证 onCancel 不会再补一枪。
+     */
+    public void dismissAsChosen() {
+        chosen = true;
+        dismiss();
+    }
+
+    /**
+     * 弹窗开着时又来一次返回：算「停止播放」，离开并且把声音停掉。
+     *
+     * <p>以前的走向是 {@code cancel()} → onCancel → 留在原页：用户按第一下弹出询问、
+     * 按第二下把询问关掉、人还在原页里，第三下又弹一张。遥控器上连按返回是很自然的动作，
+     * 走成「原地转圈」就成了「返回键坏了」。
+     *
+     * <p>连按的语义是「我要走、别再响了」。这里必须落到<b>停止</b>而不是「继续播放」：
+     * 选继续等于把正在放的声音留到桌面背后，用户看到的就是「都退出来了怎么还在放」。
+     * 想留着当背景音的人，弹窗上有明明白白的「继续播放」可以点。
+     */
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            leaveStoppingPlayback();
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public void onBackPressed() {
+        leaveStoppingPlayback();
+    }
+
+    private void leaveStoppingPlayback() {
+        if (chosen) {
+            return;
+        }
+        // 先立 chosen 再回调：走 dismiss 时 onDismiss 里的「没选过就当取消」才不会把
+        // 调用方刚定的去向改回去
+        chosen = true;
+        dismiss();
+        if (listener != null) {
+            listener.onStopPlaying();
+        }
     }
 
     /** 弹窗由内容决定大小，只把背后压暗 */

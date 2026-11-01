@@ -65,6 +65,7 @@ public final class BiliLoginDialog extends Dialog {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.dialog_bili_login);
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(getWindow().getDecorView());
         sizeWindow();
 
         ui = new android.os.Handler(android.os.Looper.getMainLooper());

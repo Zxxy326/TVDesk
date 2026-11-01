@@ -61,11 +61,19 @@ public class SettingsActivity extends DeskAdaptActivity {
     private TextView keepPlayingValue;
     private boolean keepPlaying;
     private TextView homeValue;
+    private TextView clockValue;
+    private TextView weatherValue;
+    private boolean showClock;
+    private boolean showWeather;
+    private TextView updateValue;
+    private TextView homeGuardValue;
+    private TextView homeGuardNote;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
+        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(getWindow().getDecorView());
 
         sourceValue = findViewById(R.id.source_value);
         sourceNote = findViewById(R.id.source_note);
@@ -111,9 +119,67 @@ public class SettingsActivity extends DeskAdaptActivity {
             }
         });
 
+        View clockRow = findViewById(R.id.row_clock);
+        View weatherRow = findViewById(R.id.row_weather);
+        clockValue = findViewById(R.id.clock_value);
+        weatherValue = findViewById(R.id.weather_value);
+        FocusScaler.attach(clockRow, 1.03f);
+        FocusScaler.attach(weatherRow, 1.03f);
+        showClock = DeskPrefs.showClock(this);
+        showWeather = DeskPrefs.showWeather(this);
+        clockRow.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showClock = !showClock;
+                DeskPrefs.setShowClock(SettingsActivity.this, showClock);
+                PressFx.squish(clockValue);
+                renderClockWeather();
+        renderHomeGuard();
+            }
+        });
+        weatherRow.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showWeather = !showWeather;
+                DeskPrefs.setShowWeather(SettingsActivity.this, showWeather);
+                PressFx.squish(weatherValue);
+                renderClockWeather();
+            }
+        });
+
+        View homeGuardRow = findViewById(R.id.row_home_guard);
+        homeGuardValue = findViewById(R.id.home_guard_value);
+        homeGuardNote = findViewById(R.id.home_guard_note);
+        FocusScaler.attach(homeGuardRow, 1.03f);
+        homeGuardRow.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!HomeGuardService.isEnabled(SettingsActivity.this)) {
+                    // 没开：把他送到系统无障碍页去开
+                    HomeGuardService.openSettings(SettingsActivity.this);
+                } else {
+                    // 已经开着：给一个「临时停用」的出口。
+                    // 没有这个出口，用户想回系统桌面时按 HOME 会被一直拽回来，
+                    // 只能跑到系统设置里关无障碍——那太远了。
+                    askHomeGuard();
+                }
+            }
+        });
+
+        View updateRow = findViewById(R.id.row_update);
+        updateValue = findViewById(R.id.update_value);
+        FocusScaler.attach(updateRow, 1.03f);
+        updateRow.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                checkUpdate();
+            }
+        });
+
         renderSource();
         renderKeepPlaying();
         renderHome();
+        renderClockWeather();
 
         // onCreate 阶段 View 还没 layout，直接 requestFocus 会失败。
         // 初始焦点给「配置地址」：进设置页的人十有八九是来配源的。
@@ -129,6 +195,8 @@ public class SettingsActivity extends DeskAdaptActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // 用户可能刚从系统的无障碍设置页回来，状态得重读一次
+        renderHomeGuard();
         // 从系统设置回来、或者地址在别处被改过，回来重读一次
         renderSource();
         // 系统桌面选择框是另一个页面，回来时状态可能刚变
@@ -254,6 +322,160 @@ public class SettingsActivity extends DeskAdaptActivity {
      * <p>已经是默认桌面时不再重复请求，直接打开系统的桌面设置页——用户这时按它
      * 多半是想换回电视自带的桌面，把人留在一个没有变化的确认框里没有意义。
      */
+    /**
+     * 检查更新：拉清单 → 有新版就问一句 → 下载 → 拉起安装。
+     *
+     * <p>更新地址没填时直接把话说清楚，不要点了没反应。
+     */
+    private void checkUpdate() {
+        final String manifest = DeskPrefs.updateManifestUrl(this);
+        if (manifest.isEmpty()) {
+            android.widget.Toast.makeText(this,
+                    "还没填更新地址（设置里的更新源），填了才能检查",
+                    android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        updateValue.setText("检查中");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final com.tvdesk.desk.update.UpdateClient.Info info =
+                        com.tvdesk.desk.update.UpdateClient.check(
+                                getApplicationContext(), manifest);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        updateValue.setText(R.string.settings_update_check);
+                        if (info == null) {
+                            android.widget.Toast.makeText(SettingsActivity.this,
+                                    com.tvdesk.desk.update.UpdateClient.lastError(),
+                                    android.widget.Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        String mine = com.tvdesk.desk.update.UpdateClient
+                                .currentVersionName(SettingsActivity.this);
+                        if (!info.newer) {
+                            android.widget.Toast.makeText(SettingsActivity.this,
+                                    "已是最新（" + mine + "）",
+                                    android.widget.Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        askToUpdate(info, mine);
+                    }
+                });
+            }
+        }, "desk-update").start();
+    }
+
+    /** 有新版：问一句再下 */
+    private void askToUpdate(final com.tvdesk.desk.update.UpdateClient.Info info, String mine) {
+        String notes = info.notes == null || info.notes.isEmpty()
+                ? "（这次没写更新说明）" : info.notes;
+        new android.app.AlertDialog.Builder(this, R.style.DeskDialogTheme)
+                .setTitle("发现新版本 " + info.versionName)
+                .setMessage("当前 " + mine + "\n\n" + notes)
+                .setPositiveButton("下载并安装", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface dialog, int which) {
+                        downloadUpdate(info);
+                    }
+                })
+                .setNegativeButton("以后再说", null)
+                .show();
+    }
+
+    private void downloadUpdate(final com.tvdesk.desk.update.UpdateClient.Info info) {
+        updateValue.setText("下载中");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final java.io.File apk = com.tvdesk.desk.update.UpdateClient
+                        .download(getApplicationContext(), info);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        updateValue.setText(R.string.settings_update_check);
+                        if (apk == null) {
+                            android.widget.Toast.makeText(SettingsActivity.this,
+                                    com.tvdesk.desk.update.UpdateClient.lastError(),
+                                    android.widget.Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (!com.tvdesk.desk.update.UpdateClient.install(
+                                SettingsActivity.this, apk)) {
+                            android.widget.Toast.makeText(SettingsActivity.this,
+                                    "安装包下好了，但打不开安装界面",
+                                    android.widget.Toast.LENGTH_LONG).show();
+                        }
+                    }
+                });
+            }
+        }, "desk-update-dl").start();
+    }
+
+    /** 已经接管时点这一行：临时停用 / 去系统里关掉 */
+    private void askHomeGuard() {
+        boolean paused = !DeskPrefs.homeGuard(this);
+        new android.app.AlertDialog.Builder(this, R.style.DeskDialogTheme)
+                .setTitle("无障碍接管已开启")
+                .setMessage(paused
+                        ? "现在是暂停状态：服务还在，但按 HOME 不会拉回来了。"
+                        : "按 HOME 会回到 TVDesk。想临时用回电视自带的桌面，就先停用。")
+                .setPositiveButton(paused ? "恢复接管" : "临时停用",
+                        new android.content.DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(android.content.DialogInterface dialog, int which) {
+                                boolean now = !DeskPrefs.homeGuard(SettingsActivity.this);
+                                DeskPrefs.setHomeGuard(SettingsActivity.this, now);
+                                renderHomeGuard();
+                            }
+                        })
+                .setNegativeButton("去系统设置", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface dialog, int which) {
+                        HomeGuardService.openSettings(SettingsActivity.this);
+                    }
+                })
+                .show();
+    }
+
+    /**
+     * 无障碍接管那一行：开关文字跟着系统里的授权状态走。
+     *
+     * <p>不看自己的 prefs —— 用户可能在系统设置里把无障碍关掉了，
+     * 这里必须如实显示「没开」，否则他以为已经在接管，按 HOME 却发现回了系统桌面。
+     */
+    private void renderHomeGuard() {
+        if (homeGuardValue == null) {
+            return;
+        }
+        boolean enabled = HomeGuardService.isEnabled(this);
+        boolean paused = enabled && !DeskPrefs.homeGuard(this);
+        homeGuardValue.setText(enabled && !paused
+                ? R.string.settings_switch_enabled : R.string.settings_switch_disabled);
+        if (homeGuardNote != null) {
+            if (!enabled) {
+                homeGuardNote.setText("未启用 · 点这里去系统无障碍里打开 TVDesk");
+            } else if (paused) {
+                homeGuardNote.setText("已暂停 · 无障碍开着但不再拉回；点这里可以恢复");
+            } else {
+                homeGuardNote.setText("已启用 · 按 HOME 会回到 TVDesk；点这里可以临时停用");
+            }
+        }
+    }
+
+    /** 时钟 / 天气两个开关的文字 */
+    private void renderClockWeather() {
+        if (clockValue != null) {
+            clockValue.setText(showClock
+                    ? R.string.settings_switch_enabled : R.string.settings_switch_disabled);
+        }
+        if (weatherValue != null) {
+            weatherValue.setText(showWeather
+                    ? R.string.settings_switch_enabled : R.string.settings_switch_disabled);
+        }
+    }
+
     private void requestHome() {
         if (HomeRole.isDefault(this)) {
             if (!HomeRole.openHomeSettings(this)) {

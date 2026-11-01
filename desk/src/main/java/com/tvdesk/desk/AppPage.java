@@ -41,15 +41,20 @@ import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions;
 import com.tvdesk.desk.motion.FocusScaler;
 import com.tvdesk.desk.motion.RevealAnim;
+import com.tvdesk.desk.widget.AppTileArt;
+import com.tvdesk.desk.widget.AppTileView;
 import com.tvdesk.desk.widget.GridScroll;
+import com.tvdesk.desk.widget.LayoutStore;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 
@@ -82,16 +87,23 @@ public class AppPage extends FrameLayout implements ModulePage {
 
     private static final String TAG = "AppPage";
 
-    private static final String[] SECTIONS = {"可启动", "第三方", "系统", "全部", "搜索"};
+    /**
+     * 页签。第一个是默认页：电视上九成时间是找「自己装的那个 App」，
+     * 而不是翻系统自带的几十个预装件，所以「用户安装」排头、开页就停在这儿。
+     */
+    private static final String[] SECTIONS = {"用户安装", "系统", "全部", "搜索"};
 
-    private static final int SEC_LAUNCH = 0;
-    private static final int SEC_THIRD = 1;
-    private static final int SEC_SYSTEM = 2;
-    private static final int SEC_ALL = 3;
-    private static final int SEC_SEARCH = 4;
+    private static final int SEC_USER = 0;
+    private static final int SEC_SYSTEM = 1;
+    /** 这一栏的页签画成放大镜图标（只放图标，不放字） */
+    private static final int SEC_ALL = 2;
+    private static final int SEC_SEARCH = 3;
 
     /** 子页签是排序方式，三个栏目共用一套 */
     private static final String[] SORTS = {"按名称", "按更新时间", "按安装时间"};
+
+    /** 「我的排序」：清掉用户自定义、回到默认排序 */
+    private static final int SORT_CUSTOM = 99;
 
     private static final int SORT_NAME = 0;
     private static final int SORT_UPDATE = 1;
@@ -112,11 +124,15 @@ public class AppPage extends FrameLayout implements ModulePage {
         String pkg = "";
         String name = "";
         Drawable icon;
+        /** 应用的电视横幅（leanback 应用才有），磁贴优先用它 */
+        Drawable banner;
         String version = "";
         long installTime;
         long updateTime;
         boolean system;
         boolean launchable;
+        /** 有电视端入口（LEANBACK_LAUNCHER）：只有这类应用的横幅才可信 */
+        boolean leanback;
     }
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -133,8 +149,28 @@ public class AppPage extends FrameLayout implements ModulePage {
     private final List<Entry> rows = new ArrayList<>();
     private final CardAdapter adapter = new CardAdapter();
 
-    private int section = SEC_LAUNCH;
+    /**
+     * 用户自己排的顺序。
+     *
+     * <p>电视上装的应用有几十个，常用的就那么几个，每次都要重新翻。
+     * 做法跟 Aerial TV 的 {@code LayoutStore.kt} 一样：把排好的顺序记下来，
+     * 下次打开照旧；新装的应用自动插到最前面（不用重排一遍就能看见）。
+     */
+    private LayoutStore layout;
+
+    private int section = SEC_USER;
     private int sort = SORT_NAME;
+
+    /**
+     * 「移动位置」模式（照搬 Aerial 的 tile menu → Move）：
+     * 长按图标选「移动位置」后进入，方向键把这张卡挪到相邻格，确定放下、返回撤销。
+     */
+    private boolean moving;
+    private String movingPkg;
+    /** 进入移动前的顺序，返回键撤销用 */
+    private List<String> moveBackup;
+    /** 移动模式的提示条，只在移动中出现 */
+    private TextView moveHint;
     private String query = "";
     private boolean menuOpen;
 
@@ -178,6 +214,10 @@ public class AppPage extends FrameLayout implements ModulePage {
         subScroll = findViewById(R.id.apps_sub_scroll);
         subNav = findViewById(R.id.apps_sub_nav);
         grid = findViewById(R.id.apps_grid);
+        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
+            // 整页铺满的墙：最左/最右再按就停住，别让焦点飞到左上角胶囊上
+            ((com.tvdesk.desk.widget.PageGridView) grid).setKeepFocusAtEdges(true);
+        }
         title = findViewById(R.id.apps_title);
         subtitle = findViewById(R.id.apps_subtitle);
         emptyView = findViewById(R.id.apps_empty);
@@ -188,6 +228,9 @@ public class AppPage extends FrameLayout implements ModulePage {
         buildSwitcher();
         buildSwitcherMenu();
         buildNav();
+        // 排序存储要先建好：buildSubNav 会看有没有自定义顺序（「我的排序」那颗），
+        // 那时候它必须是现成的
+        layout = new LayoutStore(getContext());
         buildSubNav();
         setupGrid();
         wireSearch();
@@ -267,6 +310,7 @@ public class AppPage extends FrameLayout implements ModulePage {
         for (int i = 0; i < SECTIONS.length; i++) {
             final int index = i;
             TextView item = new TextView(getContext());
+            item.setId(View.generateViewId());
             item.setText(SECTIONS[i]);
             item.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
             item.setTextColor(AppCompatResources.getColorStateList(getContext(),
@@ -279,6 +323,25 @@ public class AppPage extends FrameLayout implements ModulePage {
             item.setFocusableInTouchMode(true);
             item.setPadding(getResources().getDimensionPixelSize(R.dimen.nav_item_pad_h), 0,
                     getResources().getDimensionPixelSize(R.dimen.nav_item_pad_h), 0);
+            if (index == SEC_SEARCH) {
+                // 搜索用放大镜，不跟栏目名挤在一起
+                item.setText("");
+                android.graphics.drawable.Drawable icon = AppCompatResources
+                        .getDrawable(getContext(), R.drawable.ic_search);
+                if (icon != null) {
+                    int size = dp(19);
+                    icon.setBounds(0, 0, size, size);
+                    androidx.core.graphics.drawable.DrawableCompat.setTintList(icon,
+                            AppCompatResources.getColorStateList(getContext(), R.color.nav_item_text));
+                    item.setCompoundDrawables(null, null, null, null);
+                    item.setCompoundDrawablesRelative(icon, null, null, null);
+                }
+                item.setContentDescription("搜索");
+                // 图标页签自己不带文字内边距：左右补到跟「用户安装」的文字边距一样宽，
+                // 放大镜右侧就不会比左侧挤
+                item.setPadding(dp(14), 0, dp(14), 0);
+                item.setGravity(android.view.Gravity.CENTER);
+            }
 
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(32));
@@ -306,6 +369,14 @@ public class AppPage extends FrameLayout implements ModulePage {
             });
             navItems.addView(item);
         }
+        // 页签之间显式连左右：不连的话几何寻焦会挑中下面的卡片墙，
+        // 尤其最后一颗（搜索图标）窄，从「全部」往右会直接跳进网格
+        for (int i = 0; i < navItems.getChildCount(); i++) {
+            View current = navItems.getChildAt(i);
+            current.setNextFocusRightId(i + 1 < navItems.getChildCount()
+                    ? navItems.getChildAt(i + 1).getId() : current.getId());
+            current.setNextFocusLeftId(i > 0 ? navItems.getChildAt(i - 1).getId() : current.getId());
+        }
         updateChipSelection();
     }
 
@@ -317,13 +388,18 @@ public class AppPage extends FrameLayout implements ModulePage {
 
     // ---------------------------------------------------------------- 子页签
 
+    /**
+     * 排序不再是一排 chips：跟 Aerial 一样，顺序由用户自己排
+     * （长按图标 → 移动位置），没排过就按名称。
+     * 这一排整条收起来，只留空实现给调用方。
+     */
     private void buildSubNav() {
-        subNav.removeAllViews();
-        for (int i = 0; i < SORTS.length; i++) {
-            addSubChip(SORTS[i], i);
+        if (subNav != null) {
+            subNav.removeAllViews();
         }
-        subScroll.setVisibility(subNav.getChildCount() == 0 ? View.GONE : View.VISIBLE);
-        updateSubSelection();
+        if (subScroll != null) {
+            subScroll.setVisibility(View.GONE);
+        }
     }
 
     private void addSubChip(String label, final int value) {
@@ -345,6 +421,9 @@ public class AppPage extends FrameLayout implements ModulePage {
         lp.leftMargin = dp(2);
         lp.rightMargin = dp(2);
         item.setLayoutParams(lp);
+        // 记下这一颗代表哪种排序：「我的排序」那颗的序号和 sort 不对应，
+        // 选中态只能靠这个 tag 判
+        item.setTag(value);
         FocusScaler.attach(item, 1.06f);
         item.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -356,6 +435,19 @@ public class AppPage extends FrameLayout implements ModulePage {
     }
 
     private void onSubChip(int value) {
+        if (value == SORT_CUSTOM) {
+            // 「我的排序」：清掉自定义，回到默认排序
+            if (layout != null) {
+                layout.reset();
+            }
+            sort = SORT_NAME;
+            updateSubSelection();
+            rebuild();
+            buildSubNav();
+            focusGrid(0, 2);
+            toast("已恢复默认排序");
+            return;
+        }
         if (value == sort) {
             focusGrid(0, 2);
             return;
@@ -366,9 +458,44 @@ public class AppPage extends FrameLayout implements ModulePage {
         focusGrid(0, 2);
     }
 
+    /**
+     * 取这个应用<b>自带的最清晰那档</b>图标。
+     *
+     * <p>{@code getApplicationIcon} 是按屏幕密度选桶的：320dpi 的设备给 96px，
+     * 240dpi 只给 72px，铺到桌面将近 200px 的瓷砖上就发虚（像素播放器在
+     * 小米 MiTV4 上踩过这个坑）。这里直接问最高档 xxxhdpi，
+     * 应用没提供就退回系统默认那套。
+     */
+    private static android.graphics.drawable.Drawable densestIcon(
+            android.content.pm.PackageManager pm, ApplicationInfo ai) {
+        int res = ai.icon;
+        if (res != 0) {
+            try {
+                android.content.res.Resources res2 = pm.getResourcesForApplication(ai);
+                android.graphics.drawable.Drawable d = res2.getDrawableForDensity(
+                        res, android.util.DisplayMetrics.DENSITY_XXXHIGH, null);
+                if (d != null) {
+                    return d;
+                }
+            } catch (Throwable ignored) {
+                // 有些包的资源读不出来，退回下面的系统接口
+            }
+        }
+        try {
+            return pm.getApplicationIcon(ai);
+        } catch (Throwable th) {
+            return null;
+        }
+    }
+
     private void updateSubSelection() {
+        // 按 tag 里的排序值比对，不用下标：「我的排序」那颗排在最后，
+        // 下标和 sort 对不上（sort 是 0/1/2，那颗是 99）。
         for (int i = 0; i < subNav.getChildCount(); i++) {
-            subNav.getChildAt(i).setSelected(i == sort);
+            View chip = subNav.getChildAt(i);
+            Object tag = chip.getTag();
+            int value = tag instanceof Integer ? (Integer) tag : i;
+            chip.setSelected(value == sort);
         }
     }
 
@@ -468,14 +595,71 @@ public class AppPage extends FrameLayout implements ModulePage {
     private static List<Entry> readPackages(Context context) {
         PackageManager pm = context.getPackageManager();
 
-        Set<String> launchable = new HashSet<>();
+        // 只认「有桌面入口」的应用：queryIntentActivities 拿到的才算。
+        //
+        // <p>Aerial 也是这么筛的：设备上大量系统组件（安全插件、编解码更新器、
+        // 商店插件、Analytics…）没有 launcher 入口，用户根本不该在应用墙里看到它们 ——
+        // 以前按 getInstalledApplications 整表铺，它们就混进了「用户安装」。
+        Map<String, android.content.pm.ActivityInfo> launchable =
+                new HashMap<String, android.content.pm.ActivityInfo>();
+        Map<String, android.content.pm.ActivityInfo> leanbackApps =
+                new HashMap<String, android.content.pm.ActivityInfo>();
         Intent main = new Intent(Intent.ACTION_MAIN);
         main.addCategory(Intent.CATEGORY_LAUNCHER);
         List<ResolveInfo> infos = pm.queryIntentActivities(main, 0);
         if (infos != null) {
             for (ResolveInfo info : infos) {
                 if (info.activityInfo != null) {
-                    launchable.add(info.activityInfo.packageName);
+                    launchable.put(info.activityInfo.packageName, info.activityInfo);
+                }
+            }
+        }
+        // 小米应用商店只声明 APPSTORE_LAUNCHER，没有 CATEGORY_LAUNCHER（Aerial 同样处理）
+        Intent store = new Intent(Intent.ACTION_MAIN);
+        store.addCategory("android.intent.category.APPSTORE_LAUNCHER");
+        List<ResolveInfo> storeInfos = pm.queryIntentActivities(store, 0);
+        if (storeInfos != null) {
+            for (ResolveInfo info : storeInfos) {
+                if (info.activityInfo != null) {
+                    launchable.put(info.activityInfo.packageName, info.activityInfo);
+                }
+            }
+        }
+        // 固件应用里几个根本不声明任何启动类目的（厂商自己的桌面才列得出来），
+        // 按组件写死 —— 米家、高清播放器。照搬 Aerial 的 UNLISTED_ENTRIES
+        String[][] unlisted = {
+                {"com.xiaomi.smarthome.tv", "com.xiaomi.smarthome.tv.ui.MainActivity"},
+                {"com.xiaomi.mitv.mediaexplorer",
+                        "com.xiaomi.mitv.mediaexplorer.NewScraperMainEntryActivity"},
+        };
+        for (String[] pair : unlisted) {
+            if (launchable.containsKey(pair[0])) {
+                continue;
+            }
+            try {
+                android.content.pm.ActivityInfo info = pm.getActivityInfo(
+                        new android.content.ComponentName(pair[0], pair[1]), 0);
+                if (info != null && info.exported && info.enabled
+                        && info.applicationInfo != null && info.applicationInfo.enabled) {
+                    launchable.put(info.packageName, info);
+                }
+            } catch (Exception ignored) {
+                // 这台电视没装这个包 / 类名对不上：跳过
+            }
+        }
+        // 电视端入口单独记一套：横幅（banner）是应用给电视做的图，
+        // 只有真有电视端入口的应用才可信 —— 手机应用偶尔也声明 banner，
+        // 那种拉过来铺满磁贴就是一场灾难（裁切、主体丢失都是它）。
+        // 记的是 ActivityInfo：banner 得从<b>电视端那个 Activity</b> 上取，
+        // ApplicationInfo.banner 常常是另一张（缩略图 / 手机横幅），
+        // 铺满磁贴就「放大过多、裁切」（TVBox / 月光 / Yamby 都是这个原因）
+        Intent leanbackIntent = new Intent(Intent.ACTION_MAIN);
+        leanbackIntent.addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+        List<ResolveInfo> leanbackInfos = pm.queryIntentActivities(leanbackIntent, 0);
+        if (leanbackInfos != null) {
+            for (ResolveInfo info : leanbackInfos) {
+                if (info.activityInfo != null) {
+                    leanbackApps.put(info.activityInfo.packageName, info.activityInfo);
                 }
             }
         }
@@ -498,13 +682,30 @@ public class AppPage extends FrameLayout implements ModulePage {
                 // 单个包读不出来不影响别的包，继续扫
             }
             entry.name = TextUtils.isEmpty(label) ? ai.packageName : label.toString();
-            entry.launchable = launchable.contains(ai.packageName);
+            android.content.pm.ActivityInfo tvEntry = leanbackApps.get(ai.packageName);
+            entry.launchable = tvEntry != null || launchable.containsKey(ai.packageName);
+            entry.leanback = tvEntry != null;
+            // 没有桌面入口的系统组件不列（安全插件、编解码更新器…）
+            if (!entry.launchable) {
+                continue;
+            }
             entry.system = (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0
                     || (ai.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
-            try {
-                entry.icon = pm.getApplicationIcon(ai);
-            } catch (Exception e) {
-                entry.icon = null;
+            entry.icon = densestIcon(pm, ai);
+            // 横幅是应用专门给电视做的图，比图标更「电视」。但只认有电视端入口的
+            // 应用（Aerial 同款约束）：手机应用偶尔也声明 banner，那种图铺满磁贴
+            // 就是裁切和主体丢失的来源。读不到就为 null，磁贴走图标管线
+            if (entry.leanback) {
+                int bannerRes = tvEntry != null && tvEntry.banner != 0 ? tvEntry.banner : ai.banner;
+                if (bannerRes != 0) {
+                    try {
+                        entry.banner = pm.getResourcesForApplication(ai)
+                                .getDrawableForDensity(bannerRes,
+                                        android.util.DisplayMetrics.DENSITY_XXXHIGH, null);
+                    } catch (Exception e) {
+                        entry.banner = null;
+                    }
+                }
             }
             try {
                 PackageInfo pi = pm.getPackageInfo(ai.packageName, 0);
@@ -539,12 +740,36 @@ public class AppPage extends FrameLayout implements ModulePage {
             rows.add(entry);
         }
         sortRows();
+        // 用户自己排过的应用按那个顺序走 —— 这一条<b>盖过</b>上面的排序按钮。
+        //
+        // <p>「按名称 / 按更新时间 / 按安装时间」是默认排序，用户一旦自己排过顺序，
+        // 再让他去切排序按钮把顺序打乱，是没道理的事。他排的顺序就是最终顺序，
+        // 排序按钮这时该让位（想回到默认排序，把自定义顺序清掉即可）。
+        //
+        // <p>只在「全部 / 用户安装」这类整目录视图里生效：
+        // 搜索结果按名字排更合理（用户是按名字找的）。
+        if (section != SEC_SEARCH && layout != null && layout.hasCustomOrder()) {
+            List<Entry> arranged = layout.arrange(rows, new LayoutStore.KeyOf<Entry>() {
+                @Override
+                public String key(Entry item) {
+                    return item.pkg;
+                }
+            });
+            rows.clear();
+            rows.addAll(arranged);
+        }
 
         subtitle.setText(headline());
         loadingView.setVisibility(rows.isEmpty() && catalogLoading ? View.VISIBLE : View.GONE);
         emptyView.setVisibility(rows.isEmpty() ? View.VISIBLE : View.GONE);
         emptyView.setText(emptyLine());
         searchInput.setVisibility(section == SEC_SEARCH ? View.VISIBLE : View.GONE);
+        // 那一行（标题 + 搜索框）只有搜索栏才有意义，其他栏目整行收起来，
+        // 顶栏下面就紧接磁贴，不再夹一条空白带
+        View toolRow = findViewById(R.id.apps_tool_row);
+        if (toolRow != null) {
+            toolRow.setVisibility(section == SEC_SEARCH ? View.VISIBLE : View.GONE);
+        }
 
         // 整页背景跟着第一张卡走：焦点还在页签上时，背景不能留着上一个栏目的图标
         showBackground(rows.isEmpty() ? null : rows.get(0).icon, true);
@@ -553,9 +778,7 @@ public class AppPage extends FrameLayout implements ModulePage {
 
     private boolean matchesSection(Entry entry) {
         switch (section) {
-            case SEC_LAUNCH:
-                return entry.launchable;
-            case SEC_THIRD:
+            case SEC_USER:
                 return !entry.system;
             case SEC_SYSTEM:
                 return entry.system;
@@ -605,9 +828,7 @@ public class AppPage extends FrameLayout implements ModulePage {
                     : "“" + query.trim() + "”命中 " + rows.size() + " 个";
         }
         switch (section) {
-            case SEC_LAUNCH:
-                return "共 " + rows.size() + " 个能直接打开 · 确认键打开，长按看更多操作";
-            case SEC_THIRD:
+            case SEC_USER:
                 return "用户装的 " + rows.size() + " 个，系统自带的不在这里 · 长按看更多操作";
             case SEC_SYSTEM:
                 return "系统自带 " + rows.size() + " 个，多数卸载不掉 · 长按看更多操作";
@@ -695,8 +916,65 @@ public class AppPage extends FrameLayout implements ModulePage {
                     public void onUninstall(Entry target) {
                         uninstall(target);
                     }
+
+                    @Override
+                    public void onMove(Entry target) {
+                        startMove(target);
+                    }
+
+                    @Override
+                    public void onMoveToTop(Entry target) {
+                        moveToTop(target);
+                    }
                 });
         dialog.show();
+    }
+
+    /**
+     * 把一个应用提到应用墙最上面，并记住这个顺序。
+     *
+     * <p>顺序存在 {@link LayoutStore} 里，下次进这一页照旧。
+     * 用户装的（第三方）应用和系统应用一起排 —— 用户认的是「图标」，
+     * 不是「是不是预装的」。
+     */
+    private void moveToTop(Entry entry) {
+        if (entry == null || layout == null) {
+            return;
+        }
+        // 先把它写进用户顺序，再把当前目录里所有应用也按同样的顺序存一份
+        List<String> order = new ArrayList<>(layout.order());
+        order.remove(entry.pkg);
+        order.add(0, entry.pkg);
+        if (catalog != null) {
+            for (Entry e : catalog) {
+                if (!order.contains(e.pkg)) {
+                    order.add(e.pkg);
+                }
+            }
+        }
+        layout.save(order);
+        rebuild();
+        // 焦点回到刚提上来的那张卡，用户能立刻看到它动到哪了
+        focusPkg(entry.pkg);
+        toast(entry.name + " 已移到最前");
+    }
+
+    /** 把焦点放到指定包名的卡片上 */
+    private void focusPkg(final String pkg) {
+        if (pkg == null) {
+            return;
+        }
+        for (int i = 0; i < adapter.getCount(); i++) {
+            View child = grid.getChildAt(i);
+            if (child == null) {
+                continue;
+            }
+            Object tag = child.getTag();
+            if (tag instanceof String && pkg.equals(tag)) {
+                child.requestFocus();
+                return;
+            }
+        }
     }
 
     /**
@@ -819,6 +1097,10 @@ public class AppPage extends FrameLayout implements ModulePage {
     }
 
     private void focusChip() {
+        // 用户主动把焦点送去顶栏：墙重排时不要再把焦点抢回列表
+        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
+            ((com.tvdesk.desk.widget.PageGridView) grid).markUserLeft();
+        }
         if (section < navItems.getChildCount()) {
             navItems.getChildAt(section).requestFocus();
         }
@@ -829,6 +1111,10 @@ public class AppPage extends FrameLayout implements ModulePage {
         if (gone() || adapter.getCount() == 0) {
             focusChip();
             return;
+        }
+        // 用户（或页面）把焦点送回墙里：撤掉「用户已离开」的标记
+        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
+            ((com.tvdesk.desk.widget.PageGridView) grid).markUserEntered();
         }
         View child = grid.getChildAt(position - grid.getFirstVisiblePosition());
         if (!GridScroll.isFullyVisible(grid, child)) {
@@ -875,6 +1161,38 @@ public class AppPage extends FrameLayout implements ModulePage {
      */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            int keyCode = event.getKeyCode();
+            if (moving) {
+                // 移动模式下方向键是「挪这张卡」，不是「换焦点」
+                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                    moveStep(-1);
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    moveStep(1);
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    moveStep(-Math.max(1, grid.getNumColumns()));
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    moveStep(Math.max(1, grid.getNumColumns()));
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                        || keyCode == KeyEvent.KEYCODE_ENTER) {
+                    finishMove(true);
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_BACK) {
+                    finishMove(false);
+                    return true;
+                }
+                return true;
+            }
+        }
         if (event.getAction() == KeyEvent.ACTION_DOWN
                 && grid.getVisibility() == View.VISIBLE) {
             int keyCode = event.getKeyCode();
@@ -883,8 +1201,195 @@ public class AppPage extends FrameLayout implements ModulePage {
                     return true;
                 }
             }
+            // 到边了就地吃掉。
+            //
+            // <p>GridView 自己不管边界：第一列再按左，几何寻焦在墙外找不到更近的卡，
+            // 就一路摸到左上角的模块胶囊上 —— 用户只是想在最左一排待着，
+            // 焦点却飞走了，得按右再按回来。最后一列/最后一行同理。
+            if (swallowAtEdge(keyCode)) {
+                return true;
+            }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    /** 焦点这一下会不会把墙带到边界外：会就吃掉这个按键 */
+    private boolean swallowAtEdge(int keyCode) {
+        View focused = findFocus();
+        if (focused == null || focused == grid) {
+            return false;
+        }
+        // 顶栏页签：最左/最右一颗别再往外跑（右边那颗是放大镜）
+        if (navItems != null && isDescendantOfView(focused, navItems)) {
+            int index = navItems.indexOfChild(focused);
+            if (index < 0) {
+                return false;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && index == 0) {
+                return true;
+            }
+            return keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && index == navItems.getChildCount() - 1;
+        }
+        int position = grid.getPositionForView(focused);
+        if (position < 0) {
+            return false;
+        }
+        int columns = Math.max(1, grid.getNumColumns());
+        int column = position % columns;
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            return column == 0;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            return column == columns - 1 || position == adapter.getCount() - 1;
+        }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            return position + columns >= adapter.getCount();
+        }
+        return false;
+    }
+
+    /** {@code node} 是不是挂在 {@code ancestor} 底下（含相等） */
+    private static boolean isDescendantOfView(View node, View ancestor) {
+        View current = node;
+        while (current != null) {
+            if (current == ancestor) {
+                return true;
+            }
+            current = current.getParent() instanceof View ? (View) current.getParent() : null;
+        }
+        return false;
+    }
+
+    // ---------------------------------------------------------------- 移动位置
+
+    /** 从卡片菜单进入「移动位置」 */
+    private void startMove(Entry entry) {
+        if (entry == null || regionEmpty()) {
+            return;
+        }
+        moving = true;
+        movingPkg = entry.pkg;
+        moveBackup = new ArrayList<String>();
+        for (Entry item : rows) {
+            moveBackup.add(item.pkg);
+        }
+        // 焦点回到这张卡上，接下来方向键挪它
+        int index = indexOfPkg(entry.pkg);
+        if (index >= 0) {
+            focusGrid(index, 2);
+        }
+        showMoveHint(true);
+    }
+
+    private boolean regionEmpty() {
+        return rows.isEmpty();
+    }
+
+    private int indexOfPkg(String pkg) {
+        for (int i = 0; i < rows.size(); i++) {
+            if (TextUtils.equals(rows.get(i).pkg, pkg)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** 把正在移动的那张卡往 {@code delta} 个位置挪一步 */
+    private void moveStep(int delta) {
+        int from = indexOfPkg(movingPkg);
+        if (from < 0) {
+            return;
+        }
+        int to = from + delta;
+        if (to < 0 || to >= rows.size()) {
+            return;
+        }
+        Entry moved = rows.remove(from);
+        rows.add(to, moved);
+        adapter.notifyDataSetChanged();
+        focusGrid(to, 1);
+    }
+
+    /**
+     * 结束移动。
+     *
+     * @param commit true = 放下并记住顺序；false = 撤销，回到进入移动前的顺序
+     */
+    private void finishMove(boolean commit) {
+        if (!moving) {
+            return;
+        }
+        if (!commit && moveBackup != null) {
+            // 撤销：按备份顺序重排当前行
+            List<Entry> restored = new ArrayList<Entry>();
+            for (String pkg : moveBackup) {
+                int at = indexOfPkg(pkg);
+                if (at >= 0) {
+                    restored.add(rows.get(at));
+                }
+            }
+            for (Entry item : rows) {
+                if (!restored.contains(item)) {
+                    restored.add(item);
+                }
+            }
+            rows.clear();
+            rows.addAll(restored);
+        }
+        int keep = movingPkg == null ? 0 : indexOfPkg(movingPkg);
+        moving = false;
+        movingPkg = null;
+        moveBackup = null;
+        showMoveHint(false);
+        if (commit) {
+            persistOrder();
+            toast("顺序已保存");
+        }
+        adapter.notifyDataSetChanged();
+        if (keep >= 0) {
+            focusGrid(keep, 2);
+        }
+    }
+
+    /** 把当前顺序落盘：可见的行在前，不在这一栏里的应用按原顺序跟在后头 */
+    private void persistOrder() {
+        if (layout == null) {
+            return;
+        }
+        List<String> order = new ArrayList<String>();
+        for (Entry item : rows) {
+            order.add(item.pkg);
+        }
+        if (catalog != null) {
+            for (Entry item : catalog) {
+                if (!order.contains(item.pkg)) {
+                    order.add(item.pkg);
+                }
+            }
+        }
+        layout.save(order);
+    }
+
+    /** 移动模式提示条：浮在底部中间，进/出移动时显隐 */
+    private void showMoveHint(boolean show) {
+        if (show) {
+            if (moveHint == null) {
+                moveHint = new TextView(getContext());
+                moveHint.setText("移动中：方向键挪位置 · 确定放下 · 返回撤销");
+                moveHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+                moveHint.setTextColor(0xFFFFFFFF);
+                moveHint.setBackgroundResource(R.drawable.bg_pill);
+                moveHint.setPadding(dp(22), dp(10), dp(22), dp(10));
+                FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                lp.bottomMargin = dp(28);
+                addView(moveHint, lp);
+            }
+            moveHint.setVisibility(View.VISIBLE);
+        } else if (moveHint != null) {
+            moveHint.setVisibility(View.GONE);
+        }
     }
 
     private boolean moveGridVertical(boolean down) {
@@ -982,37 +1487,23 @@ public class AppPage extends FrameLayout implements ModulePage {
      * <p>图标不是 URL，只能直接塞 Drawable；Glide 会先按 override 的尺寸渲染，
      * 出来就是一团和应用主色一致的氛围底。
      */
+    /**
+     * 背景不再跟着应用图标变。
+     *
+     * <p>Aerial 的 Home 会按当前应用的主色铺一层模糊氛围底，磁贴一换整页染色。
+     * 在电视上看这层染色比默认壁纸更花（大面积单色压着标题和名字），
+     * 这里直接把氛围层收掉，只留页面自己的默认背景。
+     */
     private void showBackground(Drawable icon, boolean force) {
         if (bgImage == null) {
             return;
         }
-        if (icon == null) {
-            if (!force) {
-                return;
-            }
+        if (shownIcon != null || bgImage.getAlpha() > 0f) {
             shownIcon = null;
-            bgImage.animate().alpha(0f).setDuration(320).start();
-            return;
+            bgImage.animate().alpha(0f).setDuration(240).start();
         }
-        if (icon == shownIcon) {
-            return;
-        }
-        shownIcon = icon;
-        try {
-            Glide.with(getContext())
-                    .load(icon)
-                    // 图标是纯色块，不像封面那样有细节可糊：解码尺寸给到 40 才拉得出氛围底，
-                    // 用 B 站页的 200 会放大成一个能看清轮廓的巨型图标压在文字后面
-                    .override(40, 40)
-                    .centerCrop()
-                    .transition(DrawableTransitionOptions.withCrossFade(420))
-                    .into(bgImage);
-        } catch (Throwable th) {
-            android.util.Log.w(TAG, "应用图标做背景渲染失败", th);
-            return;
-        }
-        bgImage.animate().alpha(BG_ALPHA).setDuration(420).start();
     }
+
 
     // ---------------------------------------------------------------- ModulePage
 
@@ -1052,6 +1543,12 @@ public class AppPage extends FrameLayout implements ModulePage {
                 focusSearch();
                 return Back.consume("应用·清空搜索词");
             }
+            // 焦点还在内容区时，返回先回顶栏：顶栏是内容的上一层，
+            // 一次返回跨两层（内容 → 桌面）会让人不知道自己在哪
+            if (grid.findFocus() != null) {
+                focusChip();
+                return Back.consume("应用·回顶栏");
+            }
             return Back.pass("应用·页内已无层级");
         }
         if (keyCode == KeyEvent.KEYCODE_MENU) {
@@ -1090,39 +1587,32 @@ public class AppPage extends FrameLayout implements ModulePage {
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            View root = convertView;
-            final boolean fresh = root == null;
-            if (root == null) {
-                root = LayoutInflater.from(getContext())
-                        .inflate(R.layout.item_app_card, parent, false);
+            final AppTileView root;
+            final boolean fresh = !(convertView instanceof AppTileView);
+            if (fresh) {
+                root = new AppTileView(getContext());
+            } else {
+                root = (AppTileView) convertView;
             }
             final Entry entry = rows.get(position);
-            TextView name = root.findViewById(R.id.apps_card_name);
-            TextView note = root.findViewById(R.id.apps_card_note);
-            TextView badge = root.findViewById(R.id.apps_card_badge);
-            ImageView img = root.findViewById(R.id.apps_card_img);
-
-            name.setText(entry.name);
-            String noteText = noteOf(entry);
-            note.setText(noteText);
-            note.setVisibility(TextUtils.isEmpty(noteText) ? View.GONE : View.VISIBLE);
-            badge.setText(entry.system ? "预装" : "");
-            badge.setVisibility(entry.system ? View.VISIBLE : View.GONE);
-
-            bindIcon(img, entry.icon);
-            PosterCorners.clip(img,
-                    getResources().getDimensionPixelSize(R.dimen.poster_radius) - dp(3));
+            root.setName(entry.name);
+            root.setTile(AppTileArt.tile(entry.pkg + "@" + entry.updateTime,
+                    entry.banner, entry.icon));
 
             // GridView 的 item 默认不可聚焦，得自己开
             root.setFocusable(true);
             root.setFocusableInTouchMode(true);
             root.setClickable(true);
-            FocusScaler.attach(root, FocusScaler.SCALE_FOCUSED,
+            // Aerial 的磁贴聚焦放大 1.15 倍（AppTile.FOCUSED_SCALE）
+            FocusScaler.attach(root, AppTileView.FOCUSED_SCALE,
                     new View.OnFocusChangeListener() {
                 @Override
                 public void onFocusChange(View v, boolean hasFocus) {
                     if (hasFocus) {
                         showBackground(entry.icon, false);
+                        root.setNameBright(true);
+                    } else {
+                        root.setNameBright(false);
                     }
                 }
             });
@@ -1132,6 +1622,8 @@ public class AppPage extends FrameLayout implements ModulePage {
                     activate(entry);
                 }
             });
+            // 记下包名：「移到最前」之后要能把焦点放回这张卡
+            root.setTag(entry.pkg);
             root.setOnLongClickListener(new View.OnLongClickListener() {
                 @Override
                 public boolean onLongClick(View v) {
@@ -1148,25 +1640,6 @@ public class AppPage extends FrameLayout implements ModulePage {
             }
             return root;
         }
-    }
-
-    /** 版本 + 更新日期。两个都没有就整行不留，否则卡片下面是空一线 */
-    private static String noteOf(Entry entry) {
-        String version = TextUtils.isEmpty(entry.version) ? "" : "v" + entry.version;
-        long stamp = entry.updateTime > 0 ? entry.updateTime : entry.installTime;
-        String date = stamp > 0 ? new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT)
-                .format(new Date(stamp)) : "";
-        if (TextUtils.isEmpty(version)) {
-            return date;
-        }
-        return TextUtils.isEmpty(date) ? version : version + " · " + date;
-    }
-
-    private void bindIcon(ImageView view, Drawable icon) {
-        if (view == null) {
-            return;
-        }
-        view.setImageDrawable(icon);
     }
 
     // ---------------------------------------------------------------- 工具

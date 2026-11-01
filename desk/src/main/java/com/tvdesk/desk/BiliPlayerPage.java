@@ -104,6 +104,10 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
 
     /** 列表循环换成推荐视频时会整个替换，所以不能是 final */
     private BiliDetail detail;
+    /** 一键三连按钮 */
+    private TextView tripleView;
+    /** 三连请求在飞：连按不要重复发，也不要禁用控件（禁用会把焦点顶走） */
+    private boolean tripleBusy;
     /** 自动连播会换到下一分 P，所以这里不能是 final */
     private BiliEpisode episode;
     private final LiveRoom liveRoom;
@@ -211,6 +215,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
         toggleView = findViewById(R.id.bili_toggle);
         modeView = findViewById(R.id.bili_mode);
         danmuView = findViewById(R.id.bili_danmu);
+        tripleView = findViewById(R.id.bili_triple);
         settingsView = findViewById(R.id.bili_settings);
         titleView = findViewById(R.id.bili_player_title);
         noteView = findViewById(R.id.bili_player_note);
@@ -232,6 +237,9 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
         FocusScaler.attach(toggleView, 1.06f);
         FocusScaler.attach(modeView, 1.06f);
         FocusScaler.attach(danmuView, 1.06f);
+        if (tripleView != null) {
+            FocusScaler.attach(tripleView, 1.06f);
+        }
         FocusScaler.attach(settingsView, 1.06f);
         toggleView.setOnClickListener(new OnClickListener() {
             @Override
@@ -251,6 +259,14 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                 toggleDanmaku();
             }
         });
+        if (tripleView != null) {
+            tripleView.setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    doTriple();
+                }
+            });
+        }
         settingsView.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -1052,6 +1068,69 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
 
     // ---------------------------------------------------------------- 设置
 
+    /**
+     * 一键三连：点赞 + 投币 + 收藏。
+     *
+     * <p>要登录才能用；没登录直接说清楚，别让用户对着一个没反应的按钮发呆。
+     */
+    private void doTriple() {
+        final BiliClient client = BiliClient.get(getContext());
+        if (!client.loggedIn()) {
+            Toast.makeText(getContext(), "一键三连要先登录 B 站", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final String bvid = streamBvid;
+        final long aid = detail == null ? 0 : detail.aid;
+        if (TextUtils.isEmpty(bvid)) {
+            Toast.makeText(getContext(), "这个视频没有可三连的标识", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (tripleView == null || tripleBusy) {
+            return;
+        }
+        // 只用一个「忙」标记，不 setEnabled(false)：
+        // 控件一禁用，它就不再可聚焦，焦点会自己跳到旁边那颗「连播模式」上，
+        // 用户看到的是「刚按下三连，光标飞走了」，还以为点错了键
+        tripleBusy = true;
+        tripleView.setText("三连中");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                BiliClient.TripleResult result;
+                try {
+                    result = client.triple(bvid, aid);
+                } catch (Throwable th) {
+                    final String msg = "三连失败：" + th.getMessage();
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            tripleBusy = false;
+                            tripleView.setText("三连");
+                            Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                    return;
+                }
+                final boolean ok = result.complete();
+                final String err = result.error;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        tripleBusy = false;
+                        tripleView.setText(ok ? "已三连" : "三连");
+                        if (ok) {
+                            Toast.makeText(getContext(), "已三连：点赞 + 投币 + 收藏",
+                                    Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(getContext(), "三连没成功：" + err,
+                                    Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                });
+            }
+        }, "bili-triple").start();
+    }
+
     private void openSettings() {
         if (settingsOpen || released || !(getContext() instanceof Activity)) {
             return;
@@ -1660,7 +1739,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
             int keyCode = event.getKeyCode();
             View focus = findFocus();
             boolean onButton = focus == toggleView || focus == modeView
-                    || focus == danmuView || focus == settingsView;
+                    || focus == tripleView || focus == danmuView || focus == settingsView;
             // 焦点已经在这排按钮上时自己搬焦点，不交给几何寻焦：寻焦失败的话事件会
             // 一路落到宿主的 handleKeyDown，右键就变成快进而不是走到「设置」
             if (onButton && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
@@ -1693,25 +1772,43 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
         return super.dispatchKeyEvent(event);
     }
 
-    /** 控制条内部的左右移动：连播模式 ← 播放 → 弹幕 → 设置。进度条只读，不进这一圈 */
+    /** 控制条内部的左右移动：连播 ← 播放 → 三连 → 弹幕 → 设置。进度条只读，不进这一圈 */
     private void moveControlFocus(View focus, boolean right) {
         if (right) {
-            if (focus == toggleView) {
-                danmuView.requestFocus();
+            if (focus == modeView) {
+                focus = moveTo(toggleView, focus);
+            } else if (focus == toggleView) {
+                focus = moveTo(tripleView, focus);
+            } else if (focus == tripleView) {
+                focus = moveTo(danmuView, focus);
             } else if (focus == danmuView) {
-                settingsView.requestFocus();
-            } else if (focus == modeView) {
-                toggleView.requestFocus();
+                focus = moveTo(settingsView, focus);
             }
             return;
         }
         if (focus == settingsView) {
-            danmuView.requestFocus();
+            moveTo(danmuView, focus);
         } else if (focus == danmuView) {
-            toggleView.requestFocus();
+            moveTo(tripleView, focus);
+        } else if (focus == tripleView) {
+            moveTo(toggleView, focus);
         } else if (focus == toggleView) {
-            modeView.requestFocus();
+            moveTo(modeView, focus);
         }
+    }
+
+    /**
+     * 把焦点挪到 {@code target}，挪不过去就留在原地。
+     *
+     * <p>先看可见性：GONE 的控件 requestFocus 一定失败（而且是静默失败），
+     * 以前「三连」被漏在这条链外面，用户按右键从「暂停」直接跳到「弹幕」，
+     * 三连那颗按钮在遥控器上等于不存在 —— 也就是「三连按钮没反应」的真身。
+     */
+    private View moveTo(View target, View fallback) {
+        if (target != null && target.getVisibility() == View.VISIBLE && target.requestFocus()) {
+            return target;
+        }
+        return fallback;
     }
 
     /**

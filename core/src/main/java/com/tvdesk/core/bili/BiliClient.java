@@ -23,6 +23,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -67,6 +68,14 @@ public class BiliClient {
     private static final String TAG = "BiliClient";
 
     private static final String API = "https://api.bilibili.com";
+    /**
+     * 手机端 App 的 API 域名。
+     *
+     * <p>排行榜的新接口 {@code /x/web-interface/ranking/v2} 现在对未登录请求直接回
+     * {@code -352}（风控），带 wbi 签名也一样；老 App 域名上的
+     * {@code /x/v2/rank/region} 反而一直是通的。排行榜用它兜底。
+     */
+    private static final String APP_API = "https://app.bilibili.com";
     private static final String LIVE = "https://api.live.bilibili.com";
     private static final String PASSPORT = "https://passport.bilibili.com";
     private static final String COMMENT = "https://comment.bilibili.com";
@@ -438,14 +447,53 @@ public class BiliClient {
     /**
      * 排行榜。{@code rid} 是分区的 tid，0 表示全站。
      *
-     * <p>选它而不是「分区最新投稿」接口：分区列表那几条（{@code dynamic/region}、
-     * {@code newlist}）要么已下线要么要 wbi，ranking/v2 免签名且字段和 popular 同一套。
+     * <p><b>必须带 wbi 签名。</b>2026-10 起这个接口对「带 cookie 的请求」一律回
+     * {@code code=-352}（风控拦截），表现就是排行榜页一片空白、直播分区也全是
+     * 「0 个子分区」——接口 HTTP 200，但 data 里什么都没有。
+     * 用浏览器空手 curl 反而是通的，所以只在电视上坏，很容易误判成「源站没内容」。
+     * 签名 key 从 nav 拿（{@link #mixinKey()}），2 小时内复用。
      */
     public List<BiliCard> ranking(int rid) throws IOException {
-        String url = API + "/x/web-interface/ranking/v2?rid=" + Math.max(0, rid) + "&type=all";
+        Map<String, String> params = new HashMap<>();
+        params.put("rid", String.valueOf(Math.max(0, rid)));
+        params.put("type", "all");
+        try {
+            JSONObject json = getSigned(API + "/x/web-interface/ranking/v2", params, true);
+            JSONObject data = json.optJSONObject("data");
+            JSONArray list = data == null ? null : data.optJSONArray("list");
+            Log.i(TAG, "排行 rid=" + rid + " code=" + json.optInt("code")
+                    + " msg=" + json.optString("message")
+                    + " data=" + (data != null) + " list=" + (list == null ? "null" : list.length()));
+            if (json.optInt("code", 0) != 0) {
+                throw new IOException("排行榜接口回 code=" + json.optInt("code")
+                        + "（" + json.optString("message", "没有说明") + "）");
+            }
+            return parseCards(list, "排行榜");
+        } catch (IOException e) {
+            // 新接口被风控（-352）时走老 App 接口：那边一直是通的
+            Log.w(TAG, "排行新接口不通（" + e.getMessage() + "），改走老接口");
+            return rankingLegacy(rid);
+        }
+    }
+
+    /**
+     * 排行榜的老 App 接口。
+     *
+     * <p>{@code app.bilibili.com/x/v2/rank/region} 返回的是数组（不是 {list:…}），
+     * 字段也换过一套：{@code param} 装 aid、{@code name} 装 UP 主名、{@code rname} 装分区名。
+     */
+    private List<BiliCard> rankingLegacy(int rid) throws IOException {
+        String url = APP_API + "/x/v2/rank/region?rid=" + Math.max(0, rid) + "&day=3";
         JSONObject json = getJson(url, true);
-        JSONObject data = json.optJSONObject("data");
-        return parseCards(data == null ? null : data.optJSONArray("list"), "排行榜");
+        JSONArray list = json.optJSONArray("data");
+        Log.i(TAG, "排行(老接口) rid=" + rid + " code=" + json.optInt("code")
+                + " msg=" + json.optString("message")
+                + " 条数=" + (list == null ? "null" : list.length()));
+        if (json.optInt("code", 0) != 0 || list == null) {
+            throw new IOException("排行榜接口回 code=" + json.optInt("code")
+                    + "（" + json.optString("message", "没有说明") + "）");
+        }
+        return parseCards(list, "排行榜");
     }
 
     /**
@@ -544,6 +592,95 @@ public class BiliClient {
             cards.add(card);
         }
         return cards;
+    }
+
+    /**
+     * 关注动态（要登录）：关注的人最近发的东西。
+     *
+     * <p>走 web 端的动态流接口（{@code x/polymer/web-dynamic/v1/feed/all}），
+     * 和「我的」里那几项一样靠 SESSDATA 认人。只收<b>视频投稿</b>
+     * （{@code DYNAMIC_TYPE_AV}）：图文动态在电视上没有能播的东西，
+     * 列出来点开只会是一片空白，不如不收。
+     *
+     * <p>动态接口的播放数、时长都是<b>字符串</b>（{@code "1.2万"}、{@code "12:34"}），
+     * 复用已有的 parseCount / parseClock。
+     */
+    /**
+     * 关注动态的一页。动态流是游标分页：{@link #offset} 传回下一次要带的
+     * {@code offset}，{@link #hasMore} 为 false 就没有下一页了。
+     */
+    public static final class FollowPage {
+        public final List<BiliCard> cards = new ArrayList<>();
+        public String offset = "";
+        public boolean hasMore;
+    }
+
+    public List<BiliCard> followedFeed(int pageSize) throws IOException {
+        return followedFeed(pageSize, "").cards;
+    }
+
+    /**
+     * 关注动态（要登录，游标分页）。
+     *
+     * @param offset 上一页返回的 {@code data.offset}；第一页传空串
+     */
+    public FollowPage followedFeed(int pageSize, String offset) throws IOException {
+        if (!loggedIn()) {
+            throw new IOException("未登录：先在「我的」里登录 B 站");
+        }
+        String url = API + "/x/polymer/web-dynamic/v1/feed/all"
+                + "?timezone_offset=-480&type=video&page=1"
+                + (TextUtils.isEmpty(offset) ? "" : "&offset=" + offset);
+        JSONObject json = getJson(url, true);
+        int code = json.optInt("code", 0);
+        if (code != 0) {
+            String msg = json.optString("message", "");
+            throw new IOException(TextUtils.isEmpty(msg) ? ("关注动态接口返回 " + code) : msg);
+        }
+        JSONObject data = json.optJSONObject("data");
+        JSONArray items = data == null ? null : data.optJSONArray("items");
+        FollowPage page = new FollowPage();
+        page.offset = data == null ? "" : data.optString("offset", "");
+        page.hasMore = data != null && data.optBoolean("has_more", false);
+        List<BiliCard> cards = page.cards;
+        if (items == null) {
+            return page;
+        }
+        for (int i = 0; i < items.length() && cards.size() < pageSize; i++) {
+            JSONObject item = items.optJSONObject(i);
+            if (item == null || !"DYNAMIC_TYPE_AV".equals(item.optString("type"))) {
+                continue;
+            }
+            JSONObject modules = item.optJSONObject("modules");
+            JSONObject author = modules == null ? null : modules.optJSONObject("module_author");
+            JSONObject dynamic = modules == null ? null : modules.optJSONObject("module_dynamic");
+            JSONObject major = dynamic == null ? null : dynamic.optJSONObject("major");
+            JSONObject archive = major == null ? null : major.optJSONObject("archive");
+            if (archive == null) {
+                continue;
+            }
+            BiliCard card = new BiliCard();
+            card.bvid = archive.optString("bvid", "");
+            card.aid = archive.optLong("aid");
+            if (TextUtils.isEmpty(card.bvid) && card.aid == 0) {
+                continue;
+            }
+            card.title = archive.optString("title", "");
+            card.cover = normalize(archive.optString("cover", ""));
+            card.up = author == null ? "" : author.optString("name", "");
+            card.upMid = author == null ? 0 : author.optLong("mid");
+            card.durationSec = parseClock(archive.optString("duration_text", ""));
+            JSONObject stat = archive.optJSONObject("stat");
+            if (stat != null) {
+                card.views = parseCount(stat.optString("play", "0"));
+                card.danmaku = parseCount(stat.optString("danmaku", "0"));
+            }
+            // 角标放发帖时间（「3小时前」），比播放量更能说明「这是动态」
+            card.badge = author == null ? "" : author.optString("pub_time", "");
+            card.section = "关注";
+            cards.add(card);
+        }
+        return page;
     }
 
     /** 我的收藏夹列表（要登录） */
@@ -1305,6 +1442,24 @@ public class BiliClient {
     public List<LiveArea> liveAreas() throws IOException {
         JSONObject json = getJson(LIVE + "/room/v1/Area/getList", true);
         JSONArray list = json.optJSONArray("data");
+        Log.i(TAG, "直播分区 code=" + json.optInt("code") + " data="
+                + (list == null ? "null" : list.length()));
+        if (list != null && list.length() > 0) {
+            // 只打第一项：接口结构一变，这里最先把「字段叫什么」摊出来
+            JSONObject first = list.optJSONObject(0);
+            if (first == null) {
+                Log.w(TAG, "直播分区首项不是对象");
+            } else {
+                JSONArray subList = first.optJSONArray("list");
+                if (subList == null) {
+                    subList = first.optJSONArray("children");
+                }
+                String dump = first.toString();
+                Log.i(TAG, "直播分区首项 name=" + first.optString("name")
+                        + " 子项=" + (subList == null ? "null" : subList.length())
+                        + " json=" + dump.substring(0, Math.min(240, dump.length())));
+            }
+        }
         List<LiveArea> areas = new ArrayList<>();
         if (list == null) {
             return areas;
@@ -1318,7 +1473,13 @@ public class BiliClient {
             area.id = item.optInt("id");
             area.name = item.optString("name", "");
             area.cover = normalize(item.optString("cover", ""));
-            JSONArray children = item.optJSONArray("children");
+            // 分区下的二级分类：实测（2026-10）字段叫 list，老文档写的 children。
+            // 只认 children 的话每张卡片都是「0 个子分区」，点进去一片空——
+            // 很容易以为是接口挂了，其实数据就在旁边那个字段里。
+            JSONArray children = item.optJSONArray("list");
+            if (children == null) {
+                children = item.optJSONArray("children");
+            }
             if (children != null) {
                 for (int c = 0; c < children.length(); c++) {
                     JSONObject child = children.optJSONObject(c);
@@ -1329,9 +1490,16 @@ public class BiliClient {
                     sub.id = child.optInt("id");
                     sub.name = child.optString("name", "");
                     sub.parentId = area.id;
-                    sub.cover = normalize(child.optString("cover", ""));
+                    // 子分区的封面字段叫 pic（不是 cover）。只认 cover 的话
+                    // 一级分区卡片的图一直空着，看着像「图片加载失败」。
+                    sub.cover = normalize(firstNonEmpty(child.optString("pic", ""),
+                            child.optString("cover", "")));
                     area.children.add(sub);
                 }
+            }
+            if (TextUtils.isEmpty(area.cover) && !area.children.isEmpty()) {
+                // 一级分区自己没有图，借第一个子分区的顶一下——总比一片灰块强
+                area.cover = area.children.get(0).cover;
             }
             areas.add(area);
         }
@@ -1664,6 +1832,14 @@ public class BiliClient {
             card.section = section;
             card.bvid = item.optString("bvid", "");
             card.aid = item.optLong("aid");
+            if (card.aid == 0) {
+                // 老 App 接口把 aid 放在 param 里（字符串数字）
+                try {
+                    card.aid = Long.parseLong(item.optString("param", "0").trim());
+                } catch (NumberFormatException ignored) {
+                    // param 不是数字就不要了，后面照样能按 bvid 查
+                }
+            }
             card.cid = item.optLong("cid");
             card.title = plain(item.optString("title", ""));
             card.cover = normalize(firstNonEmpty(item.optString("pic", ""),
@@ -1673,7 +1849,9 @@ public class BiliClient {
                 card.up = owner.optString("name", "");
                 card.upMid = owner.optLong("mid");
             } else {
-                card.up = item.optString("author", item.optString("upper_name", ""));
+                // 老 App 接口的 UP 主名放在 name
+                card.up = item.optString("author",
+                        item.optString("upper_name", item.optString("name", "")));
             }
             card.durationSec = item.optLong("duration");
             if (card.durationSec == 0 && item.has("duration") && !(item.opt("duration")
@@ -1688,8 +1866,10 @@ public class BiliClient {
                 card.views = item.optLong("play");
                 card.danmaku = item.optLong("video_review");
             }
+            // 老 App 接口的分区名放在 rname
             card.badge = firstNonEmpty(item.optString("tname", ""),
-                    item.optString("reason", ""));
+                    firstNonEmpty(item.optString("rname", ""),
+                            item.optString("reason", "")));
             if (TextUtils.isEmpty(card.bvid) && card.aid > 0) {
                 // 老接口只给 aid，详情页认 aid 也能查
                 card.bvid = "";

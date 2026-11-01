@@ -4,7 +4,10 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/rootView"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:descendantFocusability="afterDescendants"
+    android:focusable="true"
+    android:focusableInTouchMode="true">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -28,8 +31,11 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="left"
-                android:background="@drawable/shape_live_resolution_badge"
                 android:ellipsize="end"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="2"
+                android:shadowRadius="8"
                 android:singleLine="true"
                 android:includeFontPadding="false"
                 android:paddingLeft="@dimen/vs_10"
@@ -48,9 +54,12 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="left"
                 android:layout_marginTop="@dimen/vs_5"
-                android:background="@drawable/shape_live_resolution_badge"
                 android:ellipsize="end"
                 android:maxLines="1"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="2"
+                android:shadowRadius="8"
                 android:includeFontPadding="false"
                 android:paddingLeft="@dimen/vs_10"
                 android:paddingTop="@dimen/vs_5"
@@ -84,7 +93,6 @@
                 android:id="@+id/tv_screen_display"
                 android:layout_height="wrap_content"
                 android:layout_gravity="right"
-                android:background="@drawable/shape_live_resolution_badge"
                 android:orientation="horizontal"
                 android:gravity="right"
                 android:paddingLeft="@dimen/vs_0"
@@ -145,9 +153,12 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="right"
                 android:layout_marginTop="@dimen/vs_5"
-                android:background="@drawable/shape_live_resolution_badge"
                 android:ellipsize="end"
                 android:maxLines="1"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="2"
+                android:shadowRadius="8"
                 android:includeFontPadding="false"
                 android:paddingLeft="@dimen/vs_10"
                 android:paddingTop="@dimen/vs_5"
@@ -205,7 +216,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="@drawable/shape_dialog_filter_bg"
+        android:background="@drawable/shape_player_glass_bg"
         android:gravity="center_vertical"
         android:orientation="vertical"
         android:paddingLeft="@dimen/vs_20"
@@ -215,7 +226,13 @@
         android:visibility="gone"
         tools:visibility="visible">
 
-        <HorizontalScrollView
+        <!--
+          按钮排的横向容器：必须是 FocusRowScroll，不能用 HorizontalScrollView。
+          后者会把左右键当成「横向滚动」吃掉（arrowScroll 返回 true），
+          系统的焦点导航就永远轮不到 —— 表现是底栏弹出来了、左右键却一格都挪不动。
+          焦点落到屏幕外的按钮上时它照样会滚，那一条走 requestChildRectangleOnScreen，和这个无关。
+        -->
+        <com.github.tvbox.osc.ui.tv.FocusRowScroll
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/vs_10"
@@ -524,7 +541,7 @@
 
             </LinearLayout>
 
-        </HorizontalScrollView>
+        </com.github.tvbox.osc.ui.tv.FocusRowScroll>
 
 
         <LinearLayout

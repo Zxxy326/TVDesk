@@ -362,7 +362,7 @@
                             android:focusableInTouchMode="true"
                             android:gravity="center_vertical"
                             android:minHeight="@dimen/settings_row_height"
-                            android:nextFocusDown="@+id/row_system"
+                            android:nextFocusDown="@+id/row_home_guard"
                             android:nextFocusLeft="@+id/row_edit_source"
                             android:nextFocusRight="@+id/row_home"
                             android:nextFocusUp="@+id/row_keep_playing"
@@ -407,6 +407,247 @@
                                 android:paddingEnd="14dp"
                                 android:paddingBottom="7dp"
                                 android:text="@string/settings_home_off"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="@dimen/settings_value_size"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                        <LinearLayout
+                            android:id="@+id/row_home_guard"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:background="@drawable/bg_setting_row"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="@dimen/settings_row_height"
+                            android:nextFocusDown="@+id/row_clock"
+                            android:nextFocusLeft="@+id/row_edit_source"
+                            android:nextFocusRight="@+id/row_home_guard"
+                            android:nextFocusUp="@+id/row_home"
+                            android:orientation="horizontal"
+                            android:paddingStart="@dimen/settings_row_pad_h"
+                            android:paddingTop="14dp"
+                            android:paddingEnd="@dimen/settings_row_pad_h"
+                            android:paddingBottom="14dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/settings_home_guard"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="@dimen/settings_item_size" />
+
+                                <TextView
+                                    android:id="@+id/home_guard_note"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="@string/settings_home_guard_note"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="@dimen/settings_note_size" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/home_guard_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="16dp"
+                                android:background="@drawable/bg_setting_switch"
+                                android:gravity="center"
+                                android:minWidth="104dp"
+                                android:paddingStart="14dp"
+                                android:paddingTop="7dp"
+                                android:paddingEnd="14dp"
+                                android:paddingBottom="7dp"
+                                android:text="@string/settings_switch_disabled"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="@dimen/settings_value_size"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                        <LinearLayout
+                            android:id="@+id/row_clock"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:background="@drawable/bg_setting_row"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="@dimen/settings_row_height"
+                            android:nextFocusDown="@+id/row_weather"
+                            android:nextFocusLeft="@+id/row_edit_source"
+                            android:nextFocusRight="@+id/row_clock"
+                            android:nextFocusUp="@+id/row_weather"
+                            android:orientation="horizontal"
+                            android:paddingStart="@dimen/settings_row_pad_h"
+                            android:paddingTop="14dp"
+                            android:paddingEnd="@dimen/settings_row_pad_h"
+                            android:paddingBottom="14dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/settings_clock"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="@dimen/settings_item_size" />
+
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="@string/settings_clock_note"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="@dimen/settings_note_size" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/clock_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="16dp"
+                                android:background="@drawable/bg_setting_switch"
+                                android:gravity="center"
+                                android:minWidth="104dp"
+                                android:paddingStart="14dp"
+                                android:paddingTop="7dp"
+                                android:paddingEnd="14dp"
+                                android:paddingBottom="7dp"
+                                android:text="@string/settings_switch_enabled"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="@dimen/settings_value_size"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                        <LinearLayout
+                            android:id="@+id/row_weather"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:background="@drawable/bg_setting_row"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="@dimen/settings_row_height"
+                            android:nextFocusDown="@+id/row_update"
+                            android:nextFocusLeft="@+id/row_edit_source"
+                            android:nextFocusRight="@+id/row_weather"
+                            android:nextFocusUp="@+id/row_clock"
+                            android:orientation="horizontal"
+                            android:paddingStart="@dimen/settings_row_pad_h"
+                            android:paddingTop="14dp"
+                            android:paddingEnd="@dimen/settings_row_pad_h"
+                            android:paddingBottom="14dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/settings_weather"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="@dimen/settings_item_size" />
+
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="@string/settings_weather_note"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="@dimen/settings_note_size" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/weather_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="16dp"
+                                android:background="@drawable/bg_setting_switch"
+                                android:gravity="center"
+                                android:minWidth="104dp"
+                                android:paddingStart="14dp"
+                                android:paddingTop="7dp"
+                                android:paddingEnd="14dp"
+                                android:paddingBottom="7dp"
+                                android:text="@string/settings_switch_enabled"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="@dimen/settings_value_size"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                        <LinearLayout
+                            android:id="@+id/row_update"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:background="@drawable/bg_setting_row"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:focusableInTouchMode="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="@dimen/settings_row_height"
+                            android:nextFocusDown="@+id/row_system"
+                            android:nextFocusLeft="@+id/row_edit_source"
+                            android:nextFocusRight="@+id/row_update"
+                            android:nextFocusUp="@+id/row_weather"
+                            android:orientation="horizontal"
+                            android:paddingStart="@dimen/settings_row_pad_h"
+                            android:paddingTop="14dp"
+                            android:paddingEnd="@dimen/settings_row_pad_h"
+                            android:paddingBottom="14dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/settings_update"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="@dimen/settings_item_size" />
+
+                                <TextView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="4dp"
+                                    android:text="@string/settings_update_note"
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="@dimen/settings_note_size" />
+                            </LinearLayout>
+
+                            <TextView
+                                android:id="@+id/update_value"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="16dp"
+                                android:background="@drawable/bg_setting_switch"
+                                android:gravity="center"
+                                android:minWidth="104dp"
+                                android:paddingStart="14dp"
+                                android:paddingTop="7dp"
+                                android:paddingEnd="14dp"
+                                android:paddingBottom="7dp"
+                                android:text="@string/settings_update_check"
                                 android:textColor="@color/text_secondary"
                                 android:textSize="@dimen/settings_value_size"
                                 android:textStyle="bold" />
