@@ -1,6 +1,6 @@
 # TVDesk 1.0.6 开发日志：按 Aerial 的架构重做焦点与桌面接管
 
-版本：1.0.6（开发中，versionCode 7 待定）
+版本：1.0.6（versionCode 7）
 日期：2026-11-01
 
 参考：aerial-tv `docs/ARCHITECTURE.md`。**不含**它的屏保、按键音、壁纸、背景（用不到）。
