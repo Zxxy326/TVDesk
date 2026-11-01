@@ -1,0 +1,11 @@
+{
+  "versionCode": 7,
+  "versionName": "1.0.6",
+  "notes": "按 Aerial TV 的架构重做了焦点与卡片墙：翻页不再跳左上角、焦点不再飞出边界、动画改弹簧更顺；影视详情页支持断点续播；新增后台自动检查更新（国内镜像，免代理）。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.6/TVDesk-1.0.6-universal.apk",
+  "assets": {
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.6/TVDesk-1.0.6-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.6/TVDesk-1.0.6-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.6/TVDesk-1.0.6-universal.apk"
+  }
+}

@@ -76,6 +76,27 @@ final class DeskPrefs {
         of(context).edit().remove(KEY_STOCK_ALLOW_UNTIL).apply();
     }
 
+    /** 用户点过「忽略此版本」的 versionCode：比它不大于的版本不再弹窗 */
+    private static final String KEY_IGNORED_UPDATE = "ignored_update_code";
+    /** 上一次静默检查更新的时间（毫秒） */
+    private static final String KEY_LAST_UPDATE_CHECK = "last_update_check_at";
+
+    static int ignoredUpdateCode(Context context) {
+        return of(context).getInt(KEY_IGNORED_UPDATE, 0);
+    }
+
+    static void setIgnoredUpdateCode(Context context, int code) {
+        of(context).edit().putInt(KEY_IGNORED_UPDATE, code).apply();
+    }
+
+    static long lastUpdateCheckAt(Context context) {
+        return of(context).getLong(KEY_LAST_UPDATE_CHECK, 0L);
+    }
+
+    static void setLastUpdateCheckAt(Context context, long at) {
+        of(context).edit().putLong(KEY_LAST_UPDATE_CHECK, at).apply();
+    }
+
     public static boolean keepPlayingOnLeave(Context context) {
         return of(context).getBoolean(KEY_KEEP_PLAYING, false);
     }

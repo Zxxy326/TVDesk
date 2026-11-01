@@ -328,13 +328,8 @@ public class SettingsActivity extends DeskAdaptActivity {
      * <p>更新地址没填时直接把话说清楚，不要点了没反应。
      */
     private void checkUpdate() {
+        // 留空就用内置的更新源（国内镜像，不需要自己配地址）
         final String manifest = DeskPrefs.updateManifestUrl(this);
-        if (manifest.isEmpty()) {
-            android.widget.Toast.makeText(this,
-                    "还没填更新地址（设置里的更新源），填了才能检查",
-                    android.widget.Toast.LENGTH_LONG).show();
-            return;
-        }
         updateValue.setText("检查中");
         new Thread(new Runnable() {
             @Override

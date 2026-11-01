@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.net.Uri;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -34,6 +35,44 @@ import java.net.URL;
 public final class UpdateClient {
 
     private static final String TAG = "DeskUpdate";
+
+    /**
+     * 内置更新源：国内不挂代理也要能拉。
+     *
+     * <p>清单是仓库里的 {@code dist/update.json}（跟着每次发版更新），按顺序试：
+     * <ol>
+     *   <li>jsDelivr —— 国内可以直连，走的是 CDN；缺点是缓存，所以清单里的版本号
+     *       以发版时写入的为准，不用它推实时状态；</li>
+     *   <li>gitmirror —— 另一个常用的 GitHub raw 镜像；</li>
+     *   <li>GitHub raw —— 有代理时才通，放最后兜底。</li>
+     * </ol>
+     * 三个都失败就当「没有更新」，不打扰用户。
+     */
+    private static final String[] DEFAULT_MANIFESTS = {
+            "https://cdn.jsdelivr.net/gh/Zxxy326/TVDesk@main/dist/update.json",
+            "https://raw.gitmirror.com/Zxxy326/TVDesk/main/dist/update.json",
+            "https://raw.githubusercontent.com/Zxxy326/TVDesk/main/dist/update.json",
+    };
+
+    /**
+     * 下载镜像前缀（拼在 GitHub 的 release 直链前面）。
+     *
+     * <p>国内大部分电视没装代理，{@code github.com/releases/download/...} 直接超时。
+     * 这几个是社区常用的下载加速，按顺序试，谁先给包就用谁；最后一个是直连，
+     * 海外或者挂代理的环境会落到它。
+     */
+    private static final String[] MIRROR_PREFIXES = {
+            "https://ghfast.top/",
+            "https://gh-proxy.com/",
+            "https://ghproxy.net/",
+            "https://github.moeyy.xyz/",
+            "",
+    };
+
+    /** 下载进度（百分比 0~100，-1 表示总长未知） */
+    public interface Progress {
+        void onProgress(int percent);
+    }
 
     /** 一次检查的结论 */
     public static class Info {
@@ -75,11 +114,10 @@ public final class UpdateClient {
      * @return 有更新返回清单；没有更新 / 拉不到返回 null（错误在 {@link #lastError()}）
      */
     public static Info check(Context context, String manifestUrl) {
-        lastError = "";
         if (TextUtils.isEmpty(manifestUrl)) {
-            lastError = "还没填更新地址";
-            return null;
+            return checkDefault(context);
         }
+        lastError = "";
         try {
             String body = get(manifestUrl).trim();
             if (TextUtils.isEmpty(body)) {
@@ -114,6 +152,91 @@ public final class UpdateClient {
         }
     }
 
+    /**
+     * 用内置源查一次：逐个试，谁先给出版本号就用谁。
+     *
+     * <p>三个源都拉不到时返回 null，{@link #lastError()} 里是最后一次的失败原因 ——
+     * 后台静默检查不看这个，手动检查会给用户看。
+     */
+    public static Info checkDefault(Context context) {
+        lastError = "";
+        for (String url : DEFAULT_MANIFESTS) {
+            Info info = checkFrom(context, url);
+            if (info != null) {
+                return info;
+            }
+        }
+        if (TextUtils.isEmpty(lastError)) {
+            lastError = "连不上更新服务器";
+        }
+        return null;
+    }
+
+
+    /**
+     * 按本机 ABI 从 {@code assets} 里挑安装包。
+     *
+     * <p>清单里三种包都有时，32 位电视拿 armeabi-v7a、64 位拿 arm64-v8a；
+     * 找不到对应项就退回清单顶层的 {@code url}（一般是 universal）。
+     */
+    private static String pickAsset(JSONObject assets, String fallback) {
+        if (assets == null) {
+            return fallback;
+        }
+        try {
+            String[] abis = Build.SUPPORTED_ABIS;
+            for (String abi : abis) {
+                String url = assets.optString(abi, "");
+                if (!TextUtils.isEmpty(url)) {
+                    return url;
+                }
+            }
+            String universal = assets.optString("universal", "");
+            if (!TextUtils.isEmpty(universal)) {
+                return universal;
+            }
+        } catch (Throwable ignored) {
+        }
+        return fallback;
+    }
+
+    /** 从一个具体地址读清单（不做默认源回退，避免递归） */
+    private static Info checkFrom(Context context, String manifestUrl) {
+        lastError = "";
+        try {
+            String body = get(manifestUrl).trim();
+            if (TextUtils.isEmpty(body)) {
+                lastError = "更新地址没返回内容";
+                return null;
+            }
+            Info info = new Info();
+            if (body.startsWith("{")) {
+                JSONObject json = new JSONObject(body);
+                info.versionCode = json.optInt("versionCode", 0);
+                info.versionName = json.optString("versionName", "");
+                info.url = json.optString("url", "");
+                info.notes = json.optString("notes", "");
+                // 清单里按 ABI 分了包就挑本机的那个：这台电视是 32 位就下 24MB 的，
+                // 不去下 38MB 的通用包
+                info.url = pickAsset(json.optJSONObject("assets"), info.url);
+            } else {
+                info.versionName = body.split("\\s+")[0];
+                info.url = guessApkUrl(manifestUrl);
+                info.versionCode = codeFromName(info.versionName);
+            }
+            if (TextUtils.isEmpty(info.url)) {
+                lastError = "清单里没有下载地址";
+                return null;
+            }
+            info.newer = info.versionCode > currentVersionCode(context);
+            return info;
+        } catch (Throwable th) {
+            lastError = "检查失败：" + th.getMessage();
+            Log.w(TAG, "检查更新失败（" + manifestUrl + "）", th);
+            return null;
+        }
+    }
+
     private static volatile String lastError = "";
 
     public static String lastError() {
@@ -126,31 +249,78 @@ public final class UpdateClient {
      * @return 落地的 apk；失败返回 null
      */
     public static File download(Context context, Info info) {
+        return download(context, info, null);
+    }
+
+    /**
+     * 下载安装包：按镜像顺序试，谁先给全包就用谁。
+     *
+     * <p>「拿全包」的判据有两条：HTTP 2xx，且落地的文件是 zip（apk 头四字节 {@code PK\3\4}）。
+     * 加速站有时会返回 200 加一张错误页，只看状态码会被骗。
+     */
+    public static File download(Context context, Info info, Progress progress) {
         if (info == null || TextUtils.isEmpty(info.url)) {
+            lastError = "清单里没有下载地址";
             return null;
         }
         File dir = new File(context.getCacheDir(), "update");
         if (!dir.exists() && !dir.mkdirs()) {
+            lastError = "建不了下载目录";
             return null;
         }
+        String lastFailure = "";
+        for (String prefix : mirrorsFor(info.url)) {
+            File apk = tryDownload(context, prefix + info.url, info, dir, progress, prefix);
+            if (apk != null) {
+                return apk;
+            }
+            lastFailure = lastError;
+        }
+        lastError = TextUtils.isEmpty(lastFailure) ? "下载失败" : lastFailure;
+        return null;
+    }
+
+    /** 已经套了镜像地址的就不再套一层；非 GitHub 直链（自建源）也不套 */
+    private static String[] mirrorsFor(String url) {
+        if (!url.startsWith("https://github.com/")) {
+            return new String[]{""};
+        }
+        return MIRROR_PREFIXES;
+    }
+
+    private static File tryDownload(Context context, String url, Info info, File dir,
+                                    Progress progress, String prefix) {
         File target = new File(dir, "TVDesk-" + info.versionName + ".apk");
         HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL(info.url).openConnection();
-            conn.setConnectTimeout(15000);
+            conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setConnectTimeout(12000);
             conn.setReadTimeout(60000);
+            conn.setInstanceFollowRedirects(true);
             conn.setRequestProperty("User-Agent", "TVDesk/" + info.versionName);
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) {
-                lastError = "下载失败 HTTP " + code;
+                lastError = "下载失败 HTTP " + code
+                        + (TextUtils.isEmpty(prefix) ? "" : "（镜像 " + hostOf(prefix) + "）");
                 return null;
             }
+            long total = conn.getContentLength();
             InputStream in = conn.getInputStream();
             OutputStream out = new FileOutputStream(target);
             byte[] buf = new byte[32 * 1024];
+            long done = 0;
             int n;
+            int lastPercent = -1;
             while ((n = in.read(buf)) > 0) {
                 out.write(buf, 0, n);
+                done += n;
+                if (progress != null && total > 0) {
+                    int percent = (int) (done * 100 / total);
+                    if (percent != lastPercent) {
+                        lastPercent = percent;
+                        progress.onProgress(percent);
+                    }
+                }
             }
             out.flush();
             in.close();
@@ -159,12 +329,19 @@ public final class UpdateClient {
             if (target.length() < 4096 || !isApk(target)) {
                 //noinspection ResultOfMethodCallIgnored
                 target.delete();
-                lastError = "下载到的不是安装包";
+                lastError = "下载到的不是安装包"
+                        + (TextUtils.isEmpty(prefix) ? "" : "（镜像 " + hostOf(prefix) + "）");
                 return null;
             }
+            if (progress != null) {
+                progress.onProgress(100);
+            }
+            Log.i(TAG, "下载完成：" + target.length() + " 字节，来源 "
+                    + (TextUtils.isEmpty(prefix) ? "直连" : hostOf(prefix)));
             return target;
         } catch (Throwable th) {
-            lastError = "下载失败：" + th.getMessage();
+            lastError = "下载失败：" + th.getMessage()
+                    + (TextUtils.isEmpty(prefix) ? "" : "（镜像 " + hostOf(prefix) + "）");
             if (target.exists()) {
                 //noinspection ResultOfMethodCallIgnored
                 target.delete();
@@ -174,6 +351,14 @@ public final class UpdateClient {
             if (conn != null) {
                 conn.disconnect();
             }
+        }
+    }
+
+    private static String hostOf(String url) {
+        try {
+            return new URL(url).getHost();
+        } catch (Throwable th) {
+            return url;
         }
     }
 

@@ -4307,6 +4307,8 @@ public class DeskActivity extends DeskAdaptActivity {
         exitImmersive(false);
         armIdleTimer();
         ensureFocus();
+        // 顺手看一眼有没有新版本（12 小时最多一次，查不到就什么都不做）
+        UpdatePrompt.checkInBackground(this);
     }
 
     @Override
