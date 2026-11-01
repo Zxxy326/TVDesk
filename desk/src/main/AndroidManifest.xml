@@ -11,6 +11,12 @@
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <!-- 开机后把桌面拉起来（只在已经是默认桌面时才会真的拉） -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!--
+      把「桌面守护」这个无障碍服务写进系统设置，装完就能静默接管 HOME，不用用户去
+      无障碍列表里找。这条权限只有 adb（pm grant）或系统签名能给，普通安装拿不到 ——
+      拿不到就自动跳过，不做任何打扰（见 GuardSetup）。
+    -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
     <application>
         <!--

@@ -97,6 +97,17 @@ final class DeskPrefs {
         of(context).edit().putLong(KEY_LAST_UPDATE_CHECK, at).apply();
     }
 
+    /** 桌面守护上次绑定时应用的 versionCode：升级后要重绑一次（配置才会重新读） */
+    private static final String KEY_GUARD_BOUND_VERSION = "guard_bound_version";
+
+    static int guardBoundVersion(Context context) {
+        return of(context).getInt(KEY_GUARD_BOUND_VERSION, 0);
+    }
+
+    static void setGuardBoundVersion(Context context, int code) {
+        of(context).edit().putInt(KEY_GUARD_BOUND_VERSION, code).apply();
+    }
+
     public static boolean keepPlayingOnLeave(Context context) {
         return of(context).getBoolean(KEY_KEEP_PLAYING, false);
     }

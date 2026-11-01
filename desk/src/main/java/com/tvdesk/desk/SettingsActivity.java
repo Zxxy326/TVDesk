@@ -4,415 +4,418 @@ import android.content.res.Resources;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.tvdesk.core.feed.SourceConfig;
 import com.tvdesk.desk.motion.FocusScaler;
 import com.tvdesk.desk.motion.PressFx;
+import com.tvdesk.desk.widget.TileWall;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * TVDesk 设置页。独立 Activity，不是 TVBox 那个设置页，也不是桌面里嵌的一块。
+ * 设置页。
  *
- * <h3>为什么单开一个 Activity</h3>
- * <ul>
- *   <li><b>返回键就是导航。</b>按返回直接回桌面，不用在自绘页面栈里实现一套出栈逻辑；
- *       而且桌面在 {@code onResume} 里会比对配置源有没有变（见下），回来自动重扫。</li>
- *   <li><b>和桌面的生命周期解耦。</b>设置页里可能弹输入法、可能跳出去到系统设置，
- *       这些都会让桌面走 onPause/onStop。混在同一个 Activity 里，桌面那套
- *       「焦点引擎 + 页签防抖 + 配置超时」的状态机要额外处理这些中途状态。</li>
- *   <li><b>它本来就是一个独立入口。</b>桌面的「桌面 ▾ → 设置」和顶栏那条
- *       「还没配置内容源」的提示条都指向这里，和桌面是并列关系，不是桌面的子页面。</li>
- * </ul>
+ * <h3>为什么长得像「模块页」</h3>
+ * 以前这里是「两列设置行」：面包屑 + 一排排小行，和其它模块（音乐 / B 站 / 应用）完全两个样子，
+ * 从桌面点进来像换了个 App。现在结构和它们一致：左上角一颗胶囊（点了回桌面）、中间一排页签、
+ * 下面三列卡片墙 —— 焦点、放大、白环、回弹全用同一套 {@link TileWall}，手感统一。
  *
- * <h3>层级</h3>
- * <pre>
- *   桌面（DeskActivity）
- *     ├─ 「桌面 ▾」→ 设置          ┐
- *     └─ 顶栏提示条「还没配置内容源」┴→ 本页 → 配置地址弹窗（输入 / 选历史）
- *                                     └→ 电视原生设置（另一个 App）
- * </pre>
- *
- * <h3>和 TVBox 的调用关系</h3>
- * 本页只通过 {@link SourceConfig} 读写 TVBox 的配置，写的是 {@code Hawk} 里的
- * {@code api_url}——就是 TVBox「设置 → 配置地址」那一项。所以：
- * <ul>
- *   <li>在这里配的源，TVBox 的影视页同样生效（不是桌面自己偷偷存一份）；</li>
- *   <li>反过来，用户以前在 TVBox 原版设置里填过的源，会出现在本页的历史列表里；</li>
- *   <li>本页<b>不跳转</b>到 TVBox 的设置页，也不依赖它的任何界面。</li>
- * </ul>
- *
- * <h3>「应用」之后为什么不用重启 App</h3>
- * TVBox 原版换源后会 toast 一句「配置已切换，即将重新加载」然后退回上一页，靠重新进
- * 首页来触发加载。桌面不需要这么粗暴：它 {@code onResume} 时会拿当前源和上次生效的比，
- * 发现变了就 {@code SourceFeed.invalidateConfig()} 再重扫一遍顶栏和内容。
- * 所以本页点完「应用」只要返回桌面就行，加载是桌面自己的事。
+ * <h3>为什么用卡片不用行</h3>
+ * 电视上距离远，一行小字（标题 + 右侧开关）经常看不清状态。卡片能放三行：
+ * <b>是什么 / 现在什么状态 / 按下去会发生什么</b>，一眼能读完。
  */
 public class SettingsActivity extends DeskAdaptActivity {
 
-    private static final String TAG = "SettingsActivity";
-    /** 系统「设为默认桌面」返回码，和别的页面错开即可 */
-    private static final int REQ_HOME = 0x484F;
+    private static final String TAG = "DeskSettings";
+    private static final int REQ_HOME = 0x51;
 
-    private TextView sourceValue;
-    private TextView sourceNote;
-    private View rowEditSource;
-    private TextView keepPlayingValue;
+    /** 页签：桌面 / 播放 / 关于 */
+    private static final String[] TABS = {"桌面", "播放", "关于"};
+    private static final int TAB_DESK = 0;
+    private static final int TAB_PLAY = 1;
+    private static final int TAB_ABOUT = 2;
+
+    private TileWall grid;
+    private LinearLayout switcher;
+    private LinearLayout navItems;
+
+    private final List<Item> items = new ArrayList<>();
+    private final CardAdapter adapter = new CardAdapter();
+    private int tab = TAB_DESK;
+
     private boolean keepPlaying;
-    private TextView homeValue;
-    private TextView clockValue;
-    private TextView weatherValue;
     private boolean showClock;
     private boolean showWeather;
-    private TextView updateValue;
-    private TextView homeGuardValue;
-    private TextView homeGuardNote;
+
+    /**
+     * 一张设置卡。
+     *
+     * <p>{@code key} 是稳定标识（页签切换、状态刷新时按它保住焦点），
+     * {@code value} 是当前状态那几个字（卡片第二行）。
+     */
+    private static final class Item {
+        String key;
+        String title;
+        String value;
+        String note;
+        Runnable action;
+
+        Item(String key, String title, String note, Runnable action) {
+            this.key = key;
+            this.title = title;
+            this.note = note;
+            this.action = action;
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
-        com.tvdesk.desk.motion.FocusScaler.disableSystemHighlightTree(getWindow().getDecorView());
+        FocusScaler.disableSystemHighlightTree(getWindow().getDecorView());
 
-        sourceValue = findViewById(R.id.source_value);
-        sourceNote = findViewById(R.id.source_note);
-        keepPlayingValue = findViewById(R.id.keep_playing_value);
-        homeValue = findViewById(R.id.home_value);
+        grid = findViewById(R.id.settings_grid);
+        switcher = findViewById(R.id.settings_switcher);
+        navItems = findViewById(R.id.settings_nav_items);
 
-        View editSource = findViewById(R.id.row_edit_source);
-        View system = findViewById(R.id.row_system);
-        View keepPlayingRow = findViewById(R.id.row_keep_playing);
-        View homeRow = findViewById(R.id.row_home);
-        rowEditSource = editSource;
-        // 焦点放大给得比桌面的卡片小：设置行是整行宽的，1.08 会顶出屏幕边
-        FocusScaler.attach(editSource, 1.03f);
-        FocusScaler.attach(system, 1.03f);
-        FocusScaler.attach(keepPlayingRow, 1.03f);
-        FocusScaler.attach(homeRow, 1.03f);
-
-        editSource.setOnClickListener(new View.OnClickListener() {
+        switcher.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                openSourceDialog();
-            }
-        });
-        keepPlayingRow.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                // 压扁的是药丸自己，不是整行：整行的缩放归 FocusScaler 管，
-                // 两个动画写同一个属性会互相把值钉回 1，聚焦中按一次就缩回去了
-                PressFx.squish(keepPlayingValue);
-                setKeepPlaying(!keepPlaying);
-            }
-        });
-        system.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                openSystemSettings();
-            }
-        });
-        homeRow.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                requestHome();
+                finish();
             }
         });
 
-        View clockRow = findViewById(R.id.row_clock);
-        View weatherRow = findViewById(R.id.row_weather);
-        clockValue = findViewById(R.id.clock_value);
-        weatherValue = findViewById(R.id.weather_value);
-        FocusScaler.attach(clockRow, 1.03f);
-        FocusScaler.attach(weatherRow, 1.03f);
+        keepPlaying = DeskPrefs.keepPlayingOnLeave(this);
         showClock = DeskPrefs.showClock(this);
         showWeather = DeskPrefs.showWeather(this);
-        clockRow.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                showClock = !showClock;
-                DeskPrefs.setShowClock(SettingsActivity.this, showClock);
-                PressFx.squish(clockValue);
-                renderClockWeather();
-        renderHomeGuard();
-            }
-        });
-        weatherRow.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                showWeather = !showWeather;
-                DeskPrefs.setShowWeather(SettingsActivity.this, showWeather);
-                PressFx.squish(weatherValue);
-                renderClockWeather();
-            }
-        });
 
-        View homeGuardRow = findViewById(R.id.row_home_guard);
-        homeGuardValue = findViewById(R.id.home_guard_value);
-        homeGuardNote = findViewById(R.id.home_guard_note);
-        FocusScaler.attach(homeGuardRow, 1.03f);
-        homeGuardRow.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!HomeGuardService.isEnabled(SettingsActivity.this)) {
-                    // 没开：把他送到系统无障碍页去开
-                    HomeGuardService.openSettings(SettingsActivity.this);
-                } else {
-                    // 已经开着：给一个「临时停用」的出口。
-                    // 没有这个出口，用户想回系统桌面时按 HOME 会被一直拽回来，
-                    // 只能跑到系统设置里关无障碍——那太远了。
-                    askHomeGuard();
-                }
-            }
-        });
-
-        View updateRow = findViewById(R.id.row_update);
-        updateValue = findViewById(R.id.update_value);
-        FocusScaler.attach(updateRow, 1.03f);
-        updateRow.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                checkUpdate();
-            }
-        });
-
-        renderSource();
-        renderKeepPlaying();
-        renderHome();
-        renderClockWeather();
-
-        // onCreate 阶段 View 还没 layout，直接 requestFocus 会失败。
-        // 初始焦点给「配置地址」：进设置页的人十有八九是来配源的。
-        final View first = editSource;
-        first.post(new Runnable() {
-            @Override
-            public void run() {
-                first.requestFocus();
-            }
-        });
+        buildTabs();
+        setupGrid();
+        buildItems();
+        selectTab(TAB_DESK, false);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // 用户可能刚从系统的无障碍设置页回来，状态得重读一次
-        renderHomeGuard();
-        // 从系统设置回来、或者地址在别处被改过，回来重读一次
-        renderSource();
-        // 系统桌面选择框是另一个页面，回来时状态可能刚变
-        renderHome();
-        // 同上：从原生设置页回来时本页可能一个焦点都没有，遥控器第一下会没反应
-        rowEditSource.post(new Runnable() {
+        // 从系统设置/无障碍页回来：状态可能变了，整页刷一遍值
+        buildItems();
+        grid.notifyDataSetChanged();
+        if (grid.findFocus() == null) {
+            grid.focusPosition(0);
+        }
+    }
+
+    /** 换电视时用来比对尺寸：卡片高按设计稿是 200dp */
+    @Override
+    protected String adaptProbe(Resources res) {
+        return "设置卡片高 解析为 " + res.getDimensionPixelSize(R.dimen.settings_row_height) + "px";
+    }
+
+    // ---------------------------------------------------------------- 页签
+
+    private void buildTabs() {
+        navItems.removeAllViews();
+        for (int i = 0; i < TABS.length; i++) {
+            final int index = i;
+            TextView chip = new TextView(this);
+            chip.setText(TABS[i]);
+            chip.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 16);
+            chip.setGravity(android.view.Gravity.CENTER);
+            chip.setSingleLine(true);
+            chip.setBackgroundResource(R.drawable.bg_nav_item);
+            chip.setFocusable(true);
+            chip.setFocusableInTouchMode(true);
+            chip.setClickable(true);
+            chip.setTextColor(androidx.appcompat.content.res.AppCompatResources
+                    .getColorStateList(this, R.color.nav_item_text));
+            chip.setSelected(i == tab);
+            chip.setPadding(dp(20), 0, dp(20), 0);
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(44));
+            if (i > 0) {
+                lp.setMarginStart(dp(4));
+            }
+            chip.setLayoutParams(lp);
+            FocusScaler.attach(chip, 1.06f);
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    selectTab(index, true);
+                }
+            });
+            navItems.addView(chip);
+        }
+    }
+
+    private void selectTab(int target, boolean focusContent) {
+        tab = target;
+        for (int i = 0; i < navItems.getChildCount(); i++) {
+            navItems.getChildAt(i).setSelected(i == target);
+        }
+        buildItems();
+        grid.notifyDataSetChanged();
+        grid.scrollToTop();
+        if (focusContent) {
+            grid.post(new Runnable() {
+                @Override
+                public void run() {
+                    grid.focusPosition(0);
+                }
+            });
+        } else {
+            grid.post(new Runnable() {
+                @Override
+                public void run() {
+                    grid.focusPosition(0);
+                }
+            });
+        }
+    }
+
+    /** 页签到边：最左/最右一颗别再往外跑 */
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                && (event.getKeyCode() == android.view.KeyEvent.KEYCODE_DPAD_LEFT
+                || event.getKeyCode() == android.view.KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            View focused = getCurrentFocus();
+            if (focused != null && navItems.indexOfChild(focused) >= 0) {
+                int index = navItems.indexOfChild(focused);
+                if (event.getKeyCode() == android.view.KeyEvent.KEYCODE_DPAD_LEFT && index == 0) {
+                    return true;
+                }
+                if (event.getKeyCode() == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+                        && index == navItems.getChildCount() - 1) {
+                    return true;
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    // ---------------------------------------------------------------- 卡片
+
+    private void setupGrid() {
+        grid.setAdapter(adapter);
+        grid.setNumColumns(3);
+        grid.setSpacingDp(20f, 20f);
+        grid.setEdgeListener(new TileWall.OnEdgeListener() {
             @Override
-            public void run() {
-                if (isFinishing() || isDestroyed()) {
-                    return;
+            public boolean onEdge(int keyCode, int index) {
+                if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
+                    // 第一排往上：回当前页签
+                    View chip = navItems.getChildAt(Math.min(tab, navItems.getChildCount() - 1));
+                    if (chip != null) {
+                        chip.requestFocus();
+                        return true;
+                    }
                 }
-                if (getCurrentFocus() == null) {
-                    rowEditSource.requestFocus();
-                }
+                return false;
             }
         });
     }
 
-    /** 换电视时用来比对尺寸：设置行高按设计稿是 68dp，1080p 上应解析成 102px */
-    @Override
-    protected String adaptProbe(Resources res) {
-        return "设置行高 解析为 " + res.getDimensionPixelSize(R.dimen.settings_row_height) + "px";
+    private void buildItems() {
+        items.clear();
+        if (tab == TAB_DESK) {
+            add("source", "内容源",
+                    "影视、B 站这些栏目都从这个源取内容。没配源时桌面只显示豆瓣榜单。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            openSourceDialog();
+                        }
+                    });
+            add("guard", "桌面守护",
+                    "按 HOME 键回到 TVDesk。装好后会自动开启，不用去系统设置里找。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            onGuardClicked();
+                        }
+                    });
+            add("home", "设为默认桌面",
+                    "让电视开机直接进 TVDesk。部分品牌的固件不支持，那就靠上面的桌面守护。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            requestHome();
+                        }
+                    });
+            add("system", "电视系统设置",
+                    "网络、显示、声音、HDMI 都在电视自己的设置里，这里只是入口。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            openSystemSettings();
+                        }
+                    });
+        } else if (tab == TAB_PLAY) {
+            add("keep", "切走继续播放",
+                    "切到别的版块或按 HOME 退到后台时，正在放的视频/音乐是否继续。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            keepPlaying = !keepPlaying;
+                            DeskPrefs.setKeepPlayingOnLeave(SettingsActivity.this, keepPlaying);
+                            refreshValues();
+                        }
+                    });
+            add("clock", "显示时钟",
+                    "桌面右上角的时间。沉浸轮播时它是唯一保留的桌面控件。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            showClock = !showClock;
+                            DeskPrefs.setShowClock(SettingsActivity.this, showClock);
+                            refreshValues();
+                        }
+                    });
+            add("weather", "显示天气",
+                    "时间和天气分开两个开关：只留一个也说得通。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            showWeather = !showWeather;
+                            DeskPrefs.setShowWeather(SettingsActivity.this, showWeather);
+                            refreshValues();
+                        }
+                    });
+        } else {
+            add("update", "检查更新",
+                    "不用等后台自动查，这里立刻查一次；有新版会问你要不要下载安装。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            checkUpdate();
+                        }
+                    });
+            add("manifest", "更新源",
+                    "留空就用内置的国内镜像；想用自建源再填一个地址。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            editManifest();
+                        }
+                    });
+            add("version", "版本",
+                    "当前安装的版本号。更新会保留配置和登录状态。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            checkUpdate();
+                        }
+                    });
+        }
+        refreshValues();
     }
 
-    // ---------------------------------------------------------------- 内容源
+    private void add(String key, String title, String note, Runnable action) {
+        items.add(new Item(key, title, note, action));
+    }
 
-    /**
-     * 把「当前源」那一行画出来。
-     *
-     * <p>没配源时不只是显示「未配置」，还要说清楚后果（桌面只出豆瓣榜单、顶栏没有类目）——
-     * 否则用户看到一个空设置项，不知道是自己没配还是这功能坏的。
-     */
-    private void renderSource() {
-        String url = SourceConfig.current();
-        boolean configured = !TextUtils.isEmpty(url);
-        if (configured) {
-            String builtin = com.tvdesk.core.feed.BuiltinSources.displayName(url);
-            sourceValue.setText(TextUtils.isEmpty(builtin) ? url : builtin);
-            sourceValue.setTextColor(getResources().getColor(R.color.text_primary));
-            sourceNote.setText(R.string.settings_source_in_use);
-        } else {
-            sourceValue.setText(R.string.settings_source_none);
-            sourceValue.setTextColor(getResources().getColor(R.color.text_tertiary));
-            sourceNote.setText(R.string.settings_source_none_note);
+    /** 只刷新「当前值」那几行字，不重建卡片（避免焦点抖一下） */
+    private void refreshValues() {
+        for (Item item : items) {
+            item.value = valueOf(item.key);
+        }
+        grid.notifyDataSetChanged();
+    }
+
+    private String valueOf(String key) {
+        switch (key) {
+            case "source": {
+                String url = SourceConfig.current();
+                if (TextUtils.isEmpty(url)) {
+                    return "未配置";
+                }
+                String builtin = com.tvdesk.core.feed.BuiltinSources.displayName(url);
+                return TextUtils.isEmpty(builtin) ? url : builtin;
+            }
+            case "guard": {
+                if (GuardSetup.isServiceEnabled(this)) {
+                    return DeskPrefs.homeGuard(this) ? "已开启" : "已暂停";
+                }
+                return GuardSetup.hasWriteSecureSettings(this) ? "待开启" : "未开启";
+            }
+            case "home":
+                return HomeRole.isDefault(this) ? "已设为默认桌面" : "未设置";
+            case "keep":
+                return keepPlaying ? "开" : "关";
+            case "clock":
+                return showClock ? "显示" : "隐藏";
+            case "weather":
+                return showWeather ? "显示" : "隐藏";
+            case "update":
+                return "当前 " + com.tvdesk.desk.update.UpdateClient.currentVersionName(this);
+            case "manifest": {
+                String url = DeskPrefs.updateManifestUrl(this);
+                return TextUtils.isEmpty(url) ? "内置镜像" : "自定义";
+            }
+            case "version":
+                return "TVDesk " + com.tvdesk.desk.update.UpdateClient.currentVersionName(this);
+            default:
+                return "";
         }
     }
 
+    // ---------------------------------------------------------------- 动作用
+
     private void openSourceDialog() {
-        SourceDialog dialog = new SourceDialog(this, SourceConfig.current(), SourceConfig.history(),
+        new SourceDialog(this, SourceConfig.current(), SourceConfig.history(),
                 new SourceDialog.Listener() {
                     @Override
                     public void onApply(String url) {
-                        applySource(url);
+                        boolean changed = SourceConfig.apply(url);
+                        Log.i(TAG, "应用内容源：" + url);
+                        refreshValues();
+                        Toast.makeText(SettingsActivity.this,
+                                changed ? R.string.settings_toast_applied
+                                        : R.string.settings_toast_unchanged,
+                                Toast.LENGTH_LONG).show();
                     }
 
                     @Override
                     public void onClear() {
-                        clearSource();
+                        SourceConfig.clear();
+                        refreshValues();
+                        Toast.makeText(SettingsActivity.this,
+                                R.string.settings_toast_cleared, Toast.LENGTH_LONG).show();
                     }
-                });
-        dialog.show();
+                }).show();
     }
 
     /**
-     * 应用一个源。这是整条链路里唯一写 TVBox 配置的地方。
-     *
-     * <p>写完只刷新本页显示，<b>不在这里触发加载</b>：加载归桌面（见类注释）。
-     * 也正因为如此，这里不校验地址能不能用——那要把配置拉一遍，是几秒到几十秒的网络操作，
-     * 而且和桌面即将做的那次加载完全重复。
+     * 桌面守护那张卡：没开就当场把它打开（有权限时），开不了才送去系统设置页。
      */
-    private void applySource(String url) {
-        boolean changed = SourceConfig.apply(url);
-        Log.i(TAG, "应用内容源：" + url + "（" + (changed ? "有变化" : "和原地址相同") + "）");
-        renderSource();
-        Toast.makeText(this,
-                changed ? R.string.settings_toast_applied : R.string.settings_toast_unchanged,
-                Toast.LENGTH_LONG).show();
-    }
-
-    private void clearSource() {
-        SourceConfig.clear();
-        Log.i(TAG, "清空内容源");
-        renderSource();
-        Toast.makeText(this, R.string.settings_toast_cleared, Toast.LENGTH_LONG).show();
-    }
-
-    // ---------------------------------------------------------------- 播放
-
-    /**
-     * 画「切走后续播」这一项。
-     *
-     * <p>状态压在右侧药丸的 selected 态上，焦点框留给整行：遥控器按确定就是翻状态，
-     * 不用像手机那样去点一颗小开关——电视上那颗点不到。
-     */
-    private void renderKeepPlaying() {
-        keepPlaying = DeskPrefs.keepPlayingOnLeave(this);
-        keepPlayingValue.setSelected(keepPlaying);
-        keepPlayingValue.setText(keepPlaying
-                ? R.string.settings_switch_on : R.string.settings_switch_off);
-        keepPlayingValue.setTextColor(getResources().getColor(
-                keepPlaying ? R.color.text_on_light : R.color.text_secondary));
-    }
-
-    private void setKeepPlaying(boolean keep) {
-        DeskPrefs.setKeepPlayingOnLeave(this, keep);
-        renderKeepPlaying();
-    }
-
-    // ---------------------------------------------------------------- 桌面
-
-    /** 状态药丸：已接管就常亮，没接管就保持和其它开关一样的暗态 */
-    private void renderHome() {
-        boolean home = HomeRole.isDefault(this);
-        homeValue.setSelected(home);
-        homeValue.setText(home ? R.string.settings_home_on : R.string.settings_home_off);
-        homeValue.setTextColor(getResources().getColor(
-                home ? R.color.text_on_light : R.color.text_secondary));
-    }
-
-    /**
-     * 弹系统自己的「设为默认桌面」。
-     *
-     * <p>已经是默认桌面时不再重复请求，直接打开系统的桌面设置页——用户这时按它
-     * 多半是想换回电视自带的桌面，把人留在一个没有变化的确认框里没有意义。
-     */
-    /**
-     * 检查更新：拉清单 → 有新版就问一句 → 下载 → 拉起安装。
-     *
-     * <p>更新地址没填时直接把话说清楚，不要点了没反应。
-     */
-    private void checkUpdate() {
-        // 留空就用内置的更新源（国内镜像，不需要自己配地址）
-        final String manifest = DeskPrefs.updateManifestUrl(this);
-        updateValue.setText("检查中");
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                final com.tvdesk.desk.update.UpdateClient.Info info =
-                        com.tvdesk.desk.update.UpdateClient.check(
-                                getApplicationContext(), manifest);
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        updateValue.setText(R.string.settings_update_check);
-                        if (info == null) {
-                            android.widget.Toast.makeText(SettingsActivity.this,
-                                    com.tvdesk.desk.update.UpdateClient.lastError(),
-                                    android.widget.Toast.LENGTH_LONG).show();
-                            return;
-                        }
-                        String mine = com.tvdesk.desk.update.UpdateClient
-                                .currentVersionName(SettingsActivity.this);
-                        if (!info.newer) {
-                            android.widget.Toast.makeText(SettingsActivity.this,
-                                    "已是最新（" + mine + "）",
-                                    android.widget.Toast.LENGTH_SHORT).show();
-                            return;
-                        }
-                        askToUpdate(info, mine);
-                    }
-                });
+    private void onGuardClicked() {
+        if (!GuardSetup.isServiceEnabled(this)) {
+            if (GuardSetup.ensureEnabled(this)) {
+                // 刚写进去，服务要几秒才连上，这里先给个即时反馈
+                Toast.makeText(this, "已开启桌面守护 · 按 HOME 会回到 TVDesk",
+                        Toast.LENGTH_LONG).show();
+                refreshValues();
+                return;
             }
-        }, "desk-update").start();
-    }
-
-    /** 有新版：问一句再下 */
-    private void askToUpdate(final com.tvdesk.desk.update.UpdateClient.Info info, String mine) {
-        String notes = info.notes == null || info.notes.isEmpty()
-                ? "（这次没写更新说明）" : info.notes;
-        new android.app.AlertDialog.Builder(this, R.style.DeskDialogTheme)
-                .setTitle("发现新版本 " + info.versionName)
-                .setMessage("当前 " + mine + "\n\n" + notes)
-                .setPositiveButton("下载并安装", new android.content.DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(android.content.DialogInterface dialog, int which) {
-                        downloadUpdate(info);
-                    }
-                })
-                .setNegativeButton("以后再说", null)
-                .show();
-    }
-
-    private void downloadUpdate(final com.tvdesk.desk.update.UpdateClient.Info info) {
-        updateValue.setText("下载中");
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                final java.io.File apk = com.tvdesk.desk.update.UpdateClient
-                        .download(getApplicationContext(), info);
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        updateValue.setText(R.string.settings_update_check);
-                        if (apk == null) {
-                            android.widget.Toast.makeText(SettingsActivity.this,
-                                    com.tvdesk.desk.update.UpdateClient.lastError(),
-                                    android.widget.Toast.LENGTH_LONG).show();
-                            return;
-                        }
-                        if (!com.tvdesk.desk.update.UpdateClient.install(
-                                SettingsActivity.this, apk)) {
-                            android.widget.Toast.makeText(SettingsActivity.this,
-                                    "安装包下好了，但打不开安装界面",
-                                    android.widget.Toast.LENGTH_LONG).show();
-                        }
-                    }
-                });
-            }
-        }, "desk-update-dl").start();
-    }
-
-    /** 已经接管时点这一行：临时停用 / 去系统里关掉 */
-    private void askHomeGuard() {
+            Toast.makeText(this, "请在系统无障碍里打开「TVDesk 桌面守护」",
+                    Toast.LENGTH_LONG).show();
+            HomeGuardService.openSettings(this);
+            return;
+        }
+        // 已经开着：给一个「临时停用」的出口
         boolean paused = !DeskPrefs.homeGuard(this);
         new android.app.AlertDialog.Builder(this, R.style.DeskDialogTheme)
-                .setTitle("无障碍接管已开启")
+                .setTitle("桌面守护已开启")
                 .setMessage(paused
                         ? "现在是暂停状态：服务还在，但按 HOME 不会拉回来了。"
                         : "按 HOME 会回到 TVDesk。想临时用回电视自带的桌面，就先停用。")
@@ -420,9 +423,9 @@ public class SettingsActivity extends DeskAdaptActivity {
                         new android.content.DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(android.content.DialogInterface dialog, int which) {
-                                boolean now = !DeskPrefs.homeGuard(SettingsActivity.this);
-                                DeskPrefs.setHomeGuard(SettingsActivity.this, now);
-                                renderHomeGuard();
+                                DeskPrefs.setHomeGuard(SettingsActivity.this,
+                                        !DeskPrefs.homeGuard(SettingsActivity.this));
+                                refreshValues();
                             }
                         })
                 .setNegativeButton("去系统设置", new android.content.DialogInterface.OnClickListener() {
@@ -432,43 +435,6 @@ public class SettingsActivity extends DeskAdaptActivity {
                     }
                 })
                 .show();
-    }
-
-    /**
-     * 无障碍接管那一行：开关文字跟着系统里的授权状态走。
-     *
-     * <p>不看自己的 prefs —— 用户可能在系统设置里把无障碍关掉了，
-     * 这里必须如实显示「没开」，否则他以为已经在接管，按 HOME 却发现回了系统桌面。
-     */
-    private void renderHomeGuard() {
-        if (homeGuardValue == null) {
-            return;
-        }
-        boolean enabled = HomeGuardService.isEnabled(this);
-        boolean paused = enabled && !DeskPrefs.homeGuard(this);
-        homeGuardValue.setText(enabled && !paused
-                ? R.string.settings_switch_enabled : R.string.settings_switch_disabled);
-        if (homeGuardNote != null) {
-            if (!enabled) {
-                homeGuardNote.setText("未启用 · 点这里去系统无障碍里打开 TVDesk");
-            } else if (paused) {
-                homeGuardNote.setText("已暂停 · 无障碍开着但不再拉回；点这里可以恢复");
-            } else {
-                homeGuardNote.setText("已启用 · 按 HOME 会回到 TVDesk；点这里可以临时停用");
-            }
-        }
-    }
-
-    /** 时钟 / 天气两个开关的文字 */
-    private void renderClockWeather() {
-        if (clockValue != null) {
-            clockValue.setText(showClock
-                    ? R.string.settings_switch_enabled : R.string.settings_switch_disabled);
-        }
-        if (weatherValue != null) {
-            weatherValue.setText(showWeather
-                    ? R.string.settings_switch_enabled : R.string.settings_switch_disabled);
-        }
     }
 
     private void requestHome() {
@@ -487,28 +453,131 @@ public class SettingsActivity extends DeskAdaptActivity {
     protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_HOME) {
-            renderHome();
+            refreshValues();
             Toast.makeText(this, HomeRole.isDefault(this)
                     ? "已设为电视桌面 · 按 HOME 键就能回来"
                     : "还没设为默认桌面", Toast.LENGTH_LONG).show();
         }
     }
 
-    // ---------------------------------------------------------------- 系统设置
-
-    /**
-     * 跳电视原生的设置。
-     *
-     * <p>这就是需求里「打开电视系统本身设置」那一项。它和内容源没有任何关系——
-     * 网络、显示、声音、HDMI 都在那边，本页不复制一份。
-     *
-     * <p>三级兜底的顺序（标准 action → 无线设置 → 厂商包名）在 {@link SystemSettings} 里，
-     * 信号源页用的是同一条通路。
-     */
     private void openSystemSettings() {
         if (SystemSettings.open(this)) {
             return;
         }
         Toast.makeText(this, R.string.settings_toast_no_system_settings, Toast.LENGTH_LONG).show();
+    }
+
+    /** 更新源：弹一个输入框，留空回到内置镜像 */
+    private void editManifest() {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setText(DeskPrefs.updateManifestUrl(this));
+        input.setHint("留空 = 用内置镜像");
+        input.setTextSize(16f);
+        new android.app.AlertDialog.Builder(this, R.style.DeskDialogTheme)
+                .setTitle("更新源地址")
+                .setView(input)
+                .setPositiveButton("保存", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface dialog, int which) {
+                        DeskPrefs.setUpdateManifestUrl(SettingsActivity.this,
+                                input.getText() == null ? "" : input.getText().toString().trim());
+                        refreshValues();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 检查更新：拉清单 → 有新版弹窗（含忽略）→ 下载 → 拉起安装 */
+    private void checkUpdate() {
+        final String manifest = DeskPrefs.updateManifestUrl(this);
+        setValue("update", "检查中…");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final com.tvdesk.desk.update.UpdateClient.Info info =
+                        com.tvdesk.desk.update.UpdateClient.check(
+                                getApplicationContext(), manifest);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        refreshValues();
+                        if (info == null) {
+                            Toast.makeText(SettingsActivity.this,
+                                    com.tvdesk.desk.update.UpdateClient.lastError(),
+                                    Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (!info.newer) {
+                            Toast.makeText(SettingsActivity.this,
+                                    "已是最新（" + com.tvdesk.desk.update.UpdateClient
+                                            .currentVersionName(SettingsActivity.this) + "）",
+                                    Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        UpdatePrompt.show(SettingsActivity.this, info);
+                    }
+                });
+            }
+        }, "desk-update").start();
+    }
+
+    /** 临时改一张卡的第二行（例如「检查中…」） */
+    private void setValue(String key, String text) {
+        for (Item item : items) {
+            if (item.key.equals(key)) {
+                item.value = text;
+                break;
+            }
+        }
+        grid.notifyDataSetChanged();
+    }
+
+    // ---------------------------------------------------------------- 卡片适配
+
+    private final class CardAdapter implements TileWall.Adapter {
+
+        @Override
+        public int getCount() {
+            return items.size();
+        }
+
+        @Override
+        public String keyAt(int index) {
+            return index >= 0 && index < items.size() ? items.get(index).key : null;
+        }
+
+        @Override
+        public View getView(int index, View convertView, ViewGroup parent) {
+            View root = convertView;
+            if (root == null) {
+                root = LayoutInflater.from(SettingsActivity.this)
+                        .inflate(R.layout.item_settings_card, parent, false);
+            }
+            final Item item = items.get(index);
+            TextView title = root.findViewById(R.id.settings_card_title);
+            TextView value = root.findViewById(R.id.settings_card_value);
+            TextView note = root.findViewById(R.id.settings_card_note);
+            title.setText(item.title);
+            value.setText(item.value);
+            note.setText(item.note);
+            root.setTag(item.key);
+            // 和其它模块的卡片一样的聚焦放大（1.05 就够，设置卡是整块面板）
+            FocusScaler.attach(root, 1.05f);
+            root.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    PressFx.squish(v);
+                    if (item.action != null) {
+                        item.action.run();
+                    }
+                }
+            });
+            return root;
+        }
+    }
+
+    private int dp(float value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 }

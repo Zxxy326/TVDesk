@@ -545,18 +545,46 @@ public class TileWall extends ViewGroup implements FocusNav.Host {
         postOnAnimation(frame);
     }
 
+    /**
+     * 焦点落在某张卡上时，把它同步成网格的当前落点。
+     *
+     * <p>焦点不一定都是网格自己挪的：从顶栏按 DOWN 进来那一下是系统按几何关系找的，
+     * 没走 {@link FocusNav#focusIndex}。不同步的话网格以为「没有落点」，
+     * 下一次按 DOWN 会先把它拽回第一张 —— 用户看到的就是「下滑不动」。
+     */
+    @Override
+    public void requestChildFocus(View child, View focused) {
+        super.requestChildFocus(child, focused);
+        int index = indexOfChild(child);
+        if (index >= 0) {
+            nav.syncCurrent(index);
+        }
+    }
+
+    /**
+     * 画之前先把自己裁到自己的边界内。
+     *
+     * <p>墙要 {@code clipChildren = false}（聚焦放大的边不能被切），可这样一来
+     * <b>滚出视口的卡片也照样会被画出来</b> —— 音乐页、B 站页的标题和页签是浮在墙上面的，
+     * 一滚就把卡片印到标题上去了（用户说的「下滑有问题」就是这个）。
+     *
+     * <p>所以这里显式裁一刀到 {@code (0, 0, w, h)}：滚动越界的部分被挡住，而聚焦放大
+     * 的那点溢出仍在墙内（各页给墙留了 {@code paddingTop}，就是给这一圈留的位置）。
+     */
     @Override
     protected void dispatchDraw(Canvas canvas) {
         float nudgeX = nudgeSpring.value();
         float nudgeOffY = nudgeY.value();
+        int save = canvas.save();
+        // 注意：dispatchDraw 的 canvas 已经按 scrollY 平移过了，所以裁剪矩形要带上滚动量，
+        // 否则裁到的是「内容里的左上角」而不是「屏幕上的这一块」，等于没裁。
+        canvas.clipRect(getScrollX(), getScrollY(),
+                getScrollX() + getWidth(), getScrollY() + getHeight());
         if (Math.abs(nudgeX) > 0.01f || Math.abs(nudgeOffY) > 0.01f) {
-            canvas.save();
             canvas.translate(nudgeX, nudgeOffY);
-            super.dispatchDraw(canvas);
-            canvas.restore();
-        } else {
-            super.dispatchDraw(canvas);
         }
+        super.dispatchDraw(canvas);
+        canvas.restoreToCount(save);
     }
 
     @Override

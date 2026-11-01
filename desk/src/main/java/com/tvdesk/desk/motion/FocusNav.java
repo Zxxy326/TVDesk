@@ -192,6 +192,21 @@ public final class FocusNav {
         return focusIndex(index);
     }
 
+    /**
+     * 把「当前落点」同步成某一格，<b>不</b>请求焦点。
+     *
+     * <p>用在上层的焦点自己跑进网格的时候：用户从顶栏按 DOWN，系统按几何关系把焦点
+     * 落在某张卡上 —— 这一下没经过 {@link #focusIndex}，如果不同步，网格还以为自己
+     * 没有落点，下一次按 DOWN 会把它拽回第一张（表现就是「按了没反应」）。
+     */
+    public void syncCurrent(int index) {
+        if (index < 0 || index >= host.count()) {
+            return;
+        }
+        current = index;
+        lastKey = host.keyAt(index);
+    }
+
     /** 记住当前落点（用户自己走出网格时不要清 —— 回来还要用它） */
     public void rememberCurrentKey() {
         if (current >= 0 && current < host.count()) {

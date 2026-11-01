@@ -781,6 +781,30 @@ public class DeskActivity extends DeskAdaptActivity {
      * <p>先拍一张磨砂背景（Hero 图铺完之后），再换背景——顺序反了的话
      * 第一帧会画成纯色玻璃。
      */
+
+    /**
+     * 装完就静默接管 HOME。
+     *
+     * <p>两条路：有 {@code WRITE_SECURE_SETTINGS}（adb 授权过）就直接把守护写进系统设置，
+     * 用户什么都不用点；没有就跳过，留设置页里那个「开启桌面守护」给用户自己决定。
+     * 另外应用升级后配置会变（比如这一版加了 HOME 键过滤），需要重绑一次才生效。
+     *
+     * @return 真的接管了
+     */
+    private boolean ensureGuardEnabled() {
+        try {
+            if (GuardSetup.ensureEnabled(this)) {
+                // 已经是开着的：看看是不是升级后需要重绑
+                GuardSetup.rebindIfVersionChanged(this);
+                return true;
+            }
+            android.util.Log.i("DeskActivity", "没有 WRITE_SECURE_SETTINGS，守护留给用户手动开");
+        } catch (Throwable th) {
+            android.util.Log.w("DeskActivity", "自动开启守护失败：" + th.getMessage());
+        }
+        return false;
+    }
+
     private void applyDeskGlass() {
         // 拍「氛围光 + Hero 海报」两层叠起来的效果：只拍海报的话，
         // 海报还没加载完时拍到的是纯透明，玻璃就退回一块黑
@@ -905,7 +929,8 @@ public class DeskActivity extends DeskAdaptActivity {
         deskStatus.post(new Runnable() {
             @Override
             public void run() {
-                applyDeskGlass();
+                ensureGuardEnabled();
+        applyDeskGlass();
                 applyClockWeatherPrefs();
             }
         });

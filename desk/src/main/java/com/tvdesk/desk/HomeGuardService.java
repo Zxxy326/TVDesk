@@ -99,7 +99,16 @@ public class HomeGuardService extends AccessibilityService {
         } catch (Throwable th) {
             Log.w(TAG, "注册亮屏广播失败：" + th.getMessage());
         }
-        Log.i(TAG, "守护已连接");
+        try {
+            android.accessibilityservice.AccessibilityServiceInfo info = getServiceInfo();
+            int flags = info == null ? -1 : info.flags;
+            boolean filter = info != null
+                    && (flags & android.accessibilityservice.AccessibilityServiceInfo
+                    .FLAG_REQUEST_FILTER_KEY_EVENTS) != 0;
+            Log.i(TAG, "守护已连接：flags=" + flags + " 按键过滤=" + filter);
+        } catch (Throwable th) {
+            Log.w(TAG, "读服务配置失败：" + th.getMessage());
+        }
     }
 
     @Override
@@ -122,6 +131,7 @@ public class HomeGuardService extends AccessibilityService {
         if (event == null || event.getKeyCode() != KeyEvent.KEYCODE_HOME) {
             return false;
         }
+        Log.i(TAG, "onKeyEvent HOME action=" + event.getAction());
         if (!DeskPrefs.homeGuard(this)) {
             return false;
         }
