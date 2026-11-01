@@ -46,6 +46,11 @@ public final class UpdateDialog extends Dialog {
     }
 
     private final Listener listener;
+    /** 宿主 Activity。不能用 getContext()：Dialog 包了一层 ContextThemeWrapper，强转会炸 */
+    private final Activity host;
+    private final String versionName;
+    private final String currentVersion;
+    private final String body;
 
     private TextView title;
     private TextView subtitle;
@@ -64,6 +69,10 @@ public final class UpdateDialog extends Dialog {
     public UpdateDialog(Activity activity, String versionName, String currentVersion,
                         String body, Listener listener) {
         super(activity, R.style.DeskDialogTheme);
+        this.host = activity;
+        this.versionName = versionName;
+        this.currentVersion = currentVersion;
+        this.body = body;
         this.listener = listener;
         setOnDismissListener(new OnDismissListener() {
             @Override
@@ -73,12 +82,20 @@ public final class UpdateDialog extends Dialog {
                 }
             }
         });
-        setCanceledOnTouchOutside(true);
+    }
 
-        View root = activity.getLayoutInflater().inflate(R.layout.dialog_update, null);
-        setContentView(root, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        /*
+         * 界面必须在这里建，不能放在构造函数里。
+         *
+         * <p>Dialog 的窗口是 show() 之后才挂上的：构造函数里 setContentView 会把布局塞进一个
+         * 还没准备好的窗口，表现就是「show() 不报错、但屏幕上什么都没有」——
+         * 这次就是这么踩的（查更新拿到了新版本号，弹窗却始终不出来，日志里连异常都没有）。
+         */
+        View root = host.getLayoutInflater().inflate(R.layout.dialog_update, null);
+        setContentView(root);
         title = root.findViewById(R.id.update_title);
         subtitle = root.findViewById(R.id.update_subtitle);
         notes = root.findViewById(R.id.update_notes);
@@ -136,18 +153,16 @@ public final class UpdateDialog extends Dialog {
             WindowManager.LayoutParams attrs = window.getAttributes();
             attrs.dimAmount = 0.62f;
             window.setAttributes(attrs);
-        }
-    }
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        // 弹窗自己的背景是透明的：面板圆角靠 bg_dialog_panel 自己画
-        Window window = getWindow();
-        if (window != null) {
-            window.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.setLayout(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
             window.setGravity(Gravity.CENTER);
         }
+        downloadBtn.post(new Runnable() {
+            @Override
+            public void run() {
+                downloadBtn.requestFocus();
+            }
+        });
     }
 
     /** 进入下载态：说明区换成进度条，按钮全部禁用（这期间不能退） */

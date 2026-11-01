@@ -502,6 +502,9 @@ public class SettingsActivity extends DeskAdaptActivity {
                     @Override
                     public void run() {
                         refreshValues();
+                        Log.i(TAG, "checkUpdate 结果："
+                                + (info == null ? "null" : (info.versionName + "/" + info.versionCode
+                                + " newer=" + info.newer)));
                         if (info == null) {
                             Toast.makeText(SettingsActivity.this,
                                     com.tvdesk.desk.update.UpdateClient.lastError(),

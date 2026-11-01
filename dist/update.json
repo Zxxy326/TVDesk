@@ -1,9 +1,11 @@
 {
-  "versionCode": 99,
+  "versionCode": 10,
   "versionName": "1.0.9",
-  "notes": "(这是一次界面预览，用来检查更新弹窗的样子)\n\n- 玻璃面板 + 胶囊按钮\n- 更新说明可滚动\n- 下载时换成进度条",
-  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.8/TVDesk-1.0.8-universal.apk",
+  "notes": "更新弹窗改成软件自己的样式（玻璃面板 + 胶囊按钮 + 进度条）；更新检查改用加速站转发，国内实时可查。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.9/TVDesk-1.0.9-universal.apk",
   "assets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.8/TVDesk-1.0.8-armeabi-v7a.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.9/TVDesk-1.0.9-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.9/TVDesk-1.0.9-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.9/TVDesk-1.0.9-universal.apk"
   }
 }

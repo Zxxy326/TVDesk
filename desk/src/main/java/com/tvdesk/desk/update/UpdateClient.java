@@ -49,13 +49,15 @@ public final class UpdateClient {
      * 三个都失败就当「没有更新」，不打扰用户。
      */
     private static final String[] DEFAULT_MANIFESTS = {
-            // @latest 会解析到最新的 tag。tag 是不可变的，cdN 缓存不会把「上一版的文件」
-            // 当成这一版返回 —— 分支名（@main）不行：1.0.7 发版时，之前请求过 @main 的
-            // 节点还在发 1.0.6 的缓存，最长 12 小时，客户端会一直以为「已是最新」。
+            // 前两个是「加速站转发 raw」：raw.githubusercontent 本身国内不通，但经这两个站转发
+            // 就通了，而且是**实时内容**（raw 只有 5 分钟缓存），不需要 purge。
+            "https://ghfast.top/https://raw.githubusercontent.com/Zxxy326/TVDesk/main/dist/update.json",
+            "https://gh-proxy.com/https://raw.githubusercontent.com/Zxxy326/TVDesk/main/dist/update.json",
+            // jsDelivr 的 @latest 解析到最新 tag，但它自己的 alias 解析有缓存（实测滞后一版），
+            // 只当兜底；@main 更慢（分支缓存最长 12 小时），放最后。
             "https://cdn.jsdelivr.net/gh/Zxxy326/TVDesk@latest/dist/update.json",
-            "https://raw.gitmirror.com/Zxxy326/TVDesk/main/dist/update.json",
-            "https://raw.githubusercontent.com/Zxxy326/TVDesk/main/dist/update.json",
             "https://cdn.jsdelivr.net/gh/Zxxy326/TVDesk@main/dist/update.json",
+            "https://raw.githubusercontent.com/Zxxy326/TVDesk/main/dist/update.json",
     };
 
     /**
@@ -236,6 +238,8 @@ public final class UpdateClient {
                 return null;
             }
             info.newer = info.versionCode > currentVersionCode(context);
+            Log.i(TAG, "源 " + hostOf(manifestUrl) + " -> " + info.versionCode
+                    + " (" + info.versionName + ")");
             return info;
         } catch (Throwable th) {
             lastError = "检查失败：" + th.getMessage();
