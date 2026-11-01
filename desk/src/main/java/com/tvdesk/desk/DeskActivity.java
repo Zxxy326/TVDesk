@@ -521,8 +521,8 @@ public class DeskActivity extends DeskAdaptActivity {
     private CategoryWall favWall;
     private CategoryWall histWall;
     private View favoritesDual;
-    private GridView favGrid;
-    private GridView histGrid;
+    private com.tvdesk.desk.widget.TileWall favGrid;
+    private com.tvdesk.desk.widget.TileWall histGrid;
     /** true 表示内容区现在是海报墙，false 是 Hero + 海报行 */
     private boolean wallMode;
     /** 海报墙铺的是本地收藏清单：长按只能在这里生效，类目墙按了不该掉条目 */
@@ -1009,10 +1009,11 @@ public class DeskActivity extends DeskAdaptActivity {
         favWall = findViewById(R.id.fav_wall);
         histWall = findViewById(R.id.hist_wall);
         // 左右两栏各占一半宽：墙内网格默认 6 列，挤在半边就成邮票了，各收成 3 列
-        favGrid = (GridView) favWall.findViewById(R.id.wall_grid);
-        histGrid = (GridView) histWall.findViewById(R.id.wall_grid);
-        favGrid.setNumColumns(3);
-        histGrid.setNumColumns(3);
+        favGrid = (com.tvdesk.desk.widget.TileWall) favWall.findViewById(R.id.wall_grid);
+        histGrid = (com.tvdesk.desk.widget.TileWall) histWall.findViewById(R.id.wall_grid);
+        // 双栏各占半屏，每行 3 张
+        favWall.setColumns(3);
+        histWall.setColumns(3);
         favWall.setHost(new CategoryWall.Host() {
             @Override
             public void openVideo(Movie.Video vod) {
@@ -3785,7 +3786,77 @@ public class DeskActivity extends DeskAdaptActivity {
                 "长按海报删除这条历史");
     }
 
+
+    /**
+     * 双栏之间挪一格：从 {@code from} 的最右/最左列跨到 {@code to} 同一行。
+     *
+     * @return 真的跨过去了
+     */
+    private boolean crossColumn(com.tvdesk.desk.widget.TileWall from,
+            com.tvdesk.desk.widget.TileWall to, View focused) {
+        if (from == null || to == null || focused == null || to.getCount() == 0) {
+            return false;
+        }
+        int position = from.getPositionForView(focused);
+        int columns = Math.max(1, from.getNumColumns());
+        if (position < 0) {
+            return false;
+        }
+        // 只有站在最边上才跨：中间位置还是栏内移动
+        boolean atRight = position % columns == columns - 1 || position == from.getCount() - 1;
+        boolean atLeft = position % columns == 0;
+        boolean wantRight = to == histGrid;
+        if (wantRight && !atRight) {
+            return false;
+        }
+        if (!wantRight && !atLeft) {
+            return false;
+        }
+        int row = position / columns;
+        int target = Math.min(row * to.getNumColumns(), Math.max(0, to.getCount() - 1));
+        return to.focusPosition(target);
+    }
+
     /** {@code node} 是不是挂在 {@code ancestor} 底下（含相等） */
+
+    /**
+     * 焦点是不是贴在首页海报行的左右边界上（是就吃掉这一下并回弹）。
+     *
+     * <p>和卡片墙里的处理同一个道理：横向排到尽头再按，系统的几何寻焦会去屏幕上别的地方
+     * 找落点（通常是 Hero 那三颗按钮），用户看到的是「焦点飞了」。
+     */
+    private boolean posterRowAtEdge(int keyCode) {
+        if (rowPosters == null || rowPosters.getChildCount() == 0) {
+            return false;
+        }
+        View focused = getCurrentFocus();
+        if (focused == null || !isDescendantOf(focused, rowPosters)) {
+            return false;
+        }
+        int index = rowPosters.indexOfChild(focused);
+        if (index < 0) {
+            return false;
+        }
+        boolean atEdge = keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                ? index == 0
+                : index == rowPosters.getChildCount() - 1;
+        if (!atEdge) {
+            return false;
+        }
+        float shift = (keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -1f : 1f)
+                * 8f * getResources().getDisplayMetrics().density;
+        rowPosters.animate().cancel();
+        rowPosters.setTranslationX(0f);
+        rowPosters.animate().translationX(shift).setDuration(90L)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        rowPosters.animate().translationX(0f).setDuration(160L).start();
+                    }
+                }).start();
+        return true;
+    }
+
     private static boolean isDescendantOf(View node, ViewGroup ancestor) {
         while (node != null) {
             if (node == ancestor) {
@@ -3983,6 +4054,15 @@ public class DeskActivity extends DeskAdaptActivity {
         if (playerOpen && playerCall(playerDispatchKey, event)) {
             return true;
         }
+        // 首页海报行到最左/最右：就地吃掉 + 一次轻微回弹。
+        // 不拦的话几何寻焦会摸到上面的 Hero 按钮或左上角胶囊上 —— 用户只是想待在最边上。
+        if (event.getAction() == KeyEvent.ACTION_DOWN && !moduleOpen && !wallMode
+                && (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
+                || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            if (posterRowAtEdge(event.getKeyCode())) {
+                return true;
+            }
+        }
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             // 沉浸轮播里任何键都先当「把桌面唤回来」用，这一键本身不算操作。
             // 电视的交互是按了才有 UI；把第一键同时当成点击，等于让人误开看不见焦点的东西
@@ -4038,13 +4118,15 @@ public class DeskActivity extends DeskAdaptActivity {
                         && favGrid.getPositionForView(focused) % favGrid.getNumColumns() == 0) {
                     return true;
                 }
-                if (inHist && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                    GridView pane = histGrid;
-                    int position = pane.getPositionForView(focused);
-                    if (position >= 0 && (position % pane.getNumColumns() == pane.getNumColumns() - 1
-                            || position == pane.getCount() - 1)) {
-                        return true;
-                    }
+                // 跨栏：栏内到边之后，同一行直接落到对面那一栏，不用先去顶栏绕一圈。
+                // 这一层在 Activity 里做，比墙内回弹更早，所以不会被吃掉。
+                if (inFav && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT
+                        && crossColumn(favGrid, histGrid, focused)) {
+                    return true;
+                }
+                if (inHist && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
+                        && crossColumn(histGrid, favGrid, focused)) {
+                    return true;
                 }
             }
         }

@@ -64,7 +64,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
     private EditText input;
     private ImageView goButton;
     private LinearLayout keys;
-    private GridView grid;
+    private com.tvdesk.desk.widget.TileWall grid;
     private ProgressBar loading;
     private TextView emptyView;
 
@@ -102,6 +102,23 @@ public class SearchPage extends FrameLayout implements ModulePage {
         emptyView = findViewById(R.id.search_empty);
 
         grid.setAdapter(adapter);
+        grid.setNumColumns(GRID_COLUMNS);
+        grid.setSpacingDp(16f, 18f);
+        // 到边：左边是字母键盘（用户按左就是要回键盘），上下到顶回输入框，其余回弹
+        grid.setEdgeListener(new com.tvdesk.desk.widget.TileWall.OnEdgeListener() {
+            @Override
+            public boolean onEdge(int keyCode, int index) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                    focusFirstKey();
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    input.requestFocus();
+                    return true;
+                }
+                return false;
+            }
+        });
         buildKeyboard();
         wireInput();
     }
@@ -387,7 +404,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
         results.clear();
         seen.clear();
         openedIndex = -1;
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
         loading.setVisibility(View.VISIBLE);
         emptyView.setVisibility(View.GONE);
         grid.setVisibility(View.INVISIBLE);
@@ -410,7 +427,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
                 loading.setVisibility(View.GONE);
                 emptyView.setVisibility(View.GONE);
                 grid.setVisibility(View.VISIBLE);
-                adapter.notifyDataSetChanged();
+                grid.notifyDataSetChanged();
             }
 
             @Override
@@ -438,35 +455,31 @@ public class SearchPage extends FrameLayout implements ModulePage {
         if (results.isEmpty()) {
             return;
         }
-        final int target = Math.max(0, Math.min(index, results.size() - 1));
-        grid.setSelection(target);
-        grid.post(new Runnable() {
-            @Override
-            public void run() {
-                View child = grid.getChildAt(target - grid.getFirstVisiblePosition());
-                if (child != null) {
-                    child.requestFocus();
-                }
-            }
-        });
+        int target = Math.max(0, Math.min(index, results.size() - 1));
+        grid.focusPosition(target);
     }
 
     // ---------------------------------------------------------------- 结果
 
-    private final class ResultAdapter extends BaseAdapter {
+    /** 搜索结果每行 4 张（沿用原来 GridView 的排版） */
+    private static final int GRID_COLUMNS = 4;
+
+    private final class ResultAdapter implements com.tvdesk.desk.widget.TileWall.Adapter {
         @Override
         public int getCount() {
             return results.size();
         }
 
         @Override
-        public Object getItem(int position) {
-            return results.get(position);
-        }
-
-        @Override
-        public long getItemId(int position) {
-            return position;
+        public String keyAt(int index) {
+            if (index < 0 || index >= results.size()) {
+                return null;
+            }
+            Movie.Video vod = results.get(index);
+            if (!TextUtils.isEmpty(vod.id)) {
+                return "v:" + vod.sourceKey + "|" + vod.id;
+            }
+            return "n:" + vod.name;
         }
 
         @Override

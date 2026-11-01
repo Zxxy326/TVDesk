@@ -148,28 +148,22 @@
         </HorizontalScrollView>
 
         <!-- 磁贴墙。参数照搬 Aerial TV 的 HomeScreen.GridMetrics：5 列 / 28dp 横距 /
-             行距 = 磁贴高 + 50dp 的名字区。磁贴本身 16:9，卡片视图自己量 -->
-        <com.tvdesk.desk.widget.PageGridView
+             行距 = 磁贴高 + 名字区。磁贴本身 16:9，卡片视图自己量。
+
+             不再是 GridView：它只挂载视口附近的卡，带焦点的那张一被回收焦点就没主了
+             （「翻页跳左上角」的根）。TileWall 全量挂载 + 自己算焦点，
+             列数/间距/行高都由它自己定，这里只留下内边距。 -->
+        <com.tvdesk.desk.widget.TileWall
             android:id="@+id/apps_grid"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:layout_marginStart="0dp"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="0dp"
+            android:layout_marginTop="28dp"
             android:clipChildren="false"
             android:clipToPadding="false"
-            android:fadingEdge="none"
             android:focusable="false"
-            android:horizontalSpacing="28dp"
-            android:listSelector="@android:color/transparent"
-            android:numColumns="5"
             android:paddingStart="8dp"
-            android:paddingTop="24dp"
-            android:paddingEnd="8dp"
-            android:scrollbars="none"
-            android:stretchMode="columnWidth"
-            android:verticalSpacing="18dp" />
+            android:paddingEnd="8dp" />
 
         <TextView
             android:id="@+id/apps_empty"

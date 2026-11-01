@@ -189,7 +189,12 @@ public class AppPage extends FrameLayout implements ModulePage {
     private LinearLayout navItems;
     private HorizontalScrollView subScroll;
     private LinearLayout subNav;
-    private GridView grid;
+    /**
+     * 磁贴墙。从 {@code GridView} 换成不回收的 {@link com.tvdesk.desk.widget.TileWall}：
+     * 焦点交给墙里的 {@code FocusNav} 自己算，不再让系统按几何关系猜
+     * （那套猜法正是「第一列按左飞到左上角胶囊」「翻页跳一下左上角」的来源）。
+     */
+    private com.tvdesk.desk.widget.TileWall grid;
     private TextView title;
     private TextView subtitle;
     private TextView emptyView;
@@ -214,10 +219,6 @@ public class AppPage extends FrameLayout implements ModulePage {
         subScroll = findViewById(R.id.apps_sub_scroll);
         subNav = findViewById(R.id.apps_sub_nav);
         grid = findViewById(R.id.apps_grid);
-        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
-            // 整页铺满的墙：最左/最右再按就停住，别让焦点飞到左上角胶囊上
-            ((com.tvdesk.desk.widget.PageGridView) grid).setKeepFocusAtEdges(true);
-        }
         title = findViewById(R.id.apps_title);
         subtitle = findViewById(R.id.apps_subtitle);
         emptyView = findViewById(R.id.apps_empty);
@@ -773,7 +774,7 @@ public class AppPage extends FrameLayout implements ModulePage {
 
         // 整页背景跟着第一张卡走：焦点还在页签上时，背景不能留着上一个栏目的图标
         showBackground(rows.isEmpty() ? null : rows.get(0).icon, true);
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
     }
 
     private boolean matchesSection(Entry entry) {
@@ -865,6 +866,10 @@ public class AppPage extends FrameLayout implements ModulePage {
         Intent intent = pm.getLaunchIntentForPackage(entry.pkg);
         if (intent == null) {
             return false;
+        }
+        // 用户主动点开的是「原桌面」：给守护一段放行期，别刚进去就被拉回来
+        if (HomeRole.isHomePackage(getContext(), entry.pkg)) {
+            DeskPrefs.allowStockLauncher(getContext(), 60L * 60_000L);
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
@@ -962,6 +967,10 @@ public class AppPage extends FrameLayout implements ModulePage {
     /** 把焦点放到指定包名的卡片上 */
     private void focusPkg(final String pkg) {
         if (pkg == null) {
+            return;
+        }
+        // 墙按 key 找：重排之后下标会变，包名不变
+        if (grid.focusKey(pkg)) {
             return;
         }
         for (int i = 0; i < adapter.getCount(); i++) {
@@ -1091,68 +1100,50 @@ public class AppPage extends FrameLayout implements ModulePage {
 
     private void setupGrid() {
         grid.setAdapter(adapter);
-        grid.setSelector(new ColorDrawable(0));
-        grid.setFocusable(false);
-        grid.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        grid.setNumColumns(GRID_COLUMNS);
+        // 到边的处置：向上交回顶栏，其余（左右/向下到头）由墙自己回弹。
+        // 以前这些判断散在页面的 dispatchKeyEvent 里（atHorizontalEdge / swallowAtEdge），
+        // 顶栏、子标签栏各来一遍；现在只在墙这一个地方定义。
+        grid.setEdgeListener(new com.tvdesk.desk.widget.TileWall.OnEdgeListener() {
+            @Override
+            public boolean onEdge(int keyCode, int index) {
+                if (keyCode != KeyEvent.KEYCODE_DPAD_UP) {
+                    return false;
+                }
+                if (subScroll.getVisibility() == View.VISIBLE && subNav.getChildCount() > 0) {
+                    subNav.getChildAt(0).requestFocus();
+                } else {
+                    focusChip();
+                }
+                return true;
+            }
+        });
     }
 
+    /** 应用页固定 5 列（照 Aerial 的 HomeScreen.GridMetrics） */
+    private static final int GRID_COLUMNS = 5;
+
     private void focusChip() {
-        // 用户主动把焦点送去顶栏：墙重排时不要再把焦点抢回列表
-        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
-            ((com.tvdesk.desk.widget.PageGridView) grid).markUserLeft();
-        }
         if (section < navItems.getChildCount()) {
             navItems.getChildAt(section).requestFocus();
         }
     }
 
-    /** 把焦点放到第 position 张卡上。目标行还没挂载时先平滑翻一行过去，再补焦 */
+    /**
+     * 把焦点放到第 position 张卡上。
+     *
+     * <p>以前这里是一串重试：{@code GridView} 只挂载视口附近的卡，目标行没挂上时
+     * 只能先滚、再等 60ms、再试，还要在 32ms 后验证「焦点是不是又被回收搞丢了」。
+     * 墙改成全量挂载之后，目标视图一定在，滚动和补焦由 {@code TileWall} 一次做完。
+     *
+     * <p>保留 {@code retries} 参数是为了不动调用点（十几处），逻辑上已经不需要。
+     */
     private void focusGrid(final int position, final int retries) {
         if (gone() || adapter.getCount() == 0) {
             focusChip();
             return;
         }
-        // 用户（或页面）把焦点送回墙里：撤掉「用户已离开」的标记
-        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
-            ((com.tvdesk.desk.widget.PageGridView) grid).markUserEntered();
-        }
-        View child = grid.getChildAt(position - grid.getFirstVisiblePosition());
-        if (!GridScroll.isFullyVisible(grid, child)) {
-            if (retries <= 0) {
-                return;
-            }
-            long wait = GridScroll.smoothToRow(grid, position);
-            postFocus(position, retries - 1, wait);
-            return;
-        }
-        if (!child.requestFocus()) {
-            if (retries <= 0) {
-                return;
-            }
-            postFocus(position, retries - 1, 60);
-            return;
-        }
-        if (retries <= 0) {
-            return;
-        }
-        // 重排在下一帧，会把刚挂上焦的卡片回收掉，焦点静默落回模块胶囊。验一次，丢了重来。
-        grid.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (!gone() && !grid.hasFocus()) {
-                    focusGrid(position, retries - 1);
-                }
-            }
-        }, 32);
-    }
-
-    private void postFocus(final int position, final int retries, long delay) {
-        grid.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                focusGrid(position, retries);
-            }
-        }, delay);
+        grid.focusPosition(Math.max(0, Math.min(position, adapter.getCount() - 1)));
     }
 
     /**
@@ -1195,31 +1186,22 @@ public class AppPage extends FrameLayout implements ModulePage {
         }
         if (event.getAction() == KeyEvent.ACTION_DOWN
                 && grid.getVisibility() == View.VISIBLE) {
-            int keyCode = event.getKeyCode();
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                if (moveGridVertical(keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
-                    return true;
-                }
-            }
-            // 到边了就地吃掉。
-            //
-            // <p>GridView 自己不管边界：第一列再按左，几何寻焦在墙外找不到更近的卡，
-            // 就一路摸到左上角的模块胶囊上 —— 用户只是想在最左一排待着，
-            // 焦点却飞走了，得按右再按回来。最后一列/最后一行同理。
-            if (swallowAtEdge(keyCode)) {
+            // 上下走位和左右到边都由 TileWall 里的 FocusNav 算了：
+            // 网格里没有「下一排还没挂载」这回事（全量挂载），也没有几何寻焦猜错的可能。
+            // 页面只剩顶栏页签这一层的边界要管。
+            if (swallowAtEdge(event.getKeyCode())) {
                 return true;
             }
         }
         return super.dispatchKeyEvent(event);
     }
 
-    /** 焦点这一下会不会把墙带到边界外：会就吃掉这个按键 */
+    /** 顶栏页签这一层到边：最左/最右一颗别再往外跑 */
     private boolean swallowAtEdge(int keyCode) {
         View focused = findFocus();
         if (focused == null || focused == grid) {
             return false;
         }
-        // 顶栏页签：最左/最右一颗别再往外跑（右边那颗是放大镜）
         if (navItems != null && isDescendantOfView(focused, navItems)) {
             int index = navItems.indexOfChild(focused);
             if (index < 0) {
@@ -1229,21 +1211,6 @@ public class AppPage extends FrameLayout implements ModulePage {
                 return true;
             }
             return keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && index == navItems.getChildCount() - 1;
-        }
-        int position = grid.getPositionForView(focused);
-        if (position < 0) {
-            return false;
-        }
-        int columns = Math.max(1, grid.getNumColumns());
-        int column = position % columns;
-        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-            return column == 0;
-        }
-        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-            return column == columns - 1 || position == adapter.getCount() - 1;
-        }
-        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-            return position + columns >= adapter.getCount();
         }
         return false;
     }
@@ -1306,7 +1273,7 @@ public class AppPage extends FrameLayout implements ModulePage {
         }
         Entry moved = rows.remove(from);
         rows.add(to, moved);
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
         focusGrid(to, 1);
     }
 
@@ -1345,7 +1312,7 @@ public class AppPage extends FrameLayout implements ModulePage {
             persistOrder();
             toast("顺序已保存");
         }
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
         if (keep >= 0) {
             focusGrid(keep, 2);
         }
@@ -1405,13 +1372,13 @@ public class AppPage extends FrameLayout implements ModulePage {
         if (down) {
             int next = position + columns;
             if (next < adapter.getCount()) {
-                focusGrid(next, 2);
+                focusGrid(next, 0);
             }
             return true;
         }
         int previous = position - columns;
         if (previous >= 0) {
-            focusGrid(previous, 2);
+            focusGrid(previous, 0);
             return true;
         }
         if (subScroll.getVisibility() == View.VISIBLE && subNav.getChildCount() > 0) {
@@ -1568,7 +1535,14 @@ public class AppPage extends FrameLayout implements ModulePage {
 
     // ---------------------------------------------------------------- 卡片
 
-    private final class CardAdapter extends BaseAdapter {
+    /**
+     * 卡片数据源。
+     *
+     * <p>从 {@code BaseAdapter} 换成 {@code TileWall.Adapter}：墙不再回收子视图，
+     * 所以要的是「第几张卡 + 它凭什么被认出来（包名）」，而不是 GridView 那套
+     * {@code getItemId / getItemViewType}。
+     */
+    private final class CardAdapter implements com.tvdesk.desk.widget.TileWall.Adapter {
 
         @Override
         public int getCount() {
@@ -1576,13 +1550,8 @@ public class AppPage extends FrameLayout implements ModulePage {
         }
 
         @Override
-        public Object getItem(int position) {
-            return rows.get(position);
-        }
-
-        @Override
-        public long getItemId(int position) {
-            return position;
+        public String keyAt(int index) {
+            return index >= 0 && index < rows.size() ? rows.get(index).pkg : null;
         }
 
         @Override
@@ -1603,9 +1572,11 @@ public class AppPage extends FrameLayout implements ModulePage {
             root.setFocusable(true);
             root.setFocusableInTouchMode(true);
             root.setClickable(true);
-            // Aerial 的磁贴聚焦放大 1.15 倍（AppTile.FOCUSED_SCALE）
-            FocusScaler.attach(root, AppTileView.FOCUSED_SCALE,
-                    new View.OnFocusChangeListener() {
+            // 放大和白环由磁贴自己的弹簧驱动（见 AppTileView.onFocusChanged），
+            // 这里只处理「换背景」和「名字提亮」这两件数据侧的事。
+            // 以前用 FocusScaler.attach 传一个监听进来，两条动画打架：
+            // 它按 180ms 曲线改 scale，磁贴内部的弹簧也在改，连按时会互相覆盖。
+            root.setOnFocusChangeListener(new View.OnFocusChangeListener() {
                 @Override
                 public void onFocusChange(View v, boolean hasFocus) {
                     if (hasFocus) {
@@ -1638,6 +1609,8 @@ public class AppPage extends FrameLayout implements ModulePage {
             } else {
                 RevealAnim.staggerIn(root, position, dp(10));
             }
+            // 复用的视图可能停在上一张卡的缩放/描边中间态，对齐一次
+            root.syncFocusState();
             return root;
         }
     }

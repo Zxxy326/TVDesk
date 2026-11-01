@@ -265,28 +265,20 @@
           聚焦放大和错峰入场也走同一套 FocusScaler + RevealAnim。
           只有「音源管理」这种设置型列表还用上面的 music_list。
         -->
-        <com.tvdesk.desk.widget.PageGridView
+        <com.tvdesk.desk.widget.TileWall
             android:id="@+id/music_grid"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
             android:layout_marginStart="-12dp"
-            android:layout_marginTop="20dp"
+            android:layout_marginTop="34dp"
             android:layout_marginEnd="-12dp"
             android:clipChildren="false"
             android:clipToPadding="false"
-            android:fadingEdge="none"
             android:focusable="false"
-            android:horizontalSpacing="20dp"
-            android:listSelector="@android:color/transparent"
-            android:numColumns="6"
             android:paddingStart="12dp"
-            android:paddingTop="14dp"
             android:paddingEnd="12dp"
             android:paddingBottom="152dp"
-            android:scrollbars="none"
-            android:stretchMode="columnWidth"
-            android:verticalSpacing="24dp"
             android:visibility="gone" />
 
         <TextView

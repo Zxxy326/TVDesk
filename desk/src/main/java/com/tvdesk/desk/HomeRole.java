@@ -68,6 +68,29 @@ public final class HomeRole {
         return openHomeSettings(activity);
     }
 
+
+    /**
+     * 这个包是不是一台电视上的「桌面」之一（含固件桌面）。
+     *
+     * <p>应用页里点开它的时候要放行守护 —— 用户是自己要进原桌面找东西的。
+     */
+    public static boolean isHomePackage(Context context, String pkg) {
+        if (context == null || pkg == null || pkg.isEmpty()) {
+            return false;
+        }
+        try {
+            Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            for (ResolveInfo info : context.getPackageManager()
+                    .queryIntentActivities(home, PackageManager.MATCH_ALL)) {
+                if (info.activityInfo != null && pkg.equals(info.activityInfo.packageName)) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
     /** 老系统：打开「主屏幕/桌面」设置页，由用户自己选 */
     public static boolean openHomeSettings(Activity activity) {
         Intent[] candidates = {

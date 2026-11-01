@@ -53,6 +53,25 @@ public class AppTileView extends FrameLayout {
     private final RectF shadowRect = new RectF();
     private final float density;
 
+    /**
+     * 焦点放大和白环都交给临界阻尼弹簧。
+     *
+     * <p>以前是 {@code FocusScaler} 的 180ms ease：曲线到点就停，中途改目标只能重启，
+     * 连按方向键时一串半截动画接着走，看着像掉帧。弹簧改目标就行，
+     * 速度和位置都连续，连按是「顺着当前速度滑过去」。
+     *
+     * <p>白环单独一根、刚度更高（{@link #RING_STIFFNESS}）：Aerial 那边也是让环
+     * 出现得比放大慢一点、消失得比缩小快一点，左右移动时才不会同时看到两个框。
+     */
+    private final com.tvdesk.desk.motion.SpringValue scaleSpring =
+            new com.tvdesk.desk.motion.SpringValue(com.tvdesk.desk.motion.SpringValue.STIFF_FOCUS);
+    private final com.tvdesk.desk.motion.SpringValue ringSpring =
+            new com.tvdesk.desk.motion.SpringValue(RING_STIFFNESS);
+    private boolean animating;
+    private long lastFrameNanos;
+
+    private static final float RING_STIFFNESS = 900f;
+
     private int tileHeight;
     /** 当前贴着的磁贴位图，用来跳过重复 setImageBitmap */
     private android.graphics.Bitmap currentTile;
@@ -92,6 +111,72 @@ public class AppTileView extends FrameLayout {
         setWillNotDraw(false);
         setClipChildren(false);
         setClipToPadding(false);
+        // 系统那层焦点高亮按外接矩形画，会盖住圆角和白环，自己画就够了（API 26 起才有）
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            setDefaultFocusHighlightEnabled(false);
+        }
+        scaleSpring.snapTo(1f);
+        ringSpring.snapTo(0f);
+    }
+
+    @Override
+    protected void onFocusChanged(boolean gainFocus, int direction, android.graphics.Rect previouslyFocusedRect) {
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
+        scaleSpring.setTarget(gainFocus ? FOCUSED_SCALE : 1f);
+        ringSpring.setTarget(gainFocus ? 1f : 0f);
+        // 抬一层，免得放大的那块被下一行的卡压住（墙的间距不够吃满 15% 的溢出）
+        setTranslationZ(gainFocus ? 8f : 0f);
+        startAnimating();
+    }
+
+    /**
+     * 把缩放/描边状态对齐到「当前有没有焦点」。
+     *
+     * <p>墙会复用子视图（换排序、换栏目时按 key 拿回同一个对象），复用过来时
+     * 它可能还停在上一张卡的动画中间态 —— 放大到一半、白环没退。实测表现是：
+     * 搬动一张卡之后，第一张卡比别的大一圈，名字还被下一行的磁贴盖住。
+     * 每次绑定都对齐一次，卡片的静态样子和它的焦点状态永远是同一个。
+     */
+    public void syncFocusState() {
+        boolean focused = hasFocus();
+        scaleSpring.snapTo(focused ? FOCUSED_SCALE : 1f);
+        ringSpring.snapTo(focused ? 1f : 0f);
+        setScaleX(scaleSpring.value());
+        setScaleY(scaleSpring.value());
+        setTranslationZ(focused ? 8f : 0f);
+        invalidate();
+    }
+
+    private final Runnable frame = new Runnable() {
+        @Override
+        public void run() {
+            long now = System.nanoTime();
+            float dt = lastFrameNanos == 0 ? 0.016f : (now - lastFrameNanos) / 1_000_000_000f;
+            lastFrameNanos = now;
+
+            boolean scaleAlive = scaleSpring.advance(dt);
+            setScaleX(scaleSpring.value());
+            setScaleY(scaleSpring.value());
+            boolean ringAlive = ringSpring.advance(dt);
+            if (ringAlive || ringSpring.value() > 0.001f) {
+                invalidate();
+            }
+            if (scaleAlive || ringAlive) {
+                postOnAnimation(this);
+            } else {
+                animating = false;
+                lastFrameNanos = 0;
+            }
+        }
+    };
+
+    private void startAnimating() {
+        if (animating) {
+            return;
+        }
+        animating = true;
+        lastFrameNanos = 0;
+        postOnAnimation(frame);
     }
 
     /**
@@ -145,17 +230,18 @@ public class AppTileView extends FrameLayout {
 
     @Override
     public void draw(Canvas canvas) {
-        if (hasFocus()) {
-            drawShadow(canvas);
+        float ring = ringSpring.value();
+        if (ring > 0.001f) {
+            drawShadow(canvas, ring);
         }
         super.draw(canvas);
-        if (hasFocus()) {
-            drawRing(canvas);
+        if (ring > 0.001f) {
+            drawRing(canvas, ring);
         }
     }
 
     /** 抬起的磁贴投下的软阴影：多层递减圆角描边（Aerial 是烘焙的阴影位图，近似即可） */
-    private void drawShadow(Canvas canvas) {
+    private void drawShadow(Canvas canvas, float strength) {
         float corner = CORNER_DP * density;
         float drop = SHADOW_DROP_DP * density;
         float blur = SHADOW_BLUR_DP * density;
@@ -163,7 +249,7 @@ public class AppTileView extends FrameLayout {
         for (int i = layers; i >= 1; i--) {
             float expand = blur * i / (float) layers;
             shadowPaint.setStrokeWidth(blur / (float) layers * 1.6f);
-            shadowPaint.setAlpha(Math.max(4, 22 - i * 2));
+            shadowPaint.setAlpha((int) (Math.max(4, 22 - i * 2) * strength));
             // 复用同一个矩形：每帧 new 8 个 RectF 是白给的 GC 压力
             shadowRect.set(0, 0, getWidth(), tileHeight);
             shadowRect.inset(-expand * 0.4f, -expand * 0.4f);
@@ -172,12 +258,18 @@ public class AppTileView extends FrameLayout {
         }
     }
 
-    /** tvOS 式焦点白环：磁贴外扩 RingGap，线宽 RingWidth */
-    private void drawRing(Canvas canvas) {
+    /**
+     * tvOS 式焦点白环：磁贴外扩 RingGap，线宽 RingWidth。
+     *
+     * <p>{@code strength} 是透明度弹簧：环从磁贴边缘「长出来」（间隙从 0 撑到 RingGap），
+     * 消失时比缩小更快地淡掉，左右移动的路上不会出现两个框。
+     */
+    private void drawRing(Canvas canvas, float strength) {
         float corner = CORNER_DP * density;
-        float gap = RING_GAP_DP * density;
+        float gap = RING_GAP_DP * density * strength;
         RectF rect = new RectF(-gap, -gap, getWidth() + gap, tileHeight + gap);
         Path path = AppTileArt.squircle(rect.left, rect.top, rect.right, rect.bottom, corner + gap);
+        ringPaint.setAlpha((int) (255 * Math.min(1f, strength)));
         canvas.drawPath(path, ringPaint);
     }
 

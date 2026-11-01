@@ -119,7 +119,7 @@ public class SignalPage extends FrameLayout implements ModulePage {
     private LinearLayout switcher;
     private LinearLayout switcherMenu;
     private LinearLayout navItems;
-    private GridView grid;
+    private com.tvdesk.desk.widget.TileWall grid;
     private TextView title;
     private TextView subtitle;
     private ProgressBar loadingView;
@@ -136,10 +136,6 @@ public class SignalPage extends FrameLayout implements ModulePage {
         switcherMenu = findViewById(R.id.signal_menu);
         navItems = findViewById(R.id.signal_nav_items);
         grid = findViewById(R.id.signal_grid);
-        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
-            // 整页铺满的墙：最左/最右再按就停住，别让焦点飞到左上角胶囊上
-            ((com.tvdesk.desk.widget.PageGridView) grid).setKeepFocusAtEdges(true);
-        }
         title = findViewById(R.id.signal_title);
         subtitle = findViewById(R.id.signal_subtitle);
         loadingView = findViewById(R.id.signal_loading);
@@ -570,7 +566,7 @@ public class SignalPage extends FrameLayout implements ModulePage {
         subtitle.setText(headline());
         loadingView.setVisibility(section == SEC_INPUT && rows.size() <= 1 && inputLoading
                 ? View.VISIBLE : View.GONE);
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
     }
 
     private Row addCard(String label, String note) {
@@ -786,10 +782,23 @@ public class SignalPage extends FrameLayout implements ModulePage {
 
     private void setupGrid() {
         grid.setAdapter(adapter);
-        grid.setSelector(new ColorDrawable(0));
-        grid.setFocusable(false);
-        grid.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        grid.setNumColumns(GRID_COLUMNS);
+        grid.setSpacingDp(20f, 24f);
+        // 到边：第一排再往上回页签，其余由墙自己回弹
+        grid.setEdgeListener(new com.tvdesk.desk.widget.TileWall.OnEdgeListener() {
+            @Override
+            public boolean onEdge(int keyCode, int index) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    focusChip();
+                    return true;
+                }
+                return false;
+            }
+        });
     }
+
+    /** 信号源墙 6 列（沿用原来 GridView 的排版） */
+    private static final int GRID_COLUMNS = 6;
 
     private void focusChip() {
         if (section < navItems.getChildCount()) {
@@ -803,22 +812,11 @@ public class SignalPage extends FrameLayout implements ModulePage {
             focusChip();
             return;
         }
-        View child = grid.getChildAt(position - grid.getFirstVisiblePosition());
-        if (!GridScroll.isFullyVisible(grid, child)) {
-            if (retries <= 0) {
-                return;
-            }
-            long wait = GridScroll.smoothToRow(grid, position);
-            postFocus(position, retries - 1, wait);
-            return;
-        }
-        if (!child.requestFocus()) {
-            if (retries <= 0) {
-                return;
-            }
-            postFocus(position, retries - 1, 60);
-            return;
-        }
+        grid.focusPosition(Math.max(0, Math.min(position, adapter.getCount() - 1)));
+    }
+
+    /** 旧的补焦重试（墙全量挂载后不再需要，留着调用点不动） */
+    private void focusGridLegacy(final int position, final int retries) {
         if (retries <= 0) {
             return;
         }
@@ -848,20 +846,6 @@ public class SignalPage extends FrameLayout implements ModulePage {
      */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN
-                && grid.getVisibility() == View.VISIBLE) {
-            int keyCode = event.getKeyCode();
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN
-                    || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                if (moveGridVertical(keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
-                    return true;
-                }
-            }
-            // 已经在最左/最右列：就地吃掉，别让焦点飞到左上角胶囊
-            if (com.tvdesk.desk.widget.PageGridView.atHorizontalEdge(grid, keyCode)) {
-                return true;
-            }
-        }
         return super.dispatchKeyEvent(event);
     }
 
@@ -985,7 +969,7 @@ public class SignalPage extends FrameLayout implements ModulePage {
 
     // ---------------------------------------------------------------- 卡片
 
-    private final class CardAdapter extends BaseAdapter {
+    private final class CardAdapter implements com.tvdesk.desk.widget.TileWall.Adapter {
 
         @Override
         public int getCount() {
@@ -993,13 +977,12 @@ public class SignalPage extends FrameLayout implements ModulePage {
         }
 
         @Override
-        public Object getItem(int position) {
-            return rows.get(position);
-        }
-
-        @Override
-        public long getItemId(int position) {
-            return position;
+        public String keyAt(int index) {
+            if (index < 0 || index >= rows.size()) {
+                return null;
+            }
+            Row row = rows.get(index);
+            return "s:" + row.kind + "|" + row.value + "|" + row.title;
         }
 
         @Override

@@ -255,7 +255,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
     private LinearLayout navItems;
     private HorizontalScrollView subScroll;
     private LinearLayout subNav;
-    private GridView grid;
+    private com.tvdesk.desk.widget.TileWall grid;
     private TextView title;
     private TextView subtitle;
     private TextView emptyView;
@@ -284,10 +284,6 @@ public class BiliPage extends FrameLayout implements ModulePage {
         subScroll = findViewById(R.id.bili_sub_scroll);
         subNav = findViewById(R.id.bili_sub_nav);
         grid = findViewById(R.id.bili_grid);
-        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
-            // 整页铺满的墙：最左/最右再按就停住，别让焦点飞到左上角胶囊上
-            ((com.tvdesk.desk.widget.PageGridView) grid).setKeepFocusAtEdges(true);
-        }
         title = findViewById(R.id.bili_title);
         subtitle = findViewById(R.id.bili_subtitle);
         emptyView = findViewById(R.id.bili_empty);
@@ -612,7 +608,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
             // 顺带把网格滚回顶部 —— 否则数据变短时旧的滚动位置会停在空白处
             feeds.remove(key(SEC_FOLLOW, ""));
             rebuildRows();
-            grid.setSelection(0);
+            grid.scrollToTop();
             return;
         }
         if (section == SEC_RECOMMEND) {
@@ -819,7 +815,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
         emptyView.setText(rows.isEmpty() && !isBusy() ? "这里暂时没有内容" : "");
 
         bindHeadCover(headCoverUrl);
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
         updateSubSelection();
         showBackground(sectionCover(), true);
     }
@@ -961,7 +957,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
         feed.error = null;
         final int mine = epoch;
         final String key = currentRequestKey(feed);
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
         loadingView.setVisibility(View.VISIBLE);
         new Thread(new Runnable() {
             @Override
@@ -1379,7 +1375,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
         appendCards(feed("history"));
         emptyView.setVisibility(rows.isEmpty() ? View.VISIBLE : View.GONE);
         emptyView.setText(feed("history").error);
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
         focusGrid(0, 2);
     }
 
@@ -1473,140 +1469,80 @@ public class BiliPage extends FrameLayout implements ModulePage {
 
     private void setupGrid() {
         grid.setAdapter(adapter);
-        grid.setSelector(new ColorDrawable(0));
-        grid.setFocusable(false);
-        grid.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        // 滚到离底部还有几格时就去接关注流的下一页（动态接口一页只有 20 条）
-        grid.setOnScrollListener(new AbsListView.OnScrollListener() {
+        grid.setNumColumns(GRID_COLUMNS);
+        grid.setSpacingDp(20f, 24f);
+        // 到边：往上交回页签，其余回弹（以前是 atHorizontalEdge 逐键判，现在由墙自己算）
+        grid.setEdgeListener(new com.tvdesk.desk.widget.TileWall.OnEdgeListener() {
             @Override
-            public void onScrollStateChanged(AbsListView view, int scrollState) {
+            public boolean onEdge(int keyCode, int index) {
+                if (keyCode != KeyEvent.KEYCODE_DPAD_UP) {
+                    return false;
+                }
+                if (subScroll.getVisibility() == View.VISIBLE && subNav.getChildCount() > 0) {
+                    subNav.getChildAt(0).requestFocus();
+                } else {
+                    focusChip();
+                }
+                return true;
             }
-
+        });
+        // 滚到离底部还有两行时就去接下一页（关注动态一页只有 20 条，热门/直播同理）
+        grid.setScrollListener(new com.tvdesk.desk.widget.TileWall.ScrollListener() {
             @Override
-            public void onScroll(AbsListView view, int firstVisibleItem,
-                                 int visibleItemCount, int totalItemCount) {
-                if (totalItemCount > 0
-                        && firstVisibleItem + visibleItemCount >= totalItemCount - 6) {
+            public void onScroll(int firstRow, int lastRow, int totalRows) {
+                if (totalRows > 0 && lastRow >= totalRows - 2) {
                     loadMoreCurrent();
                 }
             }
         });
-        // 重排之后焦点别落到左上角那颗切换器上：卡片被回收时系统会把焦点交给
-        // 窗口里第一个可聚焦控件，正好就是它。这里把用户原来的位置放回去。
-        grid.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
-            @Override
-            public void onLayoutChange(View v, int left, int top, int right, int bottom,
-                    int oldLeft, int oldTop, int oldRight, int oldBottom) {
-                restoreContentFocus();
-            }
-        });
     }
 
-    /**
-     * 卡片墙重排把焦点甩到左上角时，把焦点放回用户刚才站的那一张。
-     *
-     * <p>只在焦点确实落在模块切换器上、而且用户本来在内容里时才动：
-     * 用户自己按上去的不抢。
-     */
-    private void restoreContentFocus() {
-        if (lastContentPosition < 0 || gone()) {
-            return;
-        }
-        View focused = currentFocus();
-        if (focused != switcher) {
-            return;
-        }
-        focusGrid(lastContentPosition, 2);
-    }
+    /** B 站卡片墙 6 列（沿用原来 GridView 的排版） */
+    private static final int GRID_COLUMNS = 6;
 
     private void focusChip() {
-        // 用户主动把焦点送去顶栏：墙重排时不要再把焦点抢回列表
-        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
-            ((com.tvdesk.desk.widget.PageGridView) grid).markUserLeft();
-        }
         if (section < navItems.getChildCount()) {
             navItems.getChildAt(section).requestFocus();
         }
     }
 
-    /** 把焦点放到第 position 张卡上。目标行还没挂载时先平滑翻一行过去，再补焦 */
+    /** 把焦点放到第 position 张卡上（滚动与补焦由墙一次做完） */
     private void focusGrid(final int position, final int retries) {
-        if (gone()) {
-            return;
-        }
-        // 用户（或页面）把焦点送回墙里：撤掉「用户已离开」的标记，
-        // 否则墙重排时不会把焦点还给卡片
-        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
-            ((com.tvdesk.desk.widget.PageGridView) grid).markUserEntered();
-        }
-        if (adapter.getCount() == 0) {
+        if (gone() || adapter.getCount() == 0) {
             // 内容还没到：留在原地，别把人甩到页签上。
             // 点了分区却「人自己跑回页签」比「暂时没动」更让人以为点错了
             return;
         }
-        // 退层带回来的「来处」可能已经不在（换栏目、列表变短），夹到最后一张而不是取到空子 View
-        final int target = Math.max(0, Math.min(position, adapter.getCount() - 1));
-        View child = grid.getChildAt(target - grid.getFirstVisiblePosition());
-        if (!GridScroll.isFullyVisible(grid, child)) {
-            if (retries <= 0) {
-                return;
-            }
-            long wait = GridScroll.smoothToRow(grid, target);
-            postFocus(target, retries - 1, wait);
-            return;
+        int target = Math.max(0, Math.min(position, adapter.getCount() - 1));
+        if (grid.focusPosition(target)) {
+            lastContentPosition = target;
         }
-        if (!child.requestFocus()) {
-            if (retries <= 0) {
-                return;
-            }
-            postFocus(target, retries - 1, 60);
-            return;
-        }
-        lastContentPosition = target;
-        if (retries <= 0) {
-            return;
-        }
-        // notifyDataSetChanged 只标脏，真正的重排在下一帧；重排会把刚挂上焦的卡片回收掉，
-        // 焦点静默落回页面第一个可聚焦的控件（模块胶囊）。下一帧验一次，丢了就重来。
-        grid.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (!gone() && !grid.hasFocus()) {
-                    focusGrid(target, retries - 1);
-                }
-            }
-        }, 32);
-    }
-
-    private void postFocus(final int position, final int retries, long delay) {
-        grid.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                focusGrid(position, retries);
-            }
-        }, delay);
     }
 
     /**
-     * 卡片墙的上下走位自己算（和音乐页同一个理由）。
-     *
-     * <p>顶上一排再按 UP 不是直接回顶栏：先落子页签（有的时候），否则回栏目页签——
-     * 从分区榜切分区时子页签才是最近的操作对象。
+     * 卡片墙的上下走位交给 {@code TileWall}：全量挂载 + 显式焦点图，
+     * 不再需要「下一排还没挂载 → 几何寻焦猜错 → 页面拦一下」这一套。
      */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN
-                && grid.getVisibility() == View.VISIBLE) {
-            int keyCode = event.getKeyCode();
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                if (moveGridVertical(keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
-                    return true;
+                && grid.getVisibility() == View.VISIBLE
+                && (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
+                || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            // 顶栏页签这一层到边：最左/最右一颗别再往外跑
+            View focused = findFocus();
+            if (focused != null && navItems != null
+                    && navItems.indexOfChild(focused) >= 0) {
+                int index = navItems.indexOfChild(focused);
+                if (index >= 0) {
+                    if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT && index == 0) {
+                        return true;
+                    }
+                    if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT
+                            && index == navItems.getChildCount() - 1) {
+                        return true;
+                    }
                 }
-            }
-            // 已经在最左/最右列：这一下就地吃掉。不拦的话几何寻焦会一路摸到
-            // 左上角的模块胶囊上，用户只是想待在最边上
-            if (com.tvdesk.desk.widget.PageGridView.atHorizontalEdge(grid, keyCode)) {
-                return true;
             }
         }
         return super.dispatchKeyEvent(event);
@@ -1849,21 +1785,55 @@ public class BiliPage extends FrameLayout implements ModulePage {
 
     // ---------------------------------------------------------------- 卡片
 
-    private final class CardAdapter extends BaseAdapter {
+    /**
+     * 一张卡的稳定标识。
+     *
+     * <p>视频用 bvid、直播间用 roomId、分区用 id、入口用编号 —— 重排/翻页之后
+     * 下标会变，这些不会，墙靠它把焦点找回来。
+     */
+    private static String keyOf(Row row) {
+        if (row == null) {
+            return null;
+        }
+        if (row.card != null) {
+            if (!TextUtils.isEmpty(row.card.bvid)) {
+                return "c:" + row.card.bvid;
+            }
+            if (row.card.aid > 0) {
+                return "c:" + row.card.aid;
+            }
+            if (row.card.favId > 0) {
+                return "c:" + row.card.favId;
+            }
+            return "c:" + row.card.title;
+        }
+        if (row.room != null) {
+            return "r:" + row.room.roomId;
+        }
+        if (row.area != null) {
+            return "a:" + row.area.id;
+        }
+        if (row.entry >= 0) {
+            return "e:" + row.entry;
+        }
+        return "t:" + row.title;
+    }
 
+    private final class CardAdapter implements com.tvdesk.desk.widget.TileWall.Adapter {
         @Override
         public int getCount() {
             return rows.size();
         }
 
+        /**
+         * 卡片的稳定标识。
+         *
+         * <p>视频用 bvid、直播间用 roomId、分区用 id、入口用编号 —— 重排/翻页之后
+         * 下标会变，这些不会，{@code TileWall} 靠它把焦点找回来。
+         */
         @Override
-        public Object getItem(int position) {
-            return rows.get(position);
-        }
-
-        @Override
-        public long getItemId(int position) {
-            return position;
+        public String keyAt(int index) {
+            return index >= 0 && index < rows.size() ? keyOf(rows.get(index)) : null;
         }
 
         @Override

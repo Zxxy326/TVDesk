@@ -50,6 +50,32 @@ final class DeskPrefs {
         return context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    /**
+     * 主动打开原桌面后的放行截止时间（毫秒时间戳）。
+     *
+     * <p>用户从应用页里点开固件桌面、或者从「我的应用」进固件桌面去找东西时，
+     * 守护不能把这当成「HOME 被抢了」立刻拉回来 —— 那会让人根本用不了原桌面。
+     * 有效期内 HOME 键和窗口事件都放行，TVDesk 自己回到前台时立刻作废。
+     */
+    private static final String KEY_STOCK_ALLOW_UNTIL = "stock_allow_until";
+
+    /** 现在是不是「用户主动去了原桌面」的放行期 */
+    static boolean stockAllowed(Context context) {
+        return of(context).getLong(KEY_STOCK_ALLOW_UNTIL, 0L) > System.currentTimeMillis();
+    }
+
+    /** 记一段放行期（用户刚打开了原桌面） */
+    static void allowStockLauncher(Context context, long durationMs) {
+        of(context).edit()
+                .putLong(KEY_STOCK_ALLOW_UNTIL, System.currentTimeMillis() + Math.max(0L, durationMs))
+                .apply();
+    }
+
+    /** 回到自己了：放行作废 */
+    static void clearStockAllow(Context context) {
+        of(context).edit().remove(KEY_STOCK_ALLOW_UNTIL).apply();
+    }
+
     public static boolean keepPlayingOnLeave(Context context) {
         return of(context).getBoolean(KEY_KEEP_PLAYING, false);
     }

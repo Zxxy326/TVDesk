@@ -428,7 +428,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
      * 内容卡片墙。除了「音源管理」，所有版块都铺成和影视页一样的海报卡片：
      * 每日推荐 / 榜单目录 / 榜单曲目 / 推荐歌单 / 歌单曲目 / 我的 / 本地分组 / 搜索。
      */
-    private GridView grid;
+    private com.tvdesk.desk.widget.TileWall grid;
     /** 当前视图是一串歌时露出来的「播放全部」 */
     private TextView playAllBtn;
     private TextView title;
@@ -609,10 +609,6 @@ public class MusicPage extends FrameLayout implements ModulePage {
         navItems = findViewById(R.id.music_nav_items);
         list = findViewById(R.id.music_list);
         grid = findViewById(R.id.music_grid);
-        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
-            // 整页铺满的墙：最左/最右再按就停住，别让焦点飞到左上角胶囊上
-            ((com.tvdesk.desk.widget.PageGridView) grid).setKeepFocusAtEdges(true);
-        }
         playAllBtn = findViewById(R.id.music_play_all);
         title = findViewById(R.id.music_title);
         subtitle = findViewById(R.id.music_subtitle);
@@ -848,10 +844,6 @@ public class MusicPage extends FrameLayout implements ModulePage {
     }
 
     private void focusChip() {
-        // 用户主动把焦点送去顶栏：墙重排时不要再把焦点抢回列表
-        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
-            ((com.tvdesk.desk.widget.PageGridView) grid).markUserLeft();
-        }
         if (section < navItems.getChildCount()) {
             navItems.getChildAt(section).requestFocus();
         }
@@ -1011,17 +1003,31 @@ public class MusicPage extends FrameLayout implements ModulePage {
         list.setSelector(new ColorDrawable(0));
         list.setAdapter(adapter);
 
-        // 卡片墙同影视页：GridView 自己不参与焦点，焦点落在卡片根上
+        // 卡片墙：6 列 / 20dp 横距 / 24dp 行距，和影视页一致。
+        // 焦点交给墙里的 FocusNav 自己算（到边、翻行、重建后回到原处都在里面）
         grid.setAdapter(cardAdapter);
-        grid.setSelector(new ColorDrawable(0));
-        grid.setFocusable(false);
-        // 重排之后焦点别落到左上角那颗「音乐▾」上：带焦点的卡片被回收时，
-        // 系统会把焦点交给窗口里第一个可聚焦控件，正好就是它。这里放回原来的位置。
-        grid.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+        grid.setNumColumns(GRID_COLUMNS);
+        grid.setSpacingDp(20f, 24f);
+        grid.setEdgeListener(new com.tvdesk.desk.widget.TileWall.OnEdgeListener() {
             @Override
-            public void onLayoutChange(View v, int left, int top, int right, int bottom,
-                    int oldLeft, int oldTop, int oldRight, int oldBottom) {
-                restoreContentFocus();
+            public boolean onEdge(int keyCode, int index) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    // 第一排再往上：播放全部 → 页签（和原来 moveGridVertical 的顺序一致）
+                    if (playAllBtn.getVisibility() == View.VISIBLE) {
+                        playAllBtn.requestFocus();
+                    } else {
+                        focusChip();
+                    }
+                    return true;
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    // 最后一排再往下：接播放条
+                    if (bar.getVisibility() == View.VISIBLE) {
+                        toggleBtn.requestFocus();
+                    }
+                    return true;
+                }
+                return false;
             }
         });
         list.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
@@ -1364,7 +1370,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
     /** ListView 和卡片墙各一份适配器，数据是同一份 rows，两个都得刷新 */
     private void notifyContentChanged() {
         adapter.notifyDataSetChanged();
-        cardAdapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
     }
 
     private void applyContentMode() {
@@ -3055,30 +3061,10 @@ public class MusicPage extends FrameLayout implements ModulePage {
         if (gone() || cardAdapter.getCount() == 0) {
             return;
         }
-        // 用户（或页面）把焦点送回墙里：撤掉「用户已离开」的标记
-        if (grid instanceof com.tvdesk.desk.widget.PageGridView) {
-            ((com.tvdesk.desk.widget.PageGridView) grid).markUserEntered();
+        int target = Math.max(0, Math.min(position, cardAdapter.getCount() - 1));
+        if (grid.focusPosition(target)) {
+            lastContentPosition = target;
         }
-        View child = grid.getChildAt(position - grid.getFirstVisiblePosition());
-        if (!GridScroll.isFullyVisible(grid, child)) {
-            if (retries <= 0) {
-                fallbackFocus();
-                return;
-            }
-            long wait = GridScroll.smoothToRow(grid, position);
-            postFocus(position, retries - 1, wait);
-            return;
-        }
-        if (child.requestFocus()) {
-            lastContentPosition = position;
-            confirmGridFocus(position, retries);
-            return;
-        }
-        if (retries <= 0) {
-            fallbackFocus();
-            return;
-        }
-        postFocus(position, retries - 1, 60);
     }
 
     /**
@@ -3162,17 +3148,22 @@ public class MusicPage extends FrameLayout implements ModulePage {
                 scheduleStageChromeHide();
             }
         }
-        if (event.getAction() == KeyEvent.ACTION_DOWN
-                && !stageOpen && grid.getVisibility() == View.VISIBLE) {
-            int keyCode = event.getKeyCode();
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                if (moveGridVertical(keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN && !stageOpen
+                && grid.getVisibility() == View.VISIBLE
+                && (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
+                || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT)) {
+            // 顶栏页签这一层到边：最左/最右一颗别再往外跑。
+            // 网格内部的边界（最左列/最右列/第一排/最后一排）由 TileWall 自己算。
+            View navFocus = findFocus();
+            if (navFocus != null && navItems.indexOfChild(navFocus) >= 0) {
+                int index = navItems.indexOfChild(navFocus);
+                if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT && index == 0) {
                     return true;
                 }
-            }
-            // 已经在最左/最右列：就地吃掉，别让焦点飞到左上角胶囊
-            if (com.tvdesk.desk.widget.PageGridView.atHorizontalEdge(grid, keyCode)) {
-                return true;
+                if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT
+                        && index == navItems.getChildCount() - 1) {
+                    return true;
+                }
             }
         }
         return super.dispatchKeyEvent(event);
@@ -3308,7 +3299,10 @@ public class MusicPage extends FrameLayout implements ModulePage {
      * 卡片墙的适配器。数据源和行列表是同一份 {@link #rows}，所以点击语义、
      * 播放队列下标、整页背景都能直接复用。
      */
-    private final class CardAdapter extends BaseAdapter {
+    /** 音乐卡片墙每行 6 张（沿用原来 GridView 的排版） */
+    private static final int GRID_COLUMNS = 6;
+
+    private final class CardAdapter implements com.tvdesk.desk.widget.TileWall.Adapter {
 
         @Override
         public int getCount() {
@@ -3316,13 +3310,15 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
 
         @Override
-        public Object getItem(int position) {
-            return rows.get(position);
-        }
-
-        @Override
-        public long getItemId(int position) {
-            return position;
+        public String keyAt(int index) {
+            if (index < 0 || index >= rows.size()) {
+                return null;
+            }
+            Row row = rows.get(index);
+            if (row.track != null) {
+                return "t:" + statKey(row.track);
+            }
+            return "x:" + safe(row.title) + "|" + safe(row.sub);
         }
 
         @Override

@@ -2,6 +2,7 @@ package com.tvdesk.desk;
 
 import android.app.Activity;
 import android.content.Context;
+import android.text.TextUtils;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.util.AttributeSet;
@@ -89,7 +90,7 @@ public class CategoryWall extends FrameLayout {
     private final PosterAdapter adapter = new PosterAdapter();
     private final LruCache<String, List<Movie.Video>> firstPageCache = new LruCache<>(CACHE_SIZE);
 
-    private GridView grid;
+    private com.tvdesk.desk.widget.TileWall grid;
     private TextView emptyView;
     /** 本地清单（收藏）为空时没有「重试」这回事，别给空态挂上可聚焦的重试提示 */
     private boolean emptyRetryable = true;
@@ -139,7 +140,7 @@ public class CategoryWall extends FrameLayout {
             skeletonMode = true;
             grid.setAlpha(1f);
             grid.setVisibility(View.VISIBLE);
-            adapter.notifyDataSetChanged();
+            grid.notifyDataSetChanged();
         }
     };
 
@@ -156,16 +157,23 @@ public class CategoryWall extends FrameLayout {
         footer = findViewById(R.id.wall_footer);
 
         grid.setAdapter(adapter);
-        grid.setOnScrollListener(new AbsListView.OnScrollListener() {
+        grid.setNumColumns(GRID_COLUMNS);
+        grid.setSpacingDp(20f, 24f);
+        // 第一排再往上：交还顶栏的类目页签（不再让系统按几何关系去猜）
+        grid.setEdgeListener(new com.tvdesk.desk.widget.TileWall.OnEdgeListener() {
             @Override
-            public void onScrollStateChanged(AbsListView view, int scrollState) {
+            public boolean onEdge(int keyCode, int index) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP && host != null) {
+                    host.onNavigateUp();
+                    return true;
+                }
+                return false;
             }
-
+        });
+        grid.setScrollListener(new com.tvdesk.desk.widget.TileWall.ScrollListener() {
             @Override
-            public void onScroll(AbsListView view, int firstVisibleItem, int visibleItemCount,
-                                 int totalItemCount) {
-                if (totalItemCount > 0
-                        && firstVisibleItem + visibleItemCount >= totalItemCount - 4) {
+            public void onScroll(int firstRow, int lastRow, int totalRows) {
+                if (totalRows > 0 && lastRow >= totalRows - 2) {
                     loadMore();
                 }
             }
@@ -190,6 +198,13 @@ public class CategoryWall extends FrameLayout {
 
     public void setHost(Host host) {
         this.host = host;
+    }
+
+    /** 每行列数（收藏双栏各占半屏时用 3，整屏用 6） */
+    public void setColumns(int columns) {
+        if (grid != null) {
+            grid.setNumColumns(columns);
+        }
     }
 
     /** 换内容。sort 为 null 铺首页榜单；看过的类目直接走首屏缓存 */
@@ -225,7 +240,7 @@ public class CategoryWall extends FrameLayout {
         // 本地清单是整份换的：把网格滚回顶部，别留着上一次的偏移 ——
         // 收藏/历史增删之后行数变少，旧偏移会让卡停在视口外面（y 是负的），
         // 焦点几何搜索还能摸到它，看起来就是「焦点丢了」
-        grid.setSelection(0);
+        grid.scrollToTop();
         applyItems(list, emptyText, true);
         if (!items.isEmpty() && hint != null) {
             showFooterHint(hint);
@@ -257,7 +272,7 @@ public class CategoryWall extends FrameLayout {
         endReached = false;
         loadedPage = 0;
         lastFocusPos = 0;
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
         hideFooter();
         emptyView.setVisibility(View.GONE);
         grid.animate().cancel();
@@ -374,14 +389,14 @@ public class CategoryWall extends FrameLayout {
         grid.setAlpha(1f);
         emptyView.setVisibility(View.GONE);
         grid.setVisibility(View.VISIBLE);
-        grid.setSelection(0);
+        grid.scrollToTop();
         revealPending = animate;
         revealDone.clear();
         removeCallbacks(endReveal);
         if (animate) {
             postDelayed(endReveal, 900L);
         }
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
     }
 
     /**
@@ -422,7 +437,7 @@ public class CategoryWall extends FrameLayout {
                 View focusedBefore = findFocus();
                 boolean posterFocused = focusedBefore != null
                         && grid.getPositionForView(focusedBefore) >= 0;
-                adapter.notifyDataSetChanged();
+                grid.notifyDataSetChanged();
                 // 追加数据会重排。原本站在海报上就拉回原处；用户自己去了顶栏就别抢
                 if (posterFocused) {
                     grid.post(new Runnable() {
@@ -488,7 +503,7 @@ public class CategoryWall extends FrameLayout {
         grid.removeCallbacks(slowLoadingHint);
         items.clear();
         seenKeys.clear();
-        adapter.notifyDataSetChanged();
+        grid.notifyDataSetChanged();
         grid.animate().cancel();
         grid.setAlpha(1f);
         grid.setVisibility(View.INVISIBLE);
@@ -631,15 +646,8 @@ public class CategoryWall extends FrameLayout {
         if (gone() || items.isEmpty() || (!force && !canTakeFocus())) {
             return;
         }
-        View child = grid.getChildAt(target - grid.getFirstVisiblePosition());
-        if (!GridScroll.isFullyVisible(grid, child)) {
-            // 目标行没挂载或被视口裁掉：平滑翻一行过去，别用 setSelection 瞬移整屏
-            long wait = GridScroll.smoothToRow(grid, target);
-            retryFocus(target, retries, force, wait);
-            return;
-        }
-        boolean ok = child.hasFocus() || child.requestFocus();
-        if (!ok) {
+        // 墙全量挂载，目标一定在；滚动和补焦一次做完
+        if (!grid.focusPosition(target)) {
             retryFocus(target, retries, force, 80);
         }
     }
@@ -679,18 +687,10 @@ public class CategoryWall extends FrameLayout {
         return false;
     }
 
-    @Override
-    public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_DOWN) {
-            int keyCode = event.getKeyCode();
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                if (moveVertical(keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
-                    return true;
-                }
-            }
-        }
-        return super.dispatchKeyEvent(event);
-    }
+    /**
+     * 上下走位现在由 {@code TileWall} 的焦点图算（全量挂载，没有「下一排还没生成」这回事），
+     * 页面这层不再拦方向键。
+     */
 
     /**
      * 上下走位自己算，必须在系统寻焦之前接管：等 ViewRootImpl 找不到下一排时，
@@ -745,7 +745,10 @@ public class CategoryWall extends FrameLayout {
 
     // ---------------------------------------------------------------- 列表
 
-    private final class PosterAdapter extends BaseAdapter {
+    /** 海报墙每行 6 张（沿用原来 GridView 的排版） */
+    private static final int GRID_COLUMNS = 6;
+
+    private final class PosterAdapter implements com.tvdesk.desk.widget.TileWall.Adapter {
 
         @Override
         public int getCount() {
@@ -753,23 +756,18 @@ public class CategoryWall extends FrameLayout {
         }
 
         @Override
-        public Object getItem(int position) {
-            return skeletonMode ? null : items.get(position);
-        }
-
-        @Override
-        public long getItemId(int position) {
-            return position;
-        }
-
-        @Override
-        public int getViewTypeCount() {
-            return 2;
-        }
-
-        @Override
-        public int getItemViewType(int position) {
-            return skeletonMode ? 1 : 0;
+        public String keyAt(int index) {
+            if (skeletonMode) {
+                return "sk:" + index;
+            }
+            if (index < 0 || index >= items.size()) {
+                return null;
+            }
+            Movie.Video vod = items.get(index);
+            if (!TextUtils.isEmpty(vod.id)) {
+                return "v:" + vod.sourceKey + "|" + vod.id;
+            }
+            return "n:" + vod.name;
         }
 
         @Override
