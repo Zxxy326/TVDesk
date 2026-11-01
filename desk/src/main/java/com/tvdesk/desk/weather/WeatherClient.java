@@ -254,6 +254,34 @@ public final class WeatherClient {
         return RAIN;
     }
 
+    /**
+     * 天气对应的描边图标（tabler 风格，和全站图标一个语言）。
+     *
+     * <p>emoji 版本 {@link #glyph} 在电视字体里粗细和旁边的文字对不上，
+     * ⛅ 这种还会走彩色 emoji 字体，和满屏单色描边图标放一起很突兀。
+     */
+    public static int iconRes(int kind, boolean day) {
+        switch (kind) {
+            case CLEAR:
+                return day ? com.tvdesk.desk.R.drawable.ic_weather_sun
+                        : com.tvdesk.desk.R.drawable.ic_weather_moon;
+            case PARTLY:
+                return com.tvdesk.desk.R.drawable.ic_weather_partly;
+            case CLOUDY:
+                return com.tvdesk.desk.R.drawable.ic_weather_cloud;
+            case FOG:
+                return com.tvdesk.desk.R.drawable.ic_weather_fog;
+            case RAIN:
+                return com.tvdesk.desk.R.drawable.ic_weather_rain;
+            case SNOW:
+                return com.tvdesk.desk.R.drawable.ic_weather_snow;
+            case THUNDER:
+                return com.tvdesk.desk.R.drawable.ic_weather_storm;
+            default:
+                return com.tvdesk.desk.R.drawable.ic_weather_cloud;
+        }
+    }
+
     /** 天气的符号（系统字体里有的那几个） */
     public static String glyph(int kind, boolean day) {
         switch (kind) {

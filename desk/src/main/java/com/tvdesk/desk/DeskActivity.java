@@ -321,6 +321,9 @@ public class DeskActivity extends DeskAdaptActivity {
     /** 右上角那颗「天气 + 时间」胶囊（天气可关，关了只剩时间） */
     private android.view.View deskStatus;
     private TextView deskWeather;
+    /** 天气图标 + 温度合起来的那一小块：开关关掉时整块收起 */
+    private View deskWeatherBox;
+    private ImageView deskWeatherIcon;
     /** 天气上次刷新时刻，用来做半小时节流 */
     private long weatherAt;
 
@@ -695,7 +698,7 @@ public class DeskActivity extends DeskAdaptActivity {
      * onCreate 和 onResume 都调它 —— 设置页改完返回桌面能立刻看到效果。
      */
     private void applyClockWeatherPrefs() {
-        if (deskStatus == null || deskClock == null || deskWeather == null) {
+        if (deskStatus == null || deskClock == null || deskWeatherBox == null) {
             return;
         }
         boolean clock = DeskPrefs.showClock(this);
@@ -704,7 +707,7 @@ public class DeskActivity extends DeskAdaptActivity {
         // 天气那块的实际显隐由 refreshWeather 按「有没有数据」再定一次，
         // 这里先按开关收起，避免关掉后还挂着一个旧温度
         if (!weather) {
-            deskWeather.setVisibility(View.GONE);
+            deskWeatherBox.setVisibility(View.GONE);
         }
         deskStatus.setVisibility(clock || weather ? View.VISIBLE : View.GONE);
         if (clock) {
@@ -722,13 +725,13 @@ public class DeskActivity extends DeskAdaptActivity {
      * <p>拿不到就把天气那块藏起来，只留时间——挂着一个空白占位比不显示更难看。
      */
     private void refreshWeather() {
-        if (deskWeather == null) {
+        if (deskWeatherBox == null) {
             android.util.Log.i("DeskWeather", "没有天气控件，跳过");
             return;
         }
         if (!com.tvdesk.desk.DeskPrefs.showWeather(this)) {
             android.util.Log.i("DeskWeather", "设置里关了天气");
-            deskWeather.setVisibility(android.view.View.GONE);
+            deskWeatherBox.setVisibility(android.view.View.GONE);
             return;
         }
         android.util.Log.i("DeskWeather", "开始取天气");
@@ -741,20 +744,24 @@ public class DeskActivity extends DeskAdaptActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        if (isFinishing() || isDestroyed() || deskWeather == null) {
+                        if (isFinishing() || isDestroyed() || deskWeatherBox == null) {
                             return;
                         }
                         if (now == null) {
                             android.util.Log.i("DeskWeather", "没取到天气，藏起来");
-                            deskWeather.setVisibility(android.view.View.GONE);
+                            deskWeatherBox.setVisibility(android.view.View.GONE);
                             return;
                         }
                         android.util.Log.i("DeskWeather", "天气到位 " + now.celsius + "° "
                                 + now.place + " kind=" + now.kind);
+                        // emoji 符号换成 tabler 描边图标：和全站图标一个语言，
+                        // 也不会被彩色 emoji 字体抢走风格
+                        deskWeatherIcon.setImageResource(
+                                com.tvdesk.desk.weather.WeatherClient
+                                        .iconRes(now.kind, now.day));
                         deskWeather.setText(com.tvdesk.desk.weather.WeatherClient
-                                .glyph(now.kind, now.day) + " "
-                                + com.tvdesk.desk.weather.WeatherClient.temperature(now));
-                        deskWeather.setVisibility(android.view.View.VISIBLE);
+                                .temperature(now));
+                        deskWeatherBox.setVisibility(android.view.View.VISIBLE);
                     }
                 });
             }
@@ -1115,6 +1122,8 @@ public class DeskActivity extends DeskAdaptActivity {
         deskClock = findViewById(R.id.desk_clock);
         deskStatus = findViewById(R.id.desk_status);
         deskWeather = findViewById(R.id.desk_weather);
+        deskWeatherBox = findViewById(R.id.desk_weather_box);
+        deskWeatherIcon = findViewById(R.id.desk_weather_icon);
     }
 
     /**
@@ -1433,8 +1442,16 @@ public class DeskActivity extends DeskAdaptActivity {
             // 还没走完布局，按切换器的典型宽度估一个，宁可估宽一点
             chipEnd += dp(90);
         }
-        int overScanSide = getResources().getDimensionPixelSize(R.dimen.screen_pad);
-        int budget = screen - (chipEnd + dp(16)) - (overScanSide + dp(16)) - dp(6) * 2;
+        // 右侧不只要躲过扫描，还要躲开右上角的天气时钟（它和页签同排同高，
+        // 类目铺太宽两边就叠上了）。布局没走完时按「时间 + 图标 + 温度」的典型宽度估。
+        int rightSide = getResources().getDimensionPixelSize(R.dimen.screen_pad);
+        if (deskStatus != null && deskStatus.getVisibility() == View.VISIBLE
+                && deskStatus.getWidth() > 0) {
+            rightSide += deskStatus.getWidth();
+        } else {
+            rightSide += dp(140);
+        }
+        int budget = screen - (chipEnd + dp(16)) - (rightSide + dp(16)) - dp(6) * 2;
         return Math.max(dp(320), budget);
     }
 

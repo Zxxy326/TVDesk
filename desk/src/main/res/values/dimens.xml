@@ -14,7 +14,7 @@
       真机上就是「顶栏被裁掉一角」。这里按 5% 过扫再留 6dp 余量取值。
     -->
     <dimen name="screen_pad">48dp</dimen>
-    <dimen name="top_bar_top">40dp</dimen>
+    <dimen name="top_bar_top">34dp</dimen>
     <dimen name="top_bar_height">44dp</dimen>
 
     <!--
@@ -45,7 +45,7 @@
     <dimen name="safe_side">96dp</dimen>
 
     <!-- 顶栏下缘 + 16dp：各模块内容区统一的起点（top_bar_top + top_bar_height + 16） -->
-    <dimen name="content_top">100dp</dimen>
+    <dimen name="content_top">94dp</dimen>
 
     <!-- 左上模块切换器 -->
     <dimen name="switcher_pad_h">16dp</dimen>

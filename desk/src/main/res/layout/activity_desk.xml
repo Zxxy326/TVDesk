@@ -295,7 +295,7 @@
         android:clipChildren="false"
         android:clipToPadding="false"
         android:paddingStart="50dp"
-        android:paddingTop="100dp"
+        android:paddingTop="94dp"
         android:paddingEnd="50dp"
         android:paddingBottom="16dp"
         android:visibility="gone" />
@@ -313,7 +313,7 @@
         android:clipToPadding="false"
         android:orientation="horizontal"
         android:paddingStart="50dp"
-        android:paddingTop="68dp"
+        android:paddingTop="62dp"
         android:paddingEnd="50dp"
         android:paddingBottom="12dp"
         android:visibility="gone">
@@ -479,19 +479,37 @@
             android:textSize="17sp"
             android:textStyle="bold" />
 
-        <!-- 天气在右。不要底板：这一块浮在海报上，靠阴影保证可读 -->
-        <TextView
-            android:id="@+id/desk_weather"
+        <!-- 天气在右：描边图标 + 温度。不要底板：这一块浮在海报上，靠阴影保证可读 -->
+        <LinearLayout
+            android:id="@+id/desk_weather_box"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
-            android:shadowColor="#CC000000"
-            android:shadowDy="2"
-            android:shadowRadius="6"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/desk_weather_icon"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:contentDescription="@null"
+                android:shadowColor="#CC000000"
+                android:shadowDy="2"
+                android:shadowRadius="6"
+                android:src="@drawable/ic_weather_cloud" />
+
+            <TextView
+                android:id="@+id/desk_weather"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:shadowColor="#CC000000"
+                android:shadowDy="2"
+                android:shadowRadius="6"
             android:text=""
             android:textColor="@color/text_primary"
-            android:textSize="15sp"
-            android:visibility="gone" />
+                android:textSize="15sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- ============ 顶栏下面的提示条 ============ -->

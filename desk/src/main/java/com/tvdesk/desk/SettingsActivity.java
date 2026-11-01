@@ -140,13 +140,24 @@ public class SettingsActivity extends DeskAdaptActivity {
                     .getColorStateList(this, R.color.nav_item_text));
             chip.setSelected(i == tab);
             chip.setPadding(dp(20), 0, dp(20), 0);
+            // 高度和其它模块的页签一致（32dp 在 44dp 的胶囊里，上下各留 6dp 给聚焦放大）
             android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(44));
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(32));
             if (i > 0) {
                 lp.setMarginStart(dp(4));
             }
             chip.setLayoutParams(lp);
-            FocusScaler.attach(chip, 1.06f);
+            FocusScaler.attach(chip, FocusScaler.SCALE_FOCUSED);
+            // 焦点扫过哪颗，内容就换到哪一组：和音乐 / 信号源页签一个行为，
+            // 用户按左右时不用再按一次确定才看到内容变
+            chip.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+                @Override
+                public void onFocusChange(View v, boolean hasFocus) {
+                    if (hasFocus && tab != index) {
+                        selectTab(index, false);
+                    }
+                }
+            });
             chip.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
