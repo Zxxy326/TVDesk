@@ -578,9 +578,13 @@ public class TileWall extends ViewGroup implements FocusNav.Host {
         int save = canvas.save();
         // 注意：dispatchDraw 的 canvas 已经按 scrollY 平移过了，所以裁剪矩形要带上滚动量，
         // 否则裁到的是「内容里的左上角」而不是「屏幕上的这一块」，等于没裁。
-        canvas.clipRect(getScrollX(), getScrollY(),
-                getScrollX() + getWidth(), getScrollY() + getHeight());
-        if (Math.abs(nudgeX) > 0.01f || Math.abs(nudgeOffY) > 0.01f) {
+        // 到边回弹（nudge）会把内容往边界外顶 9dp，裁剪跟着放宽同样多，
+        // 否则回弹被裁掉，用户看到的是「按了没反应」。
+        float nx = Math.abs(nudgeX);
+        float ny = Math.abs(nudgeOffY);
+        canvas.clipRect(getScrollX() - nx, getScrollY() - ny,
+                getScrollX() + getWidth() + nx, getScrollY() + getHeight() + ny);
+        if (nx > 0.01f || ny > 0.01f) {
             canvas.translate(nudgeX, nudgeOffY);
         }
         super.dispatchDraw(canvas);

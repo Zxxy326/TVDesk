@@ -89,7 +89,7 @@
         android:clipToPadding="false"
         android:orientation="vertical"
         android:paddingStart="48dp"
-        android:paddingTop="80dp"
+        android:paddingTop="@dimen/content_top"
         android:paddingEnd="48dp">
 
         <TextView
@@ -116,14 +116,16 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:layout_marginStart="-12dp"
-            android:layout_marginTop="34dp"
-            android:layout_marginEnd="-12dp"
+            android:layout_marginStart="-14dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="-14dp"
             android:clipChildren="false"
             android:clipToPadding="false"
             android:focusable="false"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp" />
+            android:paddingStart="14dp"
+            android:paddingTop="24dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="24dp" />
     </LinearLayout>
 
     <!-- 电视输入要问系统服务，那段时间给一个明确的「在等」 -->

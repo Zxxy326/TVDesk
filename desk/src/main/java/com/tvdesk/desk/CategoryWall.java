@@ -801,7 +801,7 @@ public class CategoryWall extends FrameLayout {
             root.setFocusable(true);
             root.setFocusableInTouchMode(true);
             root.setClickable(true);
-            FocusScaler.attach(root, 1.08f,
+            FocusScaler.attach(root, FocusScaler.SCALE_FOCUSED,
                     new View.OnFocusChangeListener() {
                 @Override
                 public void onFocusChange(View v, boolean hasFocus) {

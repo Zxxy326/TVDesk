@@ -9,14 +9,16 @@
         android:id="@+id/wall_grid"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_marginTop="-24dp"
         android:layout_marginStart="-14dp"
         android:layout_marginEnd="-14dp"
         android:clipChildren="false"
         android:clipToPadding="false"
         android:focusable="false"
         android:paddingStart="14dp"
+        android:paddingTop="24dp"
         android:paddingEnd="14dp"
-        android:paddingBottom="46dp" />
+        android:paddingBottom="70dp" />
 
     <TextView
         android:id="@+id/wall_empty"

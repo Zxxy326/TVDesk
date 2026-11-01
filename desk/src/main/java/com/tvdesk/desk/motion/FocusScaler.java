@@ -17,7 +17,13 @@ import androidx.annotation.Nullable;
  */
 public final class FocusScaler {
 
-    public static final float SCALE_FOCUSED = 1.08f;
+    /**
+     * 全桌面统一的聚焦放大倍数。
+     *
+     * <p>以前卡片 1.05 / 1.06 / 1.08、按钮 1.10 混着用，从音乐页切到收藏墙
+     * 能看出「这里放大得多一点」。统一成一档（应用页磁贴除外，那是 Aerial 的 1.15）。
+     */
+    public static final float SCALE_FOCUSED = 1.06f;
 
     public static final long DURATION_FOCUS = 180L;
     public static final long DURATION_UNFOCUS = 140L;

@@ -508,7 +508,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
             root.setFocusable(true);
             root.setFocusableInTouchMode(true);
             root.setClickable(true);
-            FocusScaler.attach(root, 1.08f);
+            FocusScaler.attach(root, FocusScaler.SCALE_FOCUSED);
             root.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {

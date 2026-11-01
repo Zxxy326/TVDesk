@@ -6,9 +6,25 @@
       design_width_in_dp=1280 声明）。原来这里写的是 960x540dp / @320dpi，
       那是按 density 2.0 算的，已经不对了。
     -->
-    <dimen name="screen_pad">25dp</dimen>
-    <dimen name="top_bar_top">20dp</dimen>
+    <!--
+      顶栏与内容的水平边距、顶栏离屏顶的距离。
+
+      电视普遍有 5% 过扫描（overscan）：1280dp 宽的画布左右各吃掉约 42dp、顶底各 36dp。
+      以前 screen_pad=25 / top_bar_top=20，顶栏胶囊和页签的聚焦放大正好画进过扫区，
+      真机上就是「顶栏被裁掉一角」。这里按 5% 过扫再留 6dp 余量取值。
+    -->
+    <dimen name="screen_pad">48dp</dimen>
+    <dimen name="top_bar_top">40dp</dimen>
     <dimen name="top_bar_height">44dp</dimen>
+
+    <!--
+      卡片墙的「焦点留白」：聚焦放大的卡片允许溢出格子，白环再往外一圈，
+      这些溢出必须落在墙自己的边界内（墙按视口裁剪），否则就被裁掉。
+      各页的墙统一从这里取：上下 24dp、左右 14dp；为了视觉位置不变，
+      配对使用等量的负 margin（见各页 XML 的注释）。
+    -->
+    <dimen name="wall_room_top">24dp</dimen>
+    <dimen name="wall_room_side">14dp</dimen>
 
     <!--
       底部安全边距。电视普遍有 5% 过扫（overscan），画布高 720dp → 底边能吃掉约 36dp。
@@ -27,6 +43,9 @@
       比实测最窄的右边界还多让 10dp，胶囊两端不会贴边。
     -->
     <dimen name="safe_side">96dp</dimen>
+
+    <!-- 顶栏下缘 + 16dp：各模块内容区统一的起点（top_bar_top + top_bar_height + 16） -->
+    <dimen name="content_top">100dp</dimen>
 
     <!-- 左上模块切换器 -->
     <dimen name="switcher_pad_h">16dp</dimen>

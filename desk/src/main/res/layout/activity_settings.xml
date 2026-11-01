@@ -16,77 +16,74 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 顶栏：胶囊 + 页签 -->
+    <!--
+      顶栏和其它模块同一套坐标：胶囊在左上（top|start），页签在顶部居中（top|center）。
+      以前是一根 LinearLayout 把两颗挤在一起靠左，从别的模块切过来明显换了个布局。
+    -->
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:clipChildren="false"
-        android:clipToPadding="false"
+        android:id="@+id/settings_switcher"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="@dimen/screen_pad"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:clickable="true"
+        android:focusable="true"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_pad"
-        android:paddingTop="@dimen/top_bar_top"
-        android:paddingEnd="@dimen/screen_pad">
+        android:paddingStart="@dimen/switcher_pad_h"
+        android:paddingEnd="12dp">
 
-        <LinearLayout
-            android:id="@+id/settings_switcher"
+        <ImageView
+            android:layout_width="@dimen/switcher_icon"
+            android:layout_height="@dimen/switcher_icon"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_menu_list" />
+
+        <TextView
             android:layout_width="wrap_content"
-            android:layout_height="@dimen/top_bar_height"
-            android:background="@drawable/bg_pill"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="@dimen/switcher_pad_h"
-            android:paddingEnd="12dp">
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/switcher_gap"
+            android:text="设置"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp" />
 
-            <ImageView
-                android:layout_width="@dimen/switcher_icon"
-                android:layout_height="@dimen/switcher_icon"
-                android:contentDescription="@null"
-                android:src="@drawable/ic_menu_list" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="@dimen/switcher_gap"
-                android:text="设置"
-                android:textColor="@color/text_primary"
-                android:textSize="16sp" />
-
-            <ImageView
-                android:layout_width="16dp"
-                android:layout_height="16dp"
-                android:layout_marginStart="6dp"
-                android:contentDescription="@null"
-                android:src="@drawable/ic_chevron_down" />
-        </LinearLayout>
-
-        <!-- 页签由代码填（播放 / 桌面 / 关于） -->
-        <LinearLayout
-            android:id="@+id/settings_nav_items"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/top_bar_height"
-            android:layout_marginStart="16dp"
-            android:background="@drawable/bg_pill"
-            android:clipChildren="false"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="@dimen/nav_pad_h"
-            android:paddingEnd="@dimen/nav_pad_h" />
+        <ImageView
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="6dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_chevron_down" />
     </LinearLayout>
+
+    <!-- 顶部中央：页签（由代码填：桌面 / 播放 / 关于） -->
+    <LinearLayout
+        android:id="@+id/settings_nav_items"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/top_bar_height"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="@dimen/top_bar_top"
+        android:background="@drawable/bg_pill"
+        android:clipChildren="false"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/nav_pad_h"
+        android:paddingEnd="@dimen/nav_pad_h" />
 
     <!-- 卡片墙。三列 16:9，参数和音乐页一致，只是列少一些（设置项宽一点更好读） -->
     <com.tvdesk.desk.widget.TileWall
         android:id="@+id/settings_grid"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="104dp"
+        android:layout_marginStart="-14dp"
+        android:layout_marginTop="100dp"
+        android:layout_marginEnd="-14dp"
         android:clipChildren="false"
         android:clipToPadding="false"
         android:focusable="false"
-        android:paddingStart="@dimen/screen_pad"
-        android:paddingTop="18dp"
-        android:paddingEnd="@dimen/screen_pad"
-        android:paddingBottom="24dp" />
+        android:paddingStart="62dp"
+        android:paddingTop="24dp"
+        android:paddingEnd="62dp"
+        android:paddingBottom="48dp" />
 </FrameLayout>

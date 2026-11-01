@@ -166,13 +166,7 @@ public class SettingsActivity extends DeskAdaptActivity {
         grid.notifyDataSetChanged();
         grid.scrollToTop();
         if (focusContent) {
-            grid.post(new Runnable() {
-                @Override
-                public void run() {
-                    grid.focusPosition(0);
-                }
-            });
-        } else {
+            // 用户点了页签：和其它模块一致，焦点跟着进内容
             grid.post(new Runnable() {
                 @Override
                 public void run() {
@@ -566,7 +560,7 @@ public class SettingsActivity extends DeskAdaptActivity {
             note.setText(item.note);
             root.setTag(item.key);
             // 和其它模块的卡片一样的聚焦放大（1.05 就够，设置卡是整块面板）
-            FocusScaler.attach(root, 1.05f);
+            FocusScaler.attach(root, FocusScaler.SCALE_FOCUSED);
             root.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {

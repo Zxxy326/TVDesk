@@ -1059,6 +1059,15 @@ public class DeskActivity extends DeskAdaptActivity {
                 boolean liked = VodFavorites.toggle(DeskActivity.this, vod);
                 android.util.Log.i("DeskActivity", (liked ? "收藏 " : "取消收藏 ") + vod.name);
                 renderFavorites();
+                // 清单重建会掉焦点（子视图整批 detach）；送回历史栏第一张，别让用户丢位置
+                histWall.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (getCurrentFocus() == null || !isInside(getCurrentFocus(), favoritesDual)) {
+                            histWall.focusLast();
+                        }
+                    }
+                });
                 return true;
             }
         });
@@ -1082,6 +1091,14 @@ public class DeskActivity extends DeskAdaptActivity {
                 android.util.Log.i("DeskActivity", "删除历史 " + vod.name
                         + "，剩 " + VodHistory.list(DeskActivity.this).size() + " 条");
                 renderFavorites();
+                histWall.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (getCurrentFocus() == null || !isInside(getCurrentFocus(), favoritesDual)) {
+                            histWall.focusLast();
+                        }
+                    }
+                });
                 return true;
             }
         });
@@ -1404,6 +1421,10 @@ public class DeskActivity extends DeskAdaptActivity {
      */
     private int navBudget() {
         int screen = getResources().getDisplayMetrics().widthPixels;
+        // 左侧要避开切换器（它是实际占地的控件）；右侧顶栏是居中悬浮的，
+        // 只需要过扫描安全距离（screen_pad 就是按 5% 过扫取的）。
+        // 以前两边都按切换器宽让，screen_pad 从 25 提到 48 之后预算凭空少了一截，
+        // 类目被整排折进「更多」。
         int chipEnd = getResources().getDimensionPixelSize(R.dimen.screen_pad);
         View switcher = findViewById(R.id.module_switcher);
         if (switcher != null && switcher.getWidth() > 0) {
@@ -1412,7 +1433,8 @@ public class DeskActivity extends DeskAdaptActivity {
             // 还没走完布局，按切换器的典型宽度估一个，宁可估宽一点
             chipEnd += dp(90);
         }
-        int budget = screen - (chipEnd + dp(16)) * 2 - dp(6) * 2;
+        int overScanSide = getResources().getDimensionPixelSize(R.dimen.screen_pad);
+        int budget = screen - (chipEnd + dp(16)) - (overScanSide + dp(16)) - dp(6) * 2;
         return Math.max(dp(320), budget);
     }
 
@@ -3923,8 +3945,8 @@ public class DeskActivity extends DeskAdaptActivity {
         FocusScaler.attach(moduleSwitcher, FocusScaler.SCALE_FOCUSED);
 
         FocusScaler.attach(findViewById(R.id.btn_play), 1.06f);
-        FocusScaler.attach(findViewById(R.id.btn_like), 1.10f);
-        FocusScaler.attach(findViewById(R.id.btn_detail), 1.10f);
+        FocusScaler.attach(findViewById(R.id.btn_like), FocusScaler.SCALE_FOCUSED);
+        FocusScaler.attach(findViewById(R.id.btn_detail), FocusScaler.SCALE_FOCUSED);
         FocusScaler.attach(findViewById(R.id.row_header), 1.02f);
 
         // onCreate 阶段 View 还没 layout，直接 requestFocus 会失败

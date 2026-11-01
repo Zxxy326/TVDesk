@@ -46,7 +46,7 @@
         android:clipToPadding="false"
         android:orientation="vertical"
         android:paddingStart="48dp"
-        android:paddingTop="80dp"
+        android:paddingTop="@dimen/content_top"
         android:paddingEnd="48dp">
 
         <!-- ============ 标题 + 搜索框 ============ -->
@@ -153,17 +153,23 @@
              不再是 GridView：它只挂载视口附近的卡，带焦点的那张一被回收焦点就没主了
              （「翻页跳左上角」的根）。TileWall 全量挂载 + 自己算焦点，
              列数/间距/行高都由它自己定，这里只留下内边距。 -->
+        <!-- 焦点留白：paddingTop/side 是给聚焦放大溢出的（见 wall_room_*），
+             等量负 margin 把视觉位置抵消回原处。各模块的墙统一这一套。 -->
         <com.tvdesk.desk.widget.TileWall
             android:id="@+id/apps_grid"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:layout_marginTop="28dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginStart="-14dp"
+            android:layout_marginEnd="-14dp"
             android:clipChildren="false"
             android:clipToPadding="false"
             android:focusable="false"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp" />
+            android:paddingStart="22dp"
+            android:paddingTop="24dp"
+            android:paddingEnd="22dp"
+            android:paddingBottom="24dp" />
 
         <TextView
             android:id="@+id/apps_empty"

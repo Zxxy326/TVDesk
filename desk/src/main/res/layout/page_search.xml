@@ -96,18 +96,21 @@
                 android:clipChildren="false"
                 android:clipToPadding="false">
 
+                <!-- 焦点留白同其它模块的墙（wall_room_*） -->
                 <com.tvdesk.desk.widget.TileWall
                     android:id="@+id/search_grid"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:layout_marginStart="-10dp"
-                    android:layout_marginEnd="-10dp"
+                    android:layout_marginStart="-14dp"
+                    android:layout_marginTop="-16dp"
+                    android:layout_marginEnd="-14dp"
                     android:clipChildren="false"
                     android:clipToPadding="false"
                     android:focusable="false"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:paddingBottom="16dp" />
+                    android:paddingStart="24dp"
+                    android:paddingTop="24dp"
+                    android:paddingEnd="24dp"
+                    android:paddingBottom="24dp" />
 
                 <ProgressBar
                     android:id="@+id/search_loading"

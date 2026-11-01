@@ -100,7 +100,7 @@
         android:id="@+id/bili_content"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginTop="80dp"
+        android:layout_marginTop="@dimen/content_top"
         android:clipToPadding="false"
         android:orientation="vertical"
         android:paddingStart="48dp"
@@ -208,19 +208,22 @@
         <!-- 卡片墙。参数和影视页/音乐页一致：6 列 / 20dp 横距 / 24dp 行距。
              不再是 GridView（回收子视图 → 焦点没主 → 「翻页跳左上角」），
              换成全量挂载的 TileWall；列数和间距在 BiliPage.setupGrid 里给。 -->
+        <!-- 焦点留白同应用页（wall_room_*） -->
         <com.tvdesk.desk.widget.TileWall
             android:id="@+id/bili_grid"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:layout_marginStart="-12dp"
-            android:layout_marginTop="34dp"
-            android:layout_marginEnd="-12dp"
+            android:layout_marginStart="-14dp"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="-14dp"
             android:clipChildren="false"
             android:clipToPadding="false"
             android:focusable="false"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp" />
+            android:paddingStart="14dp"
+            android:paddingTop="24dp"
+            android:paddingEnd="14dp"
+            android:paddingBottom="24dp" />
 
         <TextView
             android:id="@+id/bili_empty"
