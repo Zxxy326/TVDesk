@@ -195,8 +195,11 @@ public class TileWall extends ViewGroup implements FocusNav.Host {
             viewByKey.clear();
             return;
         }
-        // 重排前记下「现在焦点在哪张卡」：换栏目/换排序之后要回到同一张
+        // 重排前记下「现在焦点在哪张卡」：换栏目/换排序之后要回到同一张。
+        // 同时记下重排前墙自己有没有焦点 —— 用户停在顶栏页签上翻内容时（页签聚焦即切换），
+        // 不能把焦点拽回墙里；那是「焦点自动跳进内容区」的根源。
         final String wasFocused = nav.currentKey();
+        final boolean hadFocus = hasFocus();
 
         int count = adapter.getCount();
         List<View> desired = new ArrayList<>(count);
@@ -245,7 +248,8 @@ public class TileWall extends ViewGroup implements FocusNav.Host {
 
         // 重建把子视图 detach/attach 过一遍，焦点会掉；按 key 立刻补回来。
         // （以前这一步靠页面在 32ms 后重试，中间那两帧焦点已经闪到左上角胶囊上了。）
-        if (wasFocused != null) {
+        // 只补「重建前焦点本来就在墙里」的情况：焦点在页签上时不抢
+        if (wasFocused != null && hadFocus) {
             post(new Runnable() {
                 @Override
                 public void run() {

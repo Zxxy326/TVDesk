@@ -1444,13 +1444,11 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         // 右侧不只要躲过扫描，还要躲开右上角的天气时钟（它和页签同排同高，
         // 类目铺太宽两边就叠上了）。布局没走完时按「时间 + 图标 + 温度」的典型宽度估。
-        int rightSide = getResources().getDimensionPixelSize(R.dimen.screen_pad);
-        if (deskStatus != null && deskStatus.getVisibility() == View.VISIBLE
-                && deskStatus.getWidth() > 0) {
-            rightSide += deskStatus.getWidth();
-        } else {
-            rightSide += dp(140);
-        }
+        // 右侧固定按「过扫 + 天气时钟全宽」留位。不能用 deskStatus 的实测宽度：
+        // 天气是异步回来的，回来之后 deskStatus 撑宽了，而顶栏不会重排 ——
+        // 按「当时只有时间」算出的预算装不下后来的天气，两边就叠上了（换源后必现）。
+        // 时间 17sp bold ≈ 55dp + 间距 12 + 图标 16 + 温度 ≈ 40dp，取 140dp 有余量。
+        int rightSide = getResources().getDimensionPixelSize(R.dimen.screen_pad) + dp(140);
         int budget = screen - (chipEnd + dp(16)) - (rightSide + dp(16)) - dp(6) * 2;
         return Math.max(dp(320), budget);
     }
@@ -4174,8 +4172,13 @@ public class DeskActivity extends DeskAdaptActivity {
                         && !histWall.hasContent()) {
                     return true;
                 }
+                // 只拦「焦点已经在 hist 最左列」的按左：这条规则的本意是收藏栏空时
+                // 左边没有落点，别让几何寻焦蹿上顶栏；写成整栏吃掉的话，
+                // 用户在最右一张按左想回中间，也被这一刀吞了（按键像失灵）。
                 if (inHist && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
-                        && !favWall.hasContent()) {
+                        && !favWall.hasContent()
+                        && histGrid.getPositionForView(focused)
+                        % Math.max(1, histGrid.getNumColumns()) == 0) {
                     return true;
                 }
                 if (inFav && event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
