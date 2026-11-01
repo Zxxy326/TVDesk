@@ -488,14 +488,12 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
+            <!-- 图标和文字的视觉高度对齐：17sp bold 的数字帽高约 12dp，图标取 18dp 同一档 -->
             <ImageView
                 android:id="@+id/desk_weather_icon"
-                android:layout_width="16dp"
-                android:layout_height="16dp"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
                 android:contentDescription="@null"
-                android:shadowColor="#CC000000"
-                android:shadowDy="2"
-                android:shadowRadius="6"
                 android:src="@drawable/ic_weather_cloud" />
 
             <TextView
@@ -506,9 +504,10 @@
                 android:shadowColor="#CC000000"
                 android:shadowDy="2"
                 android:shadowRadius="6"
-            android:text=""
-            android:textColor="@color/text_primary"
-                android:textSize="15sp" />
+                android:text=""
+                android:textColor="@color/text_primary"
+                android:textSize="17sp"
+                android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
 
