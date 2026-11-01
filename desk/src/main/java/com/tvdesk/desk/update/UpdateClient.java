@@ -49,9 +49,13 @@ public final class UpdateClient {
      * 三个都失败就当「没有更新」，不打扰用户。
      */
     private static final String[] DEFAULT_MANIFESTS = {
-            "https://cdn.jsdelivr.net/gh/Zxxy326/TVDesk@main/dist/update.json",
+            // @latest 会解析到最新的 tag。tag 是不可变的，cdN 缓存不会把「上一版的文件」
+            // 当成这一版返回 —— 分支名（@main）不行：1.0.7 发版时，之前请求过 @main 的
+            // 节点还在发 1.0.6 的缓存，最长 12 小时，客户端会一直以为「已是最新」。
+            "https://cdn.jsdelivr.net/gh/Zxxy326/TVDesk@latest/dist/update.json",
             "https://raw.gitmirror.com/Zxxy326/TVDesk/main/dist/update.json",
             "https://raw.githubusercontent.com/Zxxy326/TVDesk/main/dist/update.json",
+            "https://cdn.jsdelivr.net/gh/Zxxy326/TVDesk@main/dist/update.json",
     };
 
     /**
@@ -160,16 +164,19 @@ public final class UpdateClient {
      */
     public static Info checkDefault(Context context) {
         lastError = "";
+        Info best = null;
+        // 不是「第一个成功的就用」：某个镜像可能还在发上一版的缓存，
+        // 那样会让客户端一直以为「已是最新」。所有源都问一遍，取版本号最大的。
         for (String url : DEFAULT_MANIFESTS) {
             Info info = checkFrom(context, url);
-            if (info != null) {
-                return info;
+            if (info != null && (best == null || info.versionCode > best.versionCode)) {
+                best = info;
             }
         }
-        if (TextUtils.isEmpty(lastError)) {
+        if (best == null && TextUtils.isEmpty(lastError)) {
             lastError = "连不上更新服务器";
         }
-        return null;
+        return best;
     }
 
 

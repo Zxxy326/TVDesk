@@ -1,11 +1,11 @@
 {
-  "versionCode": 8,
-  "versionName": "1.0.7",
-  "notes": "装完自动接管 HOME 键（不用再去无障碍里点）；修复音乐/B 站下滑时卡片压住标题；设置页按模块样式重做（胶囊 + 页签 + 卡片墙）。",
-  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.7/TVDesk-1.0.7-universal.apk",
+  "versionCode": 9,
+  "versionName": "1.0.8",
+  "notes": "修正更新检查的 CDN 缓存问题（改用 tag 源并取所有源里最新的版本）；其余同 1.0.7：装完自动接管 HOME、修音乐/B 站下滑压标题、设置页重做。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.8/TVDesk-1.0.8-universal.apk",
   "assets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.7/TVDesk-1.0.7-armeabi-v7a.apk",
-    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.7/TVDesk-1.0.7-arm64-v8a.apk",
-    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.7/TVDesk-1.0.7-universal.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.8/TVDesk-1.0.8-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.8/TVDesk-1.0.8-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.8/TVDesk-1.0.8-universal.apk"
   }
 }
