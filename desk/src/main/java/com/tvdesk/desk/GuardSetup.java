@@ -63,13 +63,16 @@ final class GuardSetup {
             if (current == null) {
                 current = "";
             }
-            if (current.contains(LISTENER)) {
-                return true;
+            if (!current.contains(LISTENER)) {
+                String next = current.isEmpty() ? LISTENER : current + ":" + LISTENER;
+                Settings.Secure.putString(context.getContentResolver(),
+                        "enabled_notification_listeners", next);
+                Log.i(TAG, "已把复活监听写进系统设置");
             }
-            String next = current.isEmpty() ? LISTENER : current + ":" + LISTENER;
-            Settings.Secure.putString(context.getContentResolver(),
-                    "enabled_notification_listeners", next);
-            Log.i(TAG, "已把复活监听写进系统设置");
+            // 只写设置字符串，系统那边的监听列表不一定跟上来 —— 待机时它会把「没人认领」
+            // 的条目直接擦掉，复活链路就断了。requestRebind 是官方入口：让系统立刻
+            // 重新绑定一次，绑上之后它才把这一条当自己的记录留住。
+            requestListenerRebind(context);
             return true;
         } catch (Throwable th) {
             Log.w(TAG, "写通知监听设置失败：" + th.getMessage());
@@ -77,9 +80,66 @@ final class GuardSetup {
         }
     }
 
+    /**
+     * 请系统立刻重新绑定复活监听。
+     *
+     * <p>Android 24 起有静态方法 {@code NotificationListenerService.requestRebind}，
+     * 属主应用自己调用是允许的。不绑的话，{@code enabled_notification_listeners} 里
+     * 有名字也只是「写着」，待机强停时会被一起抹掉（实测踩过）。
+     */
+    private static void requestListenerRebind(Context context) {
+        if (android.os.Build.VERSION.SDK_INT < 24) {
+            return;
+        }
+        try {
+            android.service.notification.NotificationListenerService.requestRebind(
+                    new ComponentName(context, RevivalListener.class));
+            Log.i(TAG, "已请求系统重绑复活监听");
+        } catch (Throwable th) {
+            Log.w(TAG, "请求重绑复活监听失败：" + th.getMessage());
+        }
+    }
+
     /** 复活监听现在生效吗（设置页显示状态用） */
     static boolean notificationListenerReady(Context context) {
         return RevivalListener.isEnabled(context) || ensureNotificationListener(context);
+    }
+
+    // ---------------------------------------------------------------- 保持 ADB
+
+    /**
+     * 唤醒后把 ADB 开关写回 1。
+     *
+     * <p>这台固件在待机/唤醒时会把 {@code global adb_enabled} 改成 0，网络调试随之断开，
+     * 之后想连都连不上（Aerial 的 {@code keep_adb} 就是干这个的）。要
+     * {@code WRITE_SECURE_SETTINGS}，没有就静默跳过。
+     */
+    static void keepAdbIfWanted(Context context) {
+        if (!DeskPrefs.keepAdb(context) || !hasWriteSecureSettings(context)) {
+            return;
+        }
+        try {
+            int now = Settings.Global.getInt(context.getContentResolver(),
+                    Settings.Global.ADB_ENABLED, 0);
+            if (now == 1) {
+                return;
+            }
+            Settings.Global.putInt(context.getContentResolver(),
+                    Settings.Global.ADB_ENABLED, 1);
+            Log.i(TAG, "ADB 被系统关掉了，已写回开启");
+        } catch (Throwable th) {
+            Log.w(TAG, "保持 ADB 失败：" + th.getMessage());
+        }
+    }
+
+    /** ADB 现在开着吗（设置页显示状态用） */
+    static boolean adbEnabled(Context context) {
+        try {
+            return Settings.Global.getInt(context.getContentResolver(),
+                    Settings.Global.ADB_ENABLED, 0) == 1;
+        } catch (Throwable th) {
+            return false;
+        }
     }
 
     /** 有没有写系统设置的权限（adb 授权过一次就一直有，除非恢复出厂） */

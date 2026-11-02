@@ -1,29 +1,31 @@
 package com.tvdesk.desk;
 
 import android.content.Intent;
-import android.os.SystemClock;
+import android.os.Handler;
+import android.os.Looper;
 import android.service.notification.NotificationListenerService;
 import android.util.Log;
 
 /**
- * 复活监听：被系统清理之后，靠它把桌面拉回来。
+ * 复活监听：被系统清理之后，靠它把进程和守护一起拉回来。
  *
- * <h3>为什么需要这一层</h3>
- * 这台 MiTV（Android 14）待机会做两件事：<b>杀掉 TVDesk 进程</b>，
- * 并且把 {@code enabled_accessibility_services} 一起清空。等用户唤醒电视，
- * 前台是固件桌面，而我们的守护服务和它绑定的无障碍权限都已经不在了 ——
- * 没人能拉回来，就只能停在小米桌面，直到用户手动打开一次 TVDesk。
+ * <h3>这台固件对待机做了什么</h3>
+ * MiTV（Android 14）待机时 {@code killAllThirdApp} 会对所有第三方 App 执行
+ * {@code forceStopPackage}，并且把 {@code enabled_accessibility_services} 一起清空。
+ * 唤醒后前台是固件桌面，而我们的守护和它的无障碍权限都不在了 —— 没人拉得回来。
  *
- * <p>Aerial 在同样的机器上是这么解的：<b>另外挂一个通知监听</b>。系统对通知监听有
- * 保活待遇 —— 进程被杀之后，只要有通知进来，系统会重新把服务绑定起来（连带拉起进程）。
- * 我们借这个时机做两件事：
+ * <h3>Aerial 是怎么解的（也是这里面唯一有效的一招）</h3>
+ * 另外挂一个<b>通知监听</b>。系统对通知监听有保活待遇：绑定断开后它会自己重绑，
+ * 顺带把进程拉起来（日志里能看到 {@code notification listener binding died} 之后
+ * 紧跟一条 {@code binding:}，约 0.5 秒）。重绑的那一刻我们做三件事：
  * <ol>
  *   <li>把被清空的无障碍绑定补回去（{@link GuardSetup#ensureEnabled}）；</li>
- *   <li>如果现在还在开机后的窗口期，说明用户刚开机/刚唤醒，前台多半还是原生桌面 ——
- *       直接把桌面拉起来。</li>
+ *   <li>把被系统关掉的 ADB 写回（{@link GuardSetup#keepAdbIfWanted}）；</li>
+ *   <li>兜底：如果无障碍没能绑上（系统偶尔会拒），自己看一眼前台 ——
+ *       还停在固件桌面就直接拉起 TVDesk。</li>
  * </ol>
  *
- * <p>不读通知内容：这里只重写 {@link #onListenerConnected()}，
+ * <p>不读通知内容：只重写 {@link #onListenerConnected()}，
  * {@code onNotificationPosted} 一律不碰。
  */
 public class RevivalListener extends NotificationListenerService {
@@ -31,43 +33,83 @@ public class RevivalListener extends NotificationListenerService {
     private static final String TAG = "DeskRevival";
 
     /**
-     * 开机后多久之内，连接时主动把桌面拉起来。
+     * 复活后等这么久再做兜底判断。
      *
-     * <p>超过这个窗口说明电视已经用了一阵子，用户在别的应用里，
-     * 这时候弹桌面就是打扰 —— 只补无障碍绑定，不抢前台。
+     * <p>一千毫秒是给「无障碍绑定」留的时间：正常情况下守护在这之前已经连上了，
+     * 它自己的复查（CONNECT_CHECKS 第一枪 1.2 秒）会带前台判断地拉回。
+     * 这个兜底只在守护确实没起来时用，所以取在它之后。
      */
-    private static final long BOOT_WINDOW_MS = 5 * 60_000L;
+    private static final long FALLBACK_DELAY_MS = 2_500L;
+
+    private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override
     public void onListenerConnected() {
         super.onListenerConnected();
-        long uptime = SystemClock.elapsedRealtime();
-        Log.i(TAG, "通知监听已连接（开机 " + (uptime / 1000) + " 秒）");
+        Log.i(TAG, "通知监听已连接（系统已运行 " + (android.os.SystemClock.elapsedRealtime() / 1000)
+                + " 秒）");
         // 被清理时无障碍绑定会一起被清掉：先补回去，之后 HOME 键和窗口事件才有得接管
         try {
             GuardSetup.ensureEnabled(this);
         } catch (Throwable th) {
             Log.w(TAG, "补无障碍绑定失败：" + th.getMessage());
         }
+        GuardSetup.keepAdbIfWanted(this);
         if (!DeskPrefs.homeGuard(this)) {
             return;
         }
-        if (uptime > BOOT_WINDOW_MS) {
-            Log.i(TAG, "已经过了开机窗口期，只补绑定、不抢前台");
-            return;
+        handler.removeCallbacks(fallbackBringBack);
+        handler.postDelayed(fallbackBringBack, FALLBACK_DELAY_MS);
+    }
+
+    /**
+     * 兜底：无障碍没绑上、而我们又被叫醒了，就自己拉一次。
+     *
+     * <p>判据全部是「保守才动手」：
+     * <ul>
+     *   <li>守护已经绑上了 —— 交给它（它做的判断更全）；</li>
+     *   <li>读不到前台（没有用量统计权限）—— 不动，宁可让用户自己按一下；</li>
+     *   <li>前台是普通 App —— 用户在别处看东西，不能抢；</li>
+     *   <li>放行期（用户主动去原桌面找东西）—— 不动。</li>
+     * </ul>
+     */
+    private final Runnable fallbackBringBack = new Runnable() {
+        @Override
+        public void run() {
+            if (!DeskPrefs.homeGuard(RevivalListener.this)) {
+                return;
+            }
+            if (HomeGuardService.isEnabled(RevivalListener.this)) {
+                // 守护已经起来了，它会带前台判断地接管
+                Log.i(TAG, "守护已绑上，兜底交给它");
+                return;
+            }
+            if (DeskPrefs.stockAllowed(RevivalListener.this)) {
+                return;
+            }
+            String foreground = UsageFront.foreground(RevivalListener.this);
+            if (foreground == null || getPackageName().equals(foreground)) {
+                return;
+            }
+            if (!HomeRole.isHomePackage(RevivalListener.this, foreground)) {
+                return;
+            }
+            Log.i(TAG, "守护没绑上、前台是原桌面（" + foreground + "），兜底拉起 TVDesk");
+            try {
+                Intent desk = new Intent(RevivalListener.this, DeskActivity.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                                | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                startActivity(desk);
+            } catch (Throwable th) {
+                Log.w(TAG, "兜底拉起桌面失败：" + th.getMessage());
+            }
         }
-        if (DeskPrefs.stockAllowed(this)) {
-            return;
-        }
-        try {
-            Intent desk = new Intent(this, DeskActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                            | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-            startActivity(desk);
-            Log.i(TAG, "复活后把桌面拉起来");
-        } catch (Throwable th) {
-            Log.w(TAG, "复活后拉起桌面失败：" + th.getMessage());
-        }
+    };
+
+    @Override
+    public void onListenerDisconnected() {
+        super.onListenerDisconnected();
+        Log.i(TAG, "通知监听断开（系统可能要重绑）");
     }
 
     @Override

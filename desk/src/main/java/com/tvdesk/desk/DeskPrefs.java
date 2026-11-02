@@ -119,6 +119,44 @@ final class DeskPrefs {
         of(context).edit().putBoolean(KEY_LAST_INTERACTIVE, interactive).apply();
     }
 
+    /**
+     * 唤醒后是否把被系统关掉的 ADB 重新打开。
+     *
+     * <p>默认开。真正写下去还需要 {@code WRITE_SECURE_SETTINGS}（adb 授权过一次就有），
+     * 没有权限时这个开关是空转，不会产生任何影响 —— 所以默认开不冒险。
+     */
+    private static final String KEY_KEEP_ADB = "keep_adb";
+
+    static boolean keepAdb(Context context) {
+        return of(context).getBoolean(KEY_KEEP_ADB, true);
+    }
+
+    static void setKeepAdb(Context context, boolean keep) {
+        of(context).edit().putBoolean(KEY_KEEP_ADB, keep).apply();
+    }
+
+    /**
+     * 被系统强停之前，最后停在前台的是不是 TVDesk 自己。
+     *
+     * <p>待机时系统直接 {@code forceStopPackage}，守护服务来不及做任何判断就被杀。
+     * 唤醒后屏幕上先出现的是过渡窗口（SystemUI 之类），既不是我们也不是原桌面 ——
+     * 只看「现在前台是谁」是判断不出来的。所以改成看「<b>被杀之前</b>用户在看什么」：
+     * 最后停在 TVDesk 上，唤醒就该回 TVDesk；最后在别的 App 里（比如正看电影），
+     * 那就别抢。
+     */
+    private static final String KEY_WAS_HOME = "was_home_before_kill";
+
+    static boolean wasHome(Context context) {
+        return of(context).getBoolean(KEY_WAS_HOME, false);
+    }
+
+    static void setWasHome(Context context, boolean wasHome) {
+        if (wasHome(context) == wasHome) {
+            return;
+        }
+        of(context).edit().putBoolean(KEY_WAS_HOME, wasHome).apply();
+    }
+
     public static boolean keepPlayingOnLeave(Context context) {
         return of(context).getBoolean(KEY_KEEP_PLAYING, false);
     }

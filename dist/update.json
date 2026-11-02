@@ -1,11 +1,11 @@
 {
-  "versionCode": 10,
-  "versionName": "1.0.9",
-  "notes": "更新弹窗改成软件自己的样式（玻璃面板 + 胶囊按钮 + 进度条）；更新检查改用加速站转发，国内实时可查。",
-  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.9/TVDesk-1.0.9-universal.apk",
+  "versionCode": 15,
+  "versionName": "1.1.4",
+  "notes": "待机唤醒/关机重启都会自己回到 TVDesk：修好了通知监听没被系统认领导致复活链断裂；唤醒后不再白等 15 秒；重启后被关掉的 ADB 会自动写回。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.4/TVDesk-1.1.4-universal.apk",
   "assets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.9/TVDesk-1.0.9-armeabi-v7a.apk",
-    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.9/TVDesk-1.0.9-arm64-v8a.apk",
-    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.0.9/TVDesk-1.0.9-universal.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.4/TVDesk-1.1.4-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.4/TVDesk-1.1.4-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.4/TVDesk-1.1.4-universal.apk"
   }
 }

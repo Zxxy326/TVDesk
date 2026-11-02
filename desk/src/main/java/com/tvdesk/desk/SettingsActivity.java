@@ -257,6 +257,17 @@ public class SettingsActivity extends DeskAdaptActivity {
                             requestHome();
                         }
                     });
+            add("keepadb", "保持 ADB 调试",
+                    "这台电视待机会把 ADB 关掉，之后连不上。开着它，被关掉的那一刻自动写回。"
+                            + "需要 adb 授权过（WRITE_SECURE_SETTINGS），没授权时这开关不起作用。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            DeskPrefs.setKeepAdb(SettingsActivity.this, !DeskPrefs.keepAdb(SettingsActivity.this));
+                            GuardSetup.keepAdbIfWanted(SettingsActivity.this);
+                            refreshValues();
+                        }
+                    });
             add("system", "电视系统设置",
                     "网络、显示、声音、HDMI 都在电视自己的设置里，这里只是入口。",
                     new Runnable() {
@@ -355,6 +366,8 @@ public class SettingsActivity extends DeskAdaptActivity {
             }
             case "home":
                 return HomeRole.isDefault(this) ? "已设为默认桌面" : "未设置";
+            case "keepadb":
+                return DeskPrefs.keepAdb(this) ? "开" : "关";
             case "keep":
                 return keepPlaying ? "开" : "关";
             case "clock":

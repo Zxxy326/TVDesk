@@ -63,10 +63,22 @@ public class HomeGuardService extends AccessibilityService {
      * 把 TVDesk 顶掉；而「窗口变化」事件在那之前就发生完了，服务这边一条都收不到。
      * 所以连接后主动查几次前台：还停在原生桌面就再拉一次。
      *
-     * <p>三次的间隔是故意放宽的：固件的开机流程走完才翻桌面，得太早看不见，
-     * 太晚用户已经按遥控器了。8 秒是实测这台 MiTV 翻桌面的位置。
+     * <p>第一枪放在 1.5 秒（和 Aerial 一样）：待机被强停之后是「通知监听先复活进程 → 再补无障碍绑定 →
+     * 守护这时才连上」，而固件桌面在屏幕亮起那一刻就已经画好了。早期版本第一枪在 3 秒，
+     * 用户看到的就是「守在小米桌面好几秒」。后面几枪覆盖固件开机流程较慢的情况。
      */
-    private static final long[] CONNECT_CHECKS = {3_000L, 8_000L, 15_000L};
+    private static final long[] CONNECT_CHECKS = {1_500L, 3_000L, 7_000L, 15_000L};
+
+    /**
+     * 收到「HOME 键」广播之后再查两次前台（毫秒）。
+     *
+     * <p>按下 HOME 时系统会发 {@code CLOSE_SYSTEM_DIALOGS}（reason=homekey），比
+     * 「原桌面窗口出现」的事件早 200–300ms。用它当发令枪，能在固件桌面画出来之前就动手，
+     * 用户看到的是直接回 TVDesk，而不是闪一下再回来（Aerial 在 MFTR0 上同一条路）。
+     *
+     * <p>两次是因为用量统计有 100–250ms 延迟：第一枪常常还读不到原桌面。
+     */
+    private static final long[] HOME_KEY_CHECKS = {140L, 420L};
 
     /**
      * 拉起之后复查的间隔（毫秒）。
@@ -108,6 +120,68 @@ public class HomeGuardService extends AccessibilityService {
         }
     };
 
+    /**
+     * HOME 键广播。
+     *
+     * <p>按下 HOME 时系统会发 {@code CLOSE_SYSTEM_DIALOGS}（{@code reason=homekey}）。
+     * 这条比「原桌面窗口出现」的无障碍事件早 200–300ms，拿它当发令枪就能在固件桌面
+     * 画出来之前动手 —— 用户看到的是直接回 TVDesk，不闪。Aerial 在 MFTR0 上用的同一招。
+     *
+     * <p>注意：{@code adb shell input keyevent HOME} 注入的按键<b>不会</b>发这条广播，
+     * 测这条路径必须用实体遥控器。
+     */
+    private final BroadcastReceiver homeKey = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (!DeskPrefs.homeGuard(context)) {
+                return;
+            }
+            String reason = intent.getStringExtra("reason");
+            if (reason == null || !reason.toLowerCase(java.util.Locale.ROOT).contains("home")) {
+                return;
+            }
+            for (long delay : HOME_KEY_CHECKS) {
+                handler.postDelayed(takeOverAfterHomeKey, delay);
+            }
+        }
+    };
+
+    private final Runnable takeOverAfterHomeKey = new Runnable() {
+        @Override
+        public void run() {
+            if (!DeskPrefs.homeGuard(HomeGuardService.this)) {
+                return;
+            }
+            if (DeskPrefs.stockAllowed(HomeGuardService.this)) {
+                return;
+            }
+            String foreground = foregroundNow();
+            if (foreground == null || getPackageName().equals(foreground)) {
+                return;
+            }
+            if (!isHomePackage(foreground)) {
+                return;
+            }
+            Log.i(TAG, "HOME 键广播：前台是 " + foreground + "，抢在窗口事件之前拉回");
+            bringDeskFront("HOME 键广播");
+        }
+    };
+
+    /**
+     * 盯着系统的 ADB 开关。
+     *
+     * <p>这台固件在待机/唤醒时会把 {@code adb_enabled} 改成 0，网络调试就断了 ——
+     * 之后遥控器怎么点都连不上，只能去开发者选项里再开一次。有了
+     * {@code WRITE_SECURE_SETTINGS} 就能在它被关掉的瞬间写回去（Aerial 的 {@code keep_adb}）。
+     */
+    private final android.database.ContentObserver adbObserver =
+            new android.database.ContentObserver(new Handler(Looper.getMainLooper())) {
+                @Override
+                public void onChange(boolean selfChange) {
+                    GuardSetup.keepAdbIfWanted(HomeGuardService.this);
+                }
+            };
+
     private final Runnable takeOverAfterScreenOn = new Runnable() {
         @Override
         public void run() {
@@ -141,15 +215,29 @@ public class HomeGuardService extends AccessibilityService {
                 // 用户主动去原桌面找东西，别拽回来
                 return;
             }
-            String foreground = currentForeground();
-            if (foreground == null || getPackageName().equals(foreground)) {
+            String foreground = foregroundNow();
+            if (foreground != null && getPackageName().equals(foreground)) {
                 return;
             }
-            if (!isHomePackage(foreground)) {
+            // 被杀之前用户最后看的是不是我们。待机强停时守护来不及判断就被杀，
+            // 唤醒后屏幕上先是过渡窗口（SystemUI 一类），只看「现在前台是谁」判断不出来。
+            boolean weWereHome = DeskPrefs.wasHome(HomeGuardService.this);
+            if (foreground != null && !isHomePackage(foreground) && !weWereHome) {
+                // 前台是别的 App，而且强停前用户也不在桌面 → 不打扰
                 return;
             }
-            Log.i(TAG, "连接后复查：前台仍是原桌面（" + foreground + "），拉回 TVDesk");
-            bringDeskFront("开机/重连复查");
+            if (foreground == null && !weWereHome && !UsageFront.allowed(HomeGuardService.this)) {
+                // 前台为空、没有用量统计可兜底、又不知道强停前在哪儿：信息不足，宁可不抢。
+                // 这一枪放弃了还有后面几枪和窗口事件。
+                return;
+            }
+            // 走到这里都该接管：
+            //   1) 前台就是固件桌面（唤醒后它先画出来了）；
+            //   2) 前台为空 —— 屏幕刚亮，什么都还没画出来；
+            //   3) 前台是过渡窗口，但强停前用户就停在 TVDesk 上。
+            Log.i(TAG, "连接后复查：前台=" + (foreground == null ? "（空）" : foreground)
+                    + " 强停前在桌面=" + weWereHome + "，拉回 TVDesk");
+            bringDeskFront("开机/唤醒复查");
         }
     };
 
@@ -160,6 +248,28 @@ public class HomeGuardService extends AccessibilityService {
             registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
         } catch (Throwable th) {
             Log.w(TAG, "注册亮屏广播失败：" + th.getMessage());
+        }
+        // HOME 键广播：抢在固件桌面画出来之前动手（比窗口事件早 200–300ms）
+        try {
+            IntentFilter home = new IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS);
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                // Android 13 起注册非系统广播要显式声明「不导出」
+                registerReceiver(homeKey, home, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(homeKey, home);
+            }
+        } catch (Throwable th) {
+            Log.w(TAG, "注册 HOME 键广播失败：" + th.getMessage());
+        }
+        // 系统把 ADB 关掉时立刻写回（有 WRITE_SECURE_SETTINGS 才有意义）
+        try {
+            getContentResolver().registerContentObserver(
+                    android.provider.Settings.Global.getUriFor(
+                            android.provider.Settings.Global.ADB_ENABLED),
+                    false, adbObserver);
+            GuardSetup.keepAdbIfWanted(this);
+        } catch (Throwable th) {
+            Log.w(TAG, "盯 ADB 开关失败：" + th.getMessage());
         }
         // 开机兜底：主动查几次前台（见 CONNECT_CHECKS）
         for (long delay : CONNECT_CHECKS) {
@@ -182,6 +292,14 @@ public class HomeGuardService extends AccessibilityService {
         handler.removeCallbacksAndMessages(null);
         try {
             unregisterReceiver(screenOn);
+        } catch (Throwable ignored) {
+        }
+        try {
+            unregisterReceiver(homeKey);
+        } catch (Throwable ignored) {
+        }
+        try {
+            getContentResolver().unregisterContentObserver(adbObserver);
         } catch (Throwable ignored) {
         }
         super.onDestroy();
@@ -230,7 +348,17 @@ public class HomeGuardService extends AccessibilityService {
         if (pkg.equals(getPackageName())) {
             // 自己回到前台：放行作废，之后 HOME 键重新接管
             DeskPrefs.clearStockAllow(this);
+            // 记下来：万一之后被系统强停，唤醒时要回到这里
+            DeskPrefs.setWasHome(this, true);
             return;
+        }
+        if (isUserApp(pkg)) {
+            // 用户在别的 App 里 —— 强停之后不该把他拽回来。
+            // 只认「有启动入口的 App」：唤醒瞬间那些过渡窗口（SystemUI、锁屏、
+            // 固件自己的启动页）也会来一条窗口事件，它们没有启动入口，
+            // 不能拿它们当「用户在看别的 App」—— 早期版本就是这么把标记清掉的，
+            // 结果唤醒后迟迟不接管。
+            DeskPrefs.setWasHome(this, false);
         }
         if (!DeskPrefs.homeGuard(this)) {
             return;
@@ -266,6 +394,24 @@ public class HomeGuardService extends AccessibilityService {
             Log.w(TAG, "读活动窗口失败：" + th.getMessage());
         }
         return lastForeground;
+    }
+
+    /**
+     * 此刻前台是哪个包 —— 两条路都试。
+     *
+     * <p>先读活动窗口（无障碍在的时候最准、最即时）；读不到再问用量统计
+     * （{@link UsageFront}）。后者有 100–250ms 延迟，但<b>不需要无障碍绑定</b>，
+     * 正好补上「刚复活、还没绑上」那一段。
+     *
+     * @return 两条路都拿不到时返回 null，调用方据此什么都不做
+     */
+    private String foregroundNow() {
+        String pkg = currentForeground();
+        if (pkg != null && !getPackageName().equals(pkg)) {
+            return pkg;
+        }
+        String usage = UsageFront.foreground(this);
+        return usage != null ? usage : pkg;
     }
 
     private void bringDeskFront(String why) {
@@ -335,6 +481,33 @@ public class HomeGuardService extends AccessibilityService {
             startDesk("被抢回后重试");
         }
     };
+
+    /** 有启动入口的包缓存（窗口事件很频繁，不能每次都问 PackageManager） */
+    private final java.util.Map<String, Boolean> userAppCache = new java.util.HashMap<>();
+
+    /**
+     * 这个包是不是「用户能自己打开的 App」。
+     *
+     * <p>判据是有没有 {@code ACTION_MAIN + CATEGORY_LAUNCHER} 的入口 ——
+     * SystemUI、锁屏、固件启动页这类过渡窗口都没有，所以不算「用户在别处」。
+     */
+    private boolean isUserApp(String pkg) {
+        Boolean cached = userAppCache.get(pkg);
+        if (cached != null) {
+            return cached;
+        }
+        boolean yes;
+        try {
+            yes = getPackageManager().getLaunchIntentForPackage(pkg) != null;
+        } catch (Throwable th) {
+            yes = false;
+        }
+        if (userAppCache.size() > 400) {
+            userAppCache.clear();
+        }
+        userAppCache.put(pkg, yes);
+        return yes;
+    }
 
     /** 这个包是不是系统里的「桌面」 */
     private boolean isHomePackage(String pkg) {

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       「应用」模块要发 ACTION_DELETE 把系统卸载页顶出来，这条权限是self-granted的
@@ -17,6 +18,14 @@
       拿不到就自动跳过，不做任何打扰（见 GuardSetup）。
     -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <!--
+      读「现在前台是哪个 App」。这个权限用户点不出来，只能 adb 授（appops GET_USAGE_STATS），
+      拿到就用，拿不到就退回无障碍的窗口事件 —— 不授也能正常用。
+      用途只有一处：待机强停后刚复活、无障碍还没绑上那 1-2 秒，判断该不该把桌面拉回来。
+    -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
 
     <application>
         <!--
