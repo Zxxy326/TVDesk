@@ -128,6 +128,37 @@
                     android:textColor="#8A93A6"
                     android:textSize="18sp"
                     android:visibility="gone" />
+
+                <!-- 最近搜索：电视上打字贵，搜过的词直接点回来 -->
+                <LinearLayout
+                    android:id="@+id/search_history"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="top"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
+                    android:orientation="vertical"
+                    android:paddingStart="24dp"
+                    android:paddingTop="8dp"
+                    android:paddingEnd="24dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="最近搜索"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="14sp" />
+
+                    <LinearLayout
+                        android:id="@+id/search_history_words"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:clipChildren="false"
+                        android:clipToPadding="false"
+                        android:orientation="vertical" />
+                </LinearLayout>
             </FrameLayout>
         </LinearLayout>
 

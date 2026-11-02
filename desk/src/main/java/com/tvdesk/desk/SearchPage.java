@@ -67,6 +67,8 @@ public class SearchPage extends FrameLayout implements ModulePage {
     private com.tvdesk.desk.widget.TileWall grid;
     private ProgressBar loading;
     private TextView emptyView;
+    private View historyBox;
+    private LinearLayout historyWords;
 
     private final List<Movie.Video> results = new ArrayList<>();
     private final Set<String> seen = new HashSet<>();
@@ -100,6 +102,8 @@ public class SearchPage extends FrameLayout implements ModulePage {
         grid = findViewById(R.id.search_grid);
         loading = findViewById(R.id.search_loading);
         emptyView = findViewById(R.id.search_empty);
+        historyBox = findViewById(R.id.search_history);
+        historyWords = findViewById(R.id.search_history_words);
 
         grid.setAdapter(adapter);
         grid.setNumColumns(GRID_COLUMNS);
@@ -132,6 +136,9 @@ public class SearchPage extends FrameLayout implements ModulePage {
                 && grid.getVisibility() == View.VISIBLE) {
             focusResult(openedIndex);
             return;
+        }
+        if (query().isEmpty()) {
+            showHistory();
         }
         focusFirstKey();
     }
@@ -357,6 +364,62 @@ public class SearchPage extends FrameLayout implements ModulePage {
         }
     }
 
+    // ---------------------------------------------------------------- 搜索历史
+
+    /**
+     * 把「最近搜索」摆出来。
+     *
+     * <p>电视上用遥控器打字很贵，搜过的片名应该一点就回来 ——
+     * TVBox 的搜索页也是先给最近几个词。
+     */
+    private void showHistory() {
+        if (historyBox == null || historyWords == null) {
+            return;
+        }
+        List<String> words = SearchHistory.list(getContext());
+        historyWords.removeAllViews();
+        if (words.isEmpty()) {
+            historyBox.setVisibility(View.GONE);
+            return;
+        }
+        for (int i = 0; i < words.size(); i++) {
+            final String word = words.get(i);
+            TextView item = new TextView(getContext());
+            item.setText(word);
+            item.setTextSize(16);
+            item.setSingleLine(true);
+            item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            item.setTextColor(getResources().getColor(R.color.text_primary));
+            item.setBackgroundResource(R.drawable.bg_module_item);
+            item.setFocusable(true);
+            item.setFocusableInTouchMode(true);
+            item.setClickable(true);
+            item.setPadding(dp(16), 0, dp(16), 0);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
+            lp.bottomMargin = dp(6);
+            item.setLayoutParams(lp);
+            com.tvdesk.desk.motion.FocusScaler.attach(item,
+                    com.tvdesk.desk.motion.FocusScaler.SCALE_FOCUSED);
+            item.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    input.setText(word);
+                    input.setSelection(word.length());
+                    searchNow(true);
+                }
+            });
+            historyWords.addView(item);
+        }
+        historyBox.setVisibility(View.VISIBLE);
+    }
+
+    private void hideHistory() {
+        if (historyBox != null) {
+            historyBox.setVisibility(View.GONE);
+        }
+    }
+
     private String query() {
         return input.getText() == null ? "" : input.getText().toString().trim();
     }
@@ -399,6 +462,8 @@ public class SearchPage extends FrameLayout implements ModulePage {
             return;
         }
         hideIme();
+        hideHistory();
+        SearchHistory.record(getContext(), wd);
         final int mySeq = ++seq;
         pendingFocusResults = focusResults;
         results.clear();
@@ -436,8 +501,16 @@ public class SearchPage extends FrameLayout implements ModulePage {
                     return;
                 }
                 loading.setVisibility(View.GONE);
+                android.util.Log.i(TAG, "搜索「" + wd + "」结束，共 " + results.size() + " 条");
                 if (results.isEmpty()) {
-                    emptyView.setText("没找到「" + wd + "」\n换个片名，或到设置里加个搜索源");
+                    // 纯字母多半是在用拼音首字母。这批源（catvod 爬虫包的各站）
+                    // 站内搜索只认中文关键词，拼音发过去必然是空的 —— 说清楚，
+                    // 否则用户会以为「搜索坏了」。
+                    boolean lettersOnly = wd.matches("^[A-Za-z0-9]+$");
+                    emptyView.setText(lettersOnly
+                            ? "没找到「" + wd + "」\n当前这批源不支持拼音首字母搜索\n换个源，或把焦点移到片名框用输入法打中文"
+                            : "没找到「" + wd + "」\n换个片名，或到设置里加个搜索源");
+                    showHistory();
                     emptyView.setVisibility(View.VISIBLE);
                     grid.setVisibility(View.INVISIBLE);
                     return;

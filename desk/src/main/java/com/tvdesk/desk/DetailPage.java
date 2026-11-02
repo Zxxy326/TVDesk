@@ -489,15 +489,24 @@ public class DetailPage extends FrameLayout implements ModulePage {
         }
         try {
             VodInfo record = RoomDataManger.getVodInfo(sourceKey, info.id);
-            if (record == null) {
-                return;
+            if (record != null) {
+                if (!TextUtils.isEmpty(record.playFlag)
+                        && info.seriesMap.containsKey(record.playFlag)) {
+                    resumeFlag = record.playFlag;
+                }
+                resumeIndex = record.playIndex;
             }
-            if (!TextUtils.isEmpty(record.playFlag) && info.seriesMap.containsKey(record.playFlag)) {
-                resumeFlag = record.playFlag;
-            }
-            resumeIndex = record.playIndex;
         } catch (Throwable th) {
             android.util.Log.w(TAG, "读播放进度失败：" + th.getMessage());
+        }
+        // 内核那张表读不到、或读出来是第 0 集时，用 prefs 里那份兜底。
+        // 实机上出现过「表里有记录但 id 对不上」的情况，用户看到的就是「又从第一集开始」。
+        if (resumeIndex <= 0) {
+            ResumeStore.Point point = ResumeStore.read(getContext(), sourceKey, info.id);
+            if (point != null && point.index > 0) {
+                resumeIndex = point.index;
+                android.util.Log.i(TAG, "续播点（本地兜底）：第 " + point.index + " 集 " + point.episode);
+            }
         }
     }
 
@@ -538,6 +547,9 @@ public class DetailPage extends FrameLayout implements ModulePage {
         } catch (Throwable th) {
             android.util.Log.w(TAG, "写播放进度失败：" + th.getMessage());
         }
+        // 再存一份到 prefs：内核表在实机上出现过写不进/读不出的情况
+        ResumeStore.save(getContext(), sourceKey, info.id, info.playIndex, info.playNote);
+        android.util.Log.i(TAG, "记续播点：" + info.name + " 第 " + info.playIndex + " 集 " + info.playNote);
     }
 
     private String searchKeyword() {

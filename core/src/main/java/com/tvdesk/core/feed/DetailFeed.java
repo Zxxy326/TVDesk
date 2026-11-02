@@ -482,8 +482,12 @@ public final class DetailFeed {
             }
         }
         if (filtered.isEmpty()) {
+            android.util.Log.i("DetailFeed", "搜索源「" + bean.getName() + "」无结果（type="
+                    + bean.getType() + "）");
             return;
         }
+        android.util.Log.i("DetailFeed", "搜索源「" + bean.getName() + "」返回 "
+                + filtered.size() + " 条");
         final String sourceKey = bean.getKey();
         final String sourceName = TextUtils.isEmpty(bean.getName()) ? sourceKey : bean.getName();
         MAIN.post(new Runnable() {
