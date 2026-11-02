@@ -56,6 +56,18 @@ public class HomeGuardService extends AccessibilityService {
     /** 亮屏之后等这么久再判断：给固件自己的开机/唤醒流程留出时间 */
     private static final long SCREEN_ON_DELAY_MS = 1500L;
 
+    /**
+     * 服务连上之后复查前台的时刻（毫秒）。
+     *
+     * <p>开机时 BOOT_COMPLETED 拉起过一次，但有的固件紧接着又把自己的桌面翻上来，
+     * 把 TVDesk 顶掉；而「窗口变化」事件在那之前就发生完了，服务这边一条都收不到。
+     * 所以连接后主动查几次前台：还停在原生桌面就再拉一次。
+     *
+     * <p>三次的间隔是故意放宽的：固件的开机流程走完才翻桌面，得太早看不见，
+     * 太晚用户已经按遥控器了。8 秒是实测这台 MiTV 翻桌面的位置。
+     */
+    private static final long[] CONNECT_CHECKS = {3_000L, 8_000L, 15_000L};
+
     private long lastTakeover;
     private Set<String> homePackages = new HashSet<>();
     private long homePackagesAt;
@@ -91,6 +103,34 @@ public class HomeGuardService extends AccessibilityService {
         }
     };
 
+    /**
+     * 连接后复查：前台是不是还停在原生桌面。
+     *
+     * <p>这条是「开机进 TVDesk」的兜底。BOOT_COMPLETED 里已经拉过，但那之后
+     * 固件可能又把原生桌面翻上来；服务这时才连上，窗口事件都已经过去了。
+     */
+    private final Runnable checkAfterConnect = new Runnable() {
+        @Override
+        public void run() {
+            if (!DeskPrefs.homeGuard(HomeGuardService.this)) {
+                return;
+            }
+            if (DeskPrefs.stockAllowed(HomeGuardService.this)) {
+                // 用户主动去原桌面找东西，别拽回来
+                return;
+            }
+            String foreground = currentForeground();
+            if (foreground == null || getPackageName().equals(foreground)) {
+                return;
+            }
+            if (!isHomePackage(foreground)) {
+                return;
+            }
+            Log.i(TAG, "连接后复查：前台仍是原桌面（" + foreground + "），拉回 TVDesk");
+            bringDeskFront("开机/重连复查");
+        }
+    };
+
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
@@ -98,6 +138,10 @@ public class HomeGuardService extends AccessibilityService {
             registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
         } catch (Throwable th) {
             Log.w(TAG, "注册亮屏广播失败：" + th.getMessage());
+        }
+        // 开机兜底：主动查几次前台（见 CONNECT_CHECKS）
+        for (long delay : CONNECT_CHECKS) {
+            handler.postDelayed(checkAfterConnect, delay);
         }
         try {
             android.accessibilityservice.AccessibilityServiceInfo info = getServiceInfo();
@@ -178,6 +222,28 @@ public class HomeGuardService extends AccessibilityService {
         }
         Log.i(TAG, "接管 HOME：从 " + pkg + " 回到桌面");
         bringDeskFront("窗口事件");
+    }
+
+    /**
+     * 此刻前台是哪个包。
+     *
+     * <p>先主动读活动窗口（开机那一刻还没有窗口事件，只剩这条路），读不到再退回
+     * {@link #lastForeground}。两个都没有就返回 null —— 调用方据此「什么都不做」，
+     * 绝不会在信息不足时抢前台。
+     */
+    private String currentForeground() {
+        try {
+            android.view.accessibility.AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root != null) {
+                CharSequence pkg = root.getPackageName();
+                if (pkg != null && pkg.length() > 0) {
+                    return pkg.toString();
+                }
+            }
+        } catch (Throwable th) {
+            Log.w(TAG, "读活动窗口失败：" + th.getMessage());
+        }
+        return lastForeground;
     }
 
     private void bringDeskFront(String why) {

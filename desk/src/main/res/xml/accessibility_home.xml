@@ -5,14 +5,15 @@
   只要一种事件：窗口切换（TYPE_WINDOW_STATE_CHANGED）。够用了——
   按 HOME 时系统桌面会变成前台窗口，这一条事件就够我们判断「该不该拉回来」。
 
-  不要 canRetrieveWindowContent：我们只读包名，不读界面内容。
-  多要权限只会让用户在系统设置页看到一个更可疑的开关。
+  canRetrieveWindowContent 要打开：服务刚连上（比如开机）时还没有任何窗口事件，
+  只有主动读一次活动窗口的包名，才判断得出「现在是不是停在原生桌面」。
+  只取 packageName，不读界面内容。
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagRequestFilterKeyEvents"
-    android:canRetrieveWindowContent="false"
+    android:canRetrieveWindowContent="true"
     android:canRequestFilterKeyEvents="true"
     android:description="@string/accessibility_home_desc"
     android:notificationTimeout="100"

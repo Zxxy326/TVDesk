@@ -40,11 +40,14 @@
         <receiver
             android:name="com.tvdesk.desk.BootReceiver"
             android:enabled="true"
-            android:exported="false">
+            android:exported="true">
+            <!-- exported 放开：有的固件只把 BOOT_COMPLETED 交给 exportable 的接收器。
+                 这些 action 都是系统受保护广播，外部应用发不出来，没有安全风险。 -->
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
