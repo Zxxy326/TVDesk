@@ -51,6 +51,31 @@
             </intent-filter>
         </receiver>
 
+        <!-- 定时复活：系统闹钟不依赖进程，进程被清掉后仍会拉起它 -->
+        <receiver
+            android:name="com.tvdesk.desk.ReviveAlarmReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.tvdesk.app.action.REVIVE_TICK" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          复活监听：待机被系统清理之后，靠系统重新绑定通知监听把进程拉起来，
+          顺手把被清空的无障碍绑定补回去。不读通知内容（onNotificationPosted 留空）。
+        -->
+        <service
+            android:name="com.tvdesk.desk.RevivalListener"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!--
           configChanges 必须写：桌面里内嵌着播放器 Fragment，而 Fragment 会跟着
           Activity 的重建走恢复流程。切 HDMI 分辨率/投屏时重建一次，正在放的片子就断了，

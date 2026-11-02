@@ -800,6 +800,9 @@ public class DeskActivity extends DeskAdaptActivity {
      */
     private boolean ensureGuardEnabled() {
         try {
+            // 复活两条腿：通知监听（系统重新绑定时复活）+ 闹钟（进程重启后补一次）
+            GuardSetup.ensureNotificationListener(this);
+            GuardSetup.scheduleReviveAlarm(this);
             if (GuardSetup.ensureEnabled(this)) {
                 // 已经是开着的：看看是不是升级后需要重绑
                 GuardSetup.rebindIfVersionChanged(this);

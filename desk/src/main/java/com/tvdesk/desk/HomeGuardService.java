@@ -68,7 +68,26 @@ public class HomeGuardService extends AccessibilityService {
      */
     private static final long[] CONNECT_CHECKS = {3_000L, 8_000L, 15_000L};
 
+    /**
+     * 拉起之后复查的间隔（毫秒）。
+     *
+     * <p>固件桌面（小米 {@code com.mitv.tvhome}、创维/雷鸟的自家 launcher）经常在我们
+     * startActivity 之后立刻把自己再翻回来 —— 它是常驻系统应用，抢前台比第三方快。
+     * Aerial 在 MiTV 上的做法是「拉起来 → 1 秒后看一眼前台 → 还是原桌面就再拉」，
+     * 并且会等过系统那段 {@code stopAppSwitches} 冻结期（约 5 秒）再补一次。
+     *
+     * <p>这里就是那套：先 1.2 秒短复查，不行再 6 秒补一枪，最多三轮。
+     */
+    private static final long RECHECK_SHORT_MS = 1_200L;
+    private static final long RECHECK_LONG_MS = 6_000L;
+    private static final int RECHECK_MAX = 3;
+
+    /** 亮屏后除了第一枪，再多看两次：屏幕刚亮时前台往往还是空的 */
+    private static final long[] SCREEN_ON_CHECKS = {1_500L, 5_000L, 10_000L};
+
     private long lastTakeover;
+    /** 已经为「同一次接管」复查过几轮（防止无限拉） */
+    private int recheckRound;
     private Set<String> homePackages = new HashSet<>();
     private long homePackagesAt;
     /** 最近一次前台窗口的包名（亮屏延迟判断时用） */
@@ -81,8 +100,11 @@ public class HomeGuardService extends AccessibilityService {
             if (!DeskPrefs.homeGuard(context)) {
                 return;
             }
-            handler.removeCallbacks(takeOverAfterScreenOn);
-            handler.postDelayed(takeOverAfterScreenOn, SCREEN_ON_DELAY_MS);
+            // 屏幕刚亮的那一瞬间前台可能是空的（原桌面还没画出来），
+            // 所以多排几次；每次都会重新判断，用户真在别的 App 里就什么都不做。
+            for (long delay : SCREEN_ON_CHECKS) {
+                handler.postDelayed(takeOverAfterScreenOn, delay);
+            }
         }
     };
 
@@ -252,8 +274,16 @@ public class HomeGuardService extends AccessibilityService {
             return;
         }
         lastTakeover = now;
+        recheckRound = 0;
+        startDesk(why);
+    }
+
+    /** 真正启动（不带节流）：复查路径要用它 */
+    private void startDesk(String why) {
         Log.i(TAG, "拉起桌面（" + why + "）");
         try {
+            // 不要带 CATEGORY_HOME：Aerial 在 MiTV 上踩过 —— 带了之后系统会另起一个
+            // 「home 类型」的任务，每次都是新的 MainActivity，焦点和页面状态全丢
             Intent desk = new Intent(this, DeskActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
                             | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
@@ -261,7 +291,50 @@ public class HomeGuardService extends AccessibilityService {
         } catch (Throwable th) {
             Log.w(TAG, "拉不起来：" + th.getMessage());
         }
+        scheduleRecheck();
     }
+
+    private void scheduleRecheck() {
+        handler.removeCallbacks(recheckAfterBring);
+        if (recheckRound >= RECHECK_MAX) {
+            return;
+        }
+        long delay = recheckRound == 0 ? RECHECK_SHORT_MS : RECHECK_LONG_MS;
+        recheckRound++;
+        handler.postDelayed(recheckAfterBring, delay);
+    }
+
+    /**
+     * 拉起之后看一眼前台：又被原桌面抢回来就再拉一次。
+     *
+     * <p>这是「待机唤醒后停在小米桌面」的真正解药 —— 我们本来只拉一次，
+     * 固件桌面随后把自己翻回来，之后就没人管了。
+     */
+    private final Runnable recheckAfterBring = new Runnable() {
+        @Override
+        public void run() {
+            if (!DeskPrefs.homeGuard(HomeGuardService.this)) {
+                return;
+            }
+            if (DeskPrefs.stockAllowed(HomeGuardService.this)) {
+                return;
+            }
+            String foreground = currentForeground();
+            if (foreground == null || getPackageName().equals(foreground)) {
+                // 自己在前台：成了
+                recheckRound = 0;
+                return;
+            }
+            if (!isHomePackage(foreground)) {
+                // 用户已经打开了别的应用，不打扰
+                recheckRound = 0;
+                return;
+            }
+            Log.i(TAG, "拉起后又被原桌面抢回（" + foreground + "），第 "
+                    + recheckRound + " 次重试");
+            startDesk("被抢回后重试");
+        }
+    };
 
     /** 这个包是不是系统里的「桌面」 */
     private boolean isHomePackage(String pkg) {

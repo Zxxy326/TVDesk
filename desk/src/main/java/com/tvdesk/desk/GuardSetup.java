@@ -2,6 +2,7 @@ package com.tvdesk.desk;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Looper;
@@ -37,6 +38,48 @@ final class GuardSetup {
     private static final long REBIND_DELAY_MS = 1500L;
 
     private GuardSetup() {
+    }
+
+    /** 必须和清单里的通知监听组件名一致 */
+    private static final String LISTENER = "com.tvdesk.app/com.tvdesk.desk.RevivalListener";
+
+    /**
+     * 把「复活监听」写进系统设置。
+     *
+     * <p>待机时小米会把 TVDesk 进程杀掉、连无障碍绑定一起清空。通知监听是系统会主动
+     * 重新绑定的一类服务（收到通知就拉起进程），Aerial 在 MiTV 上就是靠它复活的。
+     *
+     * <p>有 {@code WRITE_SECURE_SETTINGS} 时可以自己写，不用用户去设置里点。
+     *
+     * @return 已经在列表里（或刚写进去）
+     */
+    static boolean ensureNotificationListener(Context context) {
+        if (!hasWriteSecureSettings(context)) {
+            return RevivalListener.isEnabled(context);
+        }
+        try {
+            String current = Settings.Secure.getString(context.getContentResolver(),
+                    "enabled_notification_listeners");
+            if (current == null) {
+                current = "";
+            }
+            if (current.contains(LISTENER)) {
+                return true;
+            }
+            String next = current.isEmpty() ? LISTENER : current + ":" + LISTENER;
+            Settings.Secure.putString(context.getContentResolver(),
+                    "enabled_notification_listeners", next);
+            Log.i(TAG, "已把复活监听写进系统设置");
+            return true;
+        } catch (Throwable th) {
+            Log.w(TAG, "写通知监听设置失败：" + th.getMessage());
+            return false;
+        }
+    }
+
+    /** 复活监听现在生效吗（设置页显示状态用） */
+    static boolean notificationListenerReady(Context context) {
+        return RevivalListener.isEnabled(context) || ensureNotificationListener(context);
     }
 
     /** 有没有写系统设置的权限（adb 授权过一次就一直有，除非恢复出厂） */
@@ -162,6 +205,38 @@ final class GuardSetup {
             out.append(item);
         }
         return out.toString();
+    }
+
+    /**
+     * 排上「定时复活」闹钟。
+     *
+     * <p>系统闹钟不依赖我们的进程：进程被杀之后，到点系统仍会把进程拉起来跑接收器。
+     * 这是这台电视（待机会清理第三方应用）上唯一能保证「唤醒后还能回来」的机制。
+     *
+     * <p>一分钟一次。用 {@code setInexactRepeating}（不需要精确闹钟权限），
+     * 电视常插电，实际触发间隔一般是 1–2 分钟；待机进 doze 期间会被推迟，
+     * 但一唤醒系统就会把挂起的闹钟补上。
+     */
+    static void scheduleReviveAlarm(Context context) {
+        try {
+            android.app.AlarmManager am =
+                    (android.app.AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            if (am == null) {
+                return;
+            }
+            Intent tick = new Intent(context, ReviveAlarmReceiver.class)
+                    .setAction(ReviveAlarmReceiver.ACTION_REVIVE);
+            android.app.PendingIntent pending = android.app.PendingIntent.getBroadcast(
+                    context, 0, tick,
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                            | (android.os.Build.VERSION.SDK_INT >= 23
+                            ? android.app.PendingIntent.FLAG_IMMUTABLE : 0));
+            am.setInexactRepeating(android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    android.os.SystemClock.elapsedRealtime() + 60_000L,
+                    60_000L, pending);
+        } catch (Throwable th) {
+            Log.w(TAG, "排复活闹钟失败：" + th.getMessage());
+        }
     }
 
     /** 给设置页显示的一句话状态 */

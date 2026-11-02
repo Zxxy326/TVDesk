@@ -108,6 +108,17 @@ final class DeskPrefs {
         of(context).edit().putInt(KEY_GUARD_BOUND_VERSION, code).apply();
     }
 
+    /** 上一次定时复活检查时的屏幕状态（判断「刚唤醒」用） */
+    private static final String KEY_LAST_INTERACTIVE = "last_interactive";
+
+    static boolean lastInteractive(Context context) {
+        return of(context).getBoolean(KEY_LAST_INTERACTIVE, true);
+    }
+
+    static void setLastInteractive(Context context, boolean interactive) {
+        of(context).edit().putBoolean(KEY_LAST_INTERACTIVE, interactive).apply();
+    }
+
     public static boolean keepPlayingOnLeave(Context context) {
         return of(context).getBoolean(KEY_KEEP_PLAYING, false);
     }
