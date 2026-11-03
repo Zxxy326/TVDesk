@@ -217,17 +217,40 @@ public class TileWall extends ViewGroup implements FocusNav.Host {
             }
         }
 
-        // 顺序对齐：只有内容真的换了位置才 detach/attach（应用排序、切栏目时才会发生）
-        boolean sameOrder = desired.size() == getChildCount();
-        if (sameOrder) {
-            for (int i = 0; i < desired.size(); i++) {
+        // 顺序对齐。这里分三种情况，按「要不要动人」从轻到重：
+        //
+        // 1. 新列表只是旧列表的**延长**（搜索结果一批批回来就是这么长的）：
+        //    只把新增的几张接到后面，已有的卡一张都不 detach。
+        //    这一步是「搜索时焦点自己跳走」的根因修复 —— 以前一律重建，
+        //    正在聚焦的那张卡被 detach 的瞬间焦点被系统收走，再按几何关系
+        //    补给窗口里第一个可聚焦控件（片名输入框），看起来就是「焦点乱跳」。
+        // 2. 张数没变、顺序也没变：什么都不用做。
+        // 3. 内容换了位置（排序、切栏目、换关键词）：才做全量重建。
+        int existing = getChildCount();
+        boolean prefixSame = existing <= desired.size();
+        if (prefixSame) {
+            for (int i = 0; i < existing; i++) {
                 if (getChildAt(i) != desired.get(i)) {
-                    sameOrder = false;
+                    prefixSame = false;
                     break;
                 }
             }
         }
-        if (!sameOrder) {
+        boolean appended = false;
+        if (prefixSame && existing < desired.size()) {
+            for (int i = existing; i < desired.size(); i++) {
+                View view = desired.get(i);
+                if (view.getParent() != null) {
+                    ((ViewGroup) view.getParent()).removeView(view);
+                }
+                addViewInLayout(view, i, new LayoutParams(LayoutParams.WRAP_CONTENT,
+                        LayoutParams.WRAP_CONTENT));
+            }
+            appended = true;
+            requestLayout();
+        }
+        boolean sameOrder = prefixSame && existing == desired.size();
+        if (!appended && !sameOrder) {
             removeAllViewsInLayout();
             for (int i = 0; i < desired.size(); i++) {
                 View view = desired.get(i);
@@ -245,6 +268,17 @@ public class TileWall extends ViewGroup implements FocusNav.Host {
         keys.clear();
         keys.addAll(desiredKeys);
         nav.reset();
+
+        // 追加/顺序不变时卡没被 detach，焦点还在原来的那张上，但 nav 刚被 reset ——
+        // 不补一次「当前落点」，下一次按方向键会被当成「还没有落点」从第一张算起，
+        // 焦点于是从用户眼前那张卡跳回左上角。
+        if (appended || sameOrder) {
+            View focused = findFocus();
+            int index = focused == null ? -1 : getPositionForView(focused);
+            if (index >= 0) {
+                nav.syncCurrent(index);
+            }
+        }
 
         // 重建把子视图 detach/attach 过一遍，焦点会掉；按 key 立刻补回来。
         // （以前这一步靠页面在 32ms 后重试，中间那两帧焦点已经闪到左上角胶囊上了。）

@@ -5,14 +5,16 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
-    <!-- 焦点态只靠 FocusScaler 放大，不再加白描边：搜索结果的卡片挨得近，
-         一圈 3dp 白框在整屏里比图片本身还抢眼（用户原话「点击的背景不好看」）。 -->
+    <!-- 焦点态和其它页一致：外框画 3dp 白描边（bg_poster），图片内缩 3dp 再裁圆角。
+         以前这里只靠放大 1.06，同一屏里十几张几乎一样大的封面，
+         用户看不出焦点落在哪一张——「搜索结果没有焦点框」说的就是这个。 -->
     <FrameLayout
         android:id="@+id/poster_frame"
         android:layout_width="match_parent"
         android:layout_height="150dp"
-        android:background="@android:color/transparent"
-        android:duplicateParentState="true">
+        android:background="@drawable/bg_poster"
+        android:duplicateParentState="true"
+        android:padding="3dp">
 
         <ImageView
             android:id="@+id/poster_img"

@@ -86,7 +86,8 @@ public class SearchPage extends FrameLayout implements ModulePage {
         public void run() {
             String wd = query();
             if (wd.length() >= 2) {
-                searchNow(false);
+                // 打字过程中的自动搜索：别收输入法（用户还在拼），也别抢焦点
+                searchNow(false, true);
             }
         }
     };
@@ -286,6 +287,8 @@ public class SearchPage extends FrameLayout implements ModulePage {
             @Override
             public void onClick(View v) {
                 input.setText("");
+                emptyView.setVisibility(View.GONE);
+                showHistory();
                 focusFirstKey();
             }
         }));
@@ -424,6 +427,22 @@ public class SearchPage extends FrameLayout implements ModulePage {
         return input.getText() == null ? "" : input.getText().toString().trim();
     }
 
+    /**
+     * 同步把焦点放回键盘第一个字母。
+     *
+     * <p>为什么要有「同步」这一版：清空结果、隐藏结果墙之前必须先把焦点挪走。
+     * {@link #focusFirstKey()} 是 post 出去的（布局还没铺好时也能用），
+     * 但清空的瞬间焦点已经没了，中间那两帧焦点会被系统补到片名框上。
+     */
+    private boolean moveFocusToKeyboard() {
+        if (keys.getChildCount() == 0) {
+            return false;
+        }
+        View row = keys.getChildAt(0);
+        View first = row instanceof ViewGroup ? ((ViewGroup) row).getChildAt(0) : row;
+        return first != null && first.requestFocus();
+    }
+
     private void focusFirstKey() {
         post(new Runnable() {
             @Override
@@ -431,14 +450,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
                 if (gone()) {
                     return;
                 }
-                if (keys.getChildCount() == 0) {
-                    return;
-                }
-                View row = keys.getChildAt(0);
-                View first = row instanceof ViewGroup ? ((ViewGroup) row).getChildAt(0) : row;
-                if (first != null) {
-                    first.requestFocus();
-                }
+                moveFocusToKeyboard();
             }
         });
     }
@@ -454,6 +466,17 @@ public class SearchPage extends FrameLayout implements ModulePage {
     // ---------------------------------------------------------------- 搜索
 
     private void searchNow(boolean focusResults) {
+        searchNow(focusResults, false);
+    }
+
+    /**
+     * 发起一次搜索。
+     *
+     * @param focusResults 结果回来后把焦点送进结果墙（只有用户亲手按「搜索」才这么做）
+     * @param fromTyping   由输入停顿触发的自动搜索：此时焦点在片名框/键盘上，
+     *                     既不能收输入法，也不能动焦点
+     */
+    private void searchNow(boolean focusResults, boolean fromTyping) {
         MAIN.removeCallbacks(liveSearch);
         String wd = query();
         if (TextUtils.isEmpty(wd)) {
@@ -461,11 +484,19 @@ public class SearchPage extends FrameLayout implements ModulePage {
             focusFirstKey();
             return;
         }
-        hideIme();
+        if (!fromTyping) {
+            hideIme();
+        }
         hideHistory();
         SearchHistory.record(getContext(), wd);
         final int mySeq = ++seq;
         pendingFocusResults = focusResults;
+        // 结果墙要清空重来。焦点若正在里面，先把焦点**明确地**送回键盘再清 ——
+        // 直接清空/隐藏会让系统在子 View 消失后按几何关系补一个，
+        // 用户看到的就是「搜一下，焦点自己跑到片名框去了」。
+        if (grid.findFocus() != null) {
+            moveFocusToKeyboard();
+        }
         results.clear();
         seen.clear();
         openedIndex = -1;
@@ -510,7 +541,12 @@ public class SearchPage extends FrameLayout implements ModulePage {
                     emptyView.setText(lettersOnly
                             ? "没找到「" + wd + "」\n当前这批源不支持拼音首字母搜索\n换个源，或把焦点移到片名框用输入法打中文"
                             : "没找到「" + wd + "」\n换个片名，或到设置里加个搜索源");
-                    showHistory();
+                    if (grid.findFocus() != null) {
+                        moveFocusToKeyboard();
+                    }
+                    // 这里不再把「最近搜索」摊出来：片名框里还有关键词的时候，
+                    // 右边突然多出一列可聚焦的历史词，用户从键盘往右一按就落到那上面，
+                    // 看着就是「焦点乱跳、结果区进不去」。历史只在片名为空时出现。
                     emptyView.setVisibility(View.VISIBLE);
                     grid.setVisibility(View.INVISIBLE);
                     return;

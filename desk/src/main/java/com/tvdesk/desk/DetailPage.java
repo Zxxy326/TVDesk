@@ -186,6 +186,9 @@ public class DetailPage extends FrameLayout implements ModulePage {
             }
             return;
         }
+        // 回到这一页时（尤其从播放器退回来），分段条跟着「正在看的那一集」走：
+        // 用户可能在播放器里用选集面板翻到了别的段，页面上不该还停在旧的那一段。
+        chunkPinned = false;
         refreshSelection();
         // 从播放器退回来时落在「正在看的那一集」上：以前一律给「开始播放」，
         // 看着像是又要从头开一遍。找不到那一格（选集还没铺完、段落对不上）才退回默认落点。
@@ -504,11 +507,20 @@ public class DetailPage extends FrameLayout implements ModulePage {
      */
     private String resumeFlag;
     private int resumeIndex = -1;
+    /** 上次看到的那一集的**名字**：换过线路/源站重排过集数时，只有名字还认得出来 */
+    private String resumeNote = "";
+    /** 续播点是「按片名兜底」找到的（另一个源），集数不能直接信 */
+    private boolean resumeByName;
+    /** 真的读到过续播记录（区别于「默认第 1 集」） */
+    private boolean hasResumePoint;
 
     /** 读回上次的线路和集数，读到就记下来，{@link #applyResume()} 里用 */
     private void readResumePoint() {
         resumeFlag = null;
         resumeIndex = -1;
+        resumeNote = "";
+        resumeByName = false;
+        hasResumePoint = false;
         if (info == null || info.seriesMap == null || info.seriesMap.isEmpty()) {
             return;
         }
@@ -525,28 +537,37 @@ public class DetailPage extends FrameLayout implements ModulePage {
                     resumeFlag = record.playFlag;
                 }
                 resumeIndex = record.playIndex;
+                resumeNote = record.playNote == null ? "" : record.playNote;
+                hasResumePoint = true;
             }
         } catch (Throwable th) {
             android.util.Log.w(TAG, "读播放进度失败：" + th.getMessage());
         }
         // 内核那张表读不到、或读出来是第 0 集时，用 prefs 里那份兜底。
         // 实机上出现过「表里有记录但 id 对不上」的情况，用户看到的就是「又从第一集开始」。
-        android.util.Log.i(TAG, "读续播点：source=" + sourceKey + " id=" + info.id
-                + " flag=" + resumeFlag + " index=" + resumeIndex);
-        if (resumeIndex <= 0) {
-            ResumeStore.Point point = ResumeStore.read(getContext(), sourceKey, info.id);
-            if (point != null && point.index > 0) {
-                resumeIndex = point.index;
-                android.util.Log.i(TAG, "续播点（本地兜底）：第 " + point.index + " 集 " + point.episode);
-            }
+        // prefs 那份还带「片名」这一层键：源站换了 id（详情页地址变了）也能找回来。
+        // 两份是同时写的，prefs 总在内核表之后 —— 不一致时以 prefs 为准。
+        ResumeStore.Point point = ResumeStore.read(getContext(), sourceKey, info.id, info.name);
+        if (point != null && (point.index > 0 || !TextUtils.isEmpty(point.episode))) {
+            resumeIndex = point.index;
+            resumeNote = point.episode == null ? "" : point.episode;
+            resumeByName = point.byName;
+            hasResumePoint = true;
+            android.util.Log.i(TAG, "读续播点（本地）：第 " + point.index + " 集 " + point.episode
+                    + (point.byName ? "（按片名兜底）" : ""));
         }
+        android.util.Log.i(TAG, "读续播点：source=" + sourceKey + " id=" + info.id
+                + " flag=" + resumeFlag + " index=" + resumeIndex
+                + " note=" + resumeNote + " 有记录=" + hasResumePoint);
     }
 
     /**
      * 把上次的线路/集数盖到这次拉到的详情上。
      *
-     * <p>夹到列表长度以内：源站删过集、换了线路之后集数会变，
-     * 越界的话 {@code series.get()} 会直接崩在这里。
+     * <p>集数不能直接按数字用：同一条片子在不同线路上的排序可能不一样
+     * （实测同一部剧，A 线第 39 条是 E20、B 线第 21 条才是 E20）。
+     * 只按数字盖的话，用户「看的是第 22 集，回来却高亮成别的集」。
+     * 所以先按集名找，找不到才退回按数字夹。
      */
     private void applyResume() {
         readResumePoint();
@@ -556,9 +577,31 @@ public class DetailPage extends FrameLayout implements ModulePage {
         if (info.seriesMap != null && activeFlag != null) {
             List<VodInfo.VodSeries> list = info.seriesMap.get(activeFlag);
             if (list != null && !list.isEmpty() && resumeIndex >= 0) {
-                info.playIndex = Math.max(0, Math.min(resumeIndex, list.size() - 1));
+                int byName = indexOfEpisode(list, resumeNote);
+                if (byName >= 0) {
+                    info.playIndex = byName;
+                } else if (!resumeByName) {
+                    info.playIndex = Math.max(0, Math.min(resumeIndex, list.size() - 1));
+                }
+                // 按片名兜底找到、但这条线路里没有同名的集：不猜，留在第一集。
+                // 猜错的代价比「从头开始」大得多 —— 用户会以为选集全乱了。
             }
         }
+    }
+
+    /** 按集名找下标；找不到（源站改过名）返回 -1 */
+    private static int indexOfEpisode(List<VodInfo.VodSeries> list, String name) {
+        if (list == null || TextUtils.isEmpty(name)) {
+            return -1;
+        }
+        String target = name.trim();
+        for (int i = 0; i < list.size(); i++) {
+            VodInfo.VodSeries item = list.get(i);
+            if (item != null && item.name != null && target.equals(item.name.trim())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /** 把「这条线路、这一集」写回内核的历史表，下次打开详情页才有得读 */
@@ -580,7 +623,8 @@ public class DetailPage extends FrameLayout implements ModulePage {
             android.util.Log.w(TAG, "写播放进度失败：" + th.getMessage());
         }
         // 再存一份到 prefs：内核表在实机上出现过写不进/读不出的情况
-        ResumeStore.save(getContext(), sourceKey, info.id, info.playIndex, info.playNote);
+        ResumeStore.save(getContext(), sourceKey, info.id, info.name, info.playIndex, info.playNote);
+        hasResumePoint = true;
         android.util.Log.i(TAG, "记续播点：" + info.name + " 第 " + info.playIndex + " 集 " + info.playNote);
     }
 
@@ -699,7 +743,11 @@ public class DetailPage extends FrameLayout implements ModulePage {
         if (!series.isEmpty()) {
             text.append(" · 共 ").append(series.size()).append(" 集");
         }
-        if (info != null && info.playIndex >= 0 && info.playIndex < series.size()) {
+        // 只有真的读到过续播记录才写「上次看到第几集」。
+        // 以前这里只看 playIndex 是否在范围内，而新剧的 playIndex 默认就是 0，
+        // 于是每一部没看过的剧都标着「上次看到第 1 集」—— 用户以为记录全乱了。
+        if (hasResumePoint && info != null
+                && info.playIndex >= 0 && info.playIndex < series.size()) {
             text.append(" · 上次看到第 ").append(info.playIndex + 1).append(" 集");
         }
         episodeLabel.setText(text.toString());

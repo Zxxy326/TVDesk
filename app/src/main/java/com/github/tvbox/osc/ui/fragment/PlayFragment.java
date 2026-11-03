@@ -1333,6 +1333,55 @@ public class PlayFragment extends BaseLazyFragment {
         initPlayerCfg();
         triedLineFlags.clear();
         play(false);
+        startResumeTicker();
+    }
+
+    // ---------------------------------------------------------------- 续播位置
+
+    private static final long RESUME_TICK_MS = 10_000L;
+    private final android.os.Handler resumeTick =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private final Runnable resumeTickTask = new Runnable() {
+        @Override
+        public void run() {
+            saveResumePosition();
+            resumeTick.postDelayed(this, RESUME_TICK_MS);
+        }
+    };
+
+    private void startResumeTicker() {
+        resumeTick.removeCallbacks(resumeTickTask);
+        resumeTick.postDelayed(resumeTickTask, RESUME_TICK_MS);
+    }
+
+    private void stopResumeTicker() {
+        resumeTick.removeCallbacks(resumeTickTask);
+    }
+
+    /**
+     * 记一笔「这一集看到第几秒」。
+     *
+     * <p>内核只在 release/onSaveInstanceState 的时候落盘一次进度，
+     * 待机被系统杀进程那条路上什么都没留下。这里每 10 秒自己记一次，
+     * 退出、断电、被杀都能接着看。
+     */
+    private void saveResumePosition() {
+        try {
+            if (mVodInfo == null || mVideoView == null || mVodInfo.seriesMap == null) {
+                return;
+            }
+            List<VodInfo.VodSeries> list = mVodInfo.seriesMap.get(mVodInfo.playFlag);
+            if (list == null || mVodInfo.playIndex < 0 || mVodInfo.playIndex >= list.size()) {
+                return;
+            }
+            long pos = mVideoView.getCurrentPosition();
+            if (pos > 0) {
+                com.github.tvbox.osc.cache.ResumePoints.savePosition(
+                        mVodInfo.name, list.get(mVodInfo.playIndex).name, pos);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     private void initData() {
@@ -1494,6 +1543,9 @@ public class PlayFragment extends BaseLazyFragment {
     @Override
     public void onPause() {
         super.onPause();
+        // 切到后台（包括被待机顶掉）时也落一次盘
+        saveResumePosition();
+        stopResumeTicker();
         if (mVideoView != null && !exitingPreview && !hasAudioOnlyPlayback()) {
             mVideoView.pause();
         }
@@ -1506,6 +1558,7 @@ public class PlayFragment extends BaseLazyFragment {
         if (mVideoView != null) {
             mVideoView.resume();
         }
+        startResumeTicker();
     }
 
     @Override
@@ -1526,6 +1579,9 @@ public class PlayFragment extends BaseLazyFragment {
     public void onDestroyView() {
         audioPlayback = false;
         switchingPlayback = false;
+        // 先把「看到第几秒」记下来，再放掉播放器（release 之后就拿不到位置了）
+        stopResumeTicker();
+        saveResumePosition();
         MusicPlaybackService.stop(getContext(), this);
         if (sourceViewModel != null && playResultObserver != null) {
             sourceViewModel.playResult.removeObserver(playResultObserver);
@@ -1957,6 +2013,11 @@ public class PlayFragment extends BaseLazyFragment {
         ImgUtil.clearMemoryCache();
         subtitleCacheKey = mVodInfo.sourceKey + "-" + mVodInfo.id + "-" + mVodInfo.playFlag + "-" + mVodInfo.playIndex+ "-" + vs.name + "-subt";
         progressKey = mVodInfo.sourceKey + mVodInfo.id + mVodInfo.playFlag + mVodInfo.playIndex + vs.name;
+        // 记一笔「看到第几集」。播放器里换集（下一集/选集面板）改的是 mVodInfo.playIndex，
+        // 详情页那边完全看不到 —— 以前从播放器里选到第 22 集，退出去再进详情页，
+        // 记的还是进播放器前那一集。所有换集最终都要走这里，记在这儿一次就够。
+        com.github.tvbox.osc.cache.ResumePoints.save(mVodInfo.sourceKey, mVodInfo.id,
+                mVodInfo.name, mVodInfo.playIndex, vs.name);
         startResolvePlayUrlTimeout();
         //重新播放清除现有进度
         if (reset) {
@@ -1964,6 +2025,16 @@ public class PlayFragment extends BaseLazyFragment {
             CacheManager.delete(MD5.string2MD5(subtitleCacheKey), 0);
         }else{
             inheritProgressIfNeeded();
+            // 内核那份进度缓存偶尔会整段丢掉（实机上出现过「退出再进来从 0 开始」）。
+            // 我们自己也按「片名+集名」记一份秒数，缓存里没有就把它补进去 ——
+            // 补的是同一个键，所以后面的起播 seek 逻辑一行都不用改。
+            try {
+                long saved = com.github.tvbox.osc.cache.ResumePoints.position(mVodInfo.name, vs.name);
+                if (saved > 5000L && CacheManager.getCache(MD5.string2MD5(progressKey)) == null) {
+                    CacheManager.save(MD5.string2MD5(progressKey), saved);
+                }
+            } catch (Throwable ignored) {
+            }
             try{
                 int playerType = mVodPlayerCfg.getInt("pl");
                 if(playerType==1){
