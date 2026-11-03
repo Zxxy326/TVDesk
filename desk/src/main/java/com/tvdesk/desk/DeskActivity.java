@@ -4321,6 +4321,18 @@ public class DeskActivity extends DeskAdaptActivity {
             return super.onKeyDown(keyCode, event);
         }
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // 先退到顶栏，再退首页：焦点还在 Hero／海报行／海报墙／收藏双栏里时，
+            // 一次返回只把焦点收回顶栏当前页签（和 B 站／音乐／应用页同一个口径，
+            // 见 BackTop）。以前这里直接 returnHome()，用户在收藏里按一下返回
+            // 就已经站在首页 Hero 上了，中间那层顶栏被整个跨过去。
+            if (BackTop.toTopBar("桌面", topNav, new Runnable() {
+                @Override
+                public void run() {
+                    focusActiveNav();
+                }
+            }, moduleSwitcher)) {
+                return true;
+            }
             // 海报墙不是单独一页，BACK 只退回 Hero 首页，不退出桌面
             if (wallMode) {
                 returnHome();

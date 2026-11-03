@@ -172,15 +172,35 @@ public class SearchPage extends FrameLayout implements ModulePage {
     @Override
     public boolean handleKeyDown(int keyCode) {
         if (keyCode == KeyEvent.KEYCODE_BACK && input.hasFocus()) {
-            // 层级表 L4：第一次返回只收输入法/离开输入框，不直接退页
-            hideIme();
-            focusFirstKey();
-            return Back.consume("影视搜索·收起输入法");
+            // 层级表 L4：输入法弹着的时候，第一次返回只把它收起来；
+            // 输入法没弹（用左边屏幕键盘打的字），这一下就该退出搜索页了。
+            if (imeActive()) {
+                hideIme();
+                return Back.consume("影视搜索·收起输入法");
+            }
+            return Back.pass("影视搜索·退出搜索页");
         }
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // 焦点还在结果墙／最近搜索里：返回先回「片名框」这一层（本页的顶栏），
+            // 再按一次才退出搜索页。和其它模块「内容 → 顶栏」是同一个口径。
+            if (grid.findFocus() != null || historyWords.findFocus() != null) {
+                input.requestFocus();
+                Editable text = input.getText();
+                if (text != null) {
+                    input.setSelection(text.length());
+                }
+                return Back.consume("影视搜索·回片名框");
+            }
             return Back.pass("影视搜索·退出搜索页");
         }
         return false;
+    }
+
+    /** 输入法当前是不是正为片名框弹着 */
+    private boolean imeActive() {
+        InputMethodManager imm = (InputMethodManager)
+                getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        return imm != null && input != null && imm.isActive(input);
     }
 
     private boolean gone() {

@@ -5440,13 +5440,16 @@ public class MusicPage extends FrameLayout implements ModulePage {
                 focusSearch();
                 return Back.consume("音乐·清空搜索词");
             }
-            // 焦点还在内容区（列表 / 卡片墙）时，返回先回顶栏。
-            // 顶栏是内容区的上一层：一次返回跨两层（内容 → 桌面）会让人不知道自己在哪，
-            // 遥控器上按一下像是没反应。回到顶栏之后再按一次才退出本页。
-            if (list.findFocus() != null || grid.findFocus() != null) {
-                hideIme();
-                focusChip();
-                return Back.consume("音乐·回顶栏");
+            // 顶栏是内容的上一层：焦点不在页签行上时，返回只把焦点收回来，
+            // 再按一次才退出模块（统一走 BackTop，见那个类的注释）
+            if (BackTop.toTopBar("音乐", navItems, new Runnable() {
+                @Override
+                public void run() {
+                    hideIme();
+                    focusChip();
+                }
+            })) {
+                return true;
             }
             // 没层级可退了，交给宿主关页回桌面。
             return Back.pass("音乐·页内已无层级");

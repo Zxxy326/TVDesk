@@ -191,6 +191,23 @@ public class SettingsActivity extends DeskAdaptActivity {
     @Override
     public boolean dispatchKeyEvent(android.view.KeyEvent event) {
         if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
+                && event.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK) {
+            // 和其它模块同一个口径（见 BackTop）：焦点还在下面的设置卡上时，
+            // 返回只把焦点收回顶栏页签；已经在顶栏（或左上角「桌面」）才真的退出设置。
+            if (BackTop.toTopBar("设置", navItems, new Runnable() {
+                @Override
+                public void run() {
+                    if (tab >= 0 && tab < navItems.getChildCount()) {
+                        navItems.getChildAt(tab).requestFocus();
+                    }
+                }
+            }, switcher)) {
+                return true;
+            }
+            finish();
+            return true;
+        }
+        if (event.getAction() == android.view.KeyEvent.ACTION_DOWN
                 && (event.getKeyCode() == android.view.KeyEvent.KEYCODE_DPAD_LEFT
                 || event.getKeyCode() == android.view.KeyEvent.KEYCODE_DPAD_RIGHT)) {
             View focused = getCurrentFocus();

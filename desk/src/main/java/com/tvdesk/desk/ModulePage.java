@@ -23,6 +23,8 @@ import android.view.KeyEvent;
  *       <td>该页的主控件（页签／卡片墙），由收的那一层负责</td></tr>
  *   <tr><td>L3 页内子视图</td><td>钻进去的歌单／收藏夹／分区／历史／沉浸播放页</td>
  *       <td><b>钻进来时那张卡／那一行</b>，不是列表第一行</td></tr>
+ *   <tr><td>L3.5 顶栏</td><td>焦点还停在内容区（卡片墙／列表／Hero／设置卡）</td>
+ *       <td>本页顶栏的<b>当前页签</b>；统一由 {@link BackTop#toTopBar} 实现</td></tr>
  *   <tr><td>L4 输入态</td><td>输入法、搜索框里的词</td>
  *       <td>先收输入法，再清词；清完留在搜索框</td></tr>
  *   <tr><td>L5 内容页</td><td>叠在模块页上的详情页／搜索页／播放页（宿主的 pageStack）</td>
@@ -40,6 +42,11 @@ import android.view.KeyEvent;
  *   <li>退层要<b>回到来处</b>：从第 7 张卡钻进去的，退回来还停在第 7 张。
  *       L5/L6 由宿主记账（见 {@code DeskActivity#pageReturnFocus}），L3 各页自己记。</li>
  * </ul>
+ *
+ * <p>还有一条贯穿所有模块的硬规矩（L3.5）：<b>焦点不在顶栏，返回就只把焦点收回顶栏；
+ * 焦点已经在顶栏，这一次返回才关模块页。</b> 以前「收藏里按一下返回，人直接站到首页
+ * Hero 上」，中间那层顶栏被整个跨过去，用户会以为自己按错了。各页在 BACK 分支最后
+ * 调一次 {@link BackTop#toTopBar(String, View, Runnable, View...)} 即可，别再各写一版判断。
  *
  * <h3>宿主契约</h3>
  * <ul>

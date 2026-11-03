@@ -949,11 +949,15 @@ public class SignalPage extends FrameLayout implements ModulePage {
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // 焦点还在内容区时，返回先回顶栏（和 B 站 / 音乐同一个口径）：
-            // 顶栏是内容的上一层，一次返回跨两层会让人不知道自己在哪
-            if (grid.findFocus() != null) {
-                focusChip();
-                return Back.consume("信号源·回顶栏");
+            // 顶栏是内容的上一层：焦点不在页签行上时，返回只把焦点收回来，
+            // 再按一次才退出模块（统一走 BackTop，见那个类的注释）
+            if (BackTop.toTopBar("信号源", navItems, new Runnable() {
+                @Override
+                public void run() {
+                    focusChip();
+                }
+            })) {
+                return true;
             }
             // 这一页没有子视图和搜索框，L2 收完就直接交回宿主关模块页
             return Back.pass("信号源·页内已无层级");

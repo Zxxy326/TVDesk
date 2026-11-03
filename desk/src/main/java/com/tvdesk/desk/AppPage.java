@@ -1510,11 +1510,15 @@ public class AppPage extends FrameLayout implements ModulePage {
                 focusSearch();
                 return Back.consume("应用·清空搜索词");
             }
-            // 焦点还在内容区时，返回先回顶栏：顶栏是内容的上一层，
-            // 一次返回跨两层（内容 → 桌面）会让人不知道自己在哪
-            if (grid.findFocus() != null) {
-                focusChip();
-                return Back.consume("应用·回顶栏");
+            // 顶栏是内容的上一层：焦点不在页签行上时，返回只把焦点收回来，
+            // 再按一次才退出模块（统一走 BackTop，见那个类的注释）
+            if (BackTop.toTopBar("应用", navItems, new Runnable() {
+                @Override
+                public void run() {
+                    focusChip();
+                }
+            })) {
+                return true;
             }
             return Back.pass("应用·页内已无层级");
         }
