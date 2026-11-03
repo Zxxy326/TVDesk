@@ -6,6 +6,7 @@ import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
@@ -92,6 +93,8 @@ public class DetailPage extends FrameLayout implements ModulePage {
      * 用户点了某一集或换了线路时，这个标记会清掉，段重新跟着播放进度走。
      */
     private boolean chunkPinned;
+    /** 光标停在选集的第几格（滚动后会丢焦点，用它兜底算下一步） */
+    private int episodeCursor = -1;
     private ProgressBar loadingView;
     private TextView errorView;
 
@@ -126,6 +129,19 @@ public class DetailPage extends FrameLayout implements ModulePage {
         errorView = findViewById(R.id.detail_error);
 
         episodes.setAdapter(adapter);
+        // 记住「光标在第几格」：滚动之后原来的子 View 会被回收，
+        // findFocus() 变成 null，只剩这条记录还能算出下一步往哪走。
+        episodes.getViewTreeObserver().addOnGlobalFocusChangeListener(
+                new ViewTreeObserver.OnGlobalFocusChangeListener() {
+                    @Override
+                    public void onGlobalFocusChanged(View oldFocus, View newFocus) {
+                        if (episodes != null && newFocus != null
+                                && episodes.indexOfChild(newFocus) >= 0) {
+                            episodeCursor = episodes.getFirstVisiblePosition()
+                                    + episodes.indexOfChild(newFocus);
+                        }
+                    }
+                });
 
         FocusScaler.attach(playButton, 1.06f);
         FocusScaler.attach(searchButton, 1.06f);
@@ -269,6 +285,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
         episodes.setVisibility(View.VISIBLE);
 
         String name = !TextUtils.isEmpty(info.name) ? info.name : safe(seed.name);
+        updateEpisodeLabel();
         title.setText(name);
         meta.setText(buildMeta());
         String text = stripHtml(info.des);
@@ -396,6 +413,17 @@ public class DetailPage extends FrameLayout implements ModulePage {
         if (info != null && info.playIndex >= series.size()) {
             info.playIndex = Math.max(0, series.size() - 1);
         }
+        // 先按全片最长的名字定列数，再据此算「一段放几集」——
+        // 两者必须一起算，否则一段的集数和一屏的容量对不上，又会出现要滚动的情况。
+        int longest = 0;
+        for (VodInfo.VodSeries item : series) {
+            String label = item == null ? "" : episodeLabel(item, 0);
+            if (label.length() > longest) {
+                longest = label.length();
+            }
+        }
+        episodeColumns = columnsForLength(longest);
+        chunkSize = Math.max(episodeColumns, episodeColumns * MAX_EPISODE_ROWS);
         episodeLabel.setText("选集" + (series.isEmpty() ? "" : " · 共 " + series.size() + " 集"));
         renderEpisodes();
     }
@@ -433,6 +461,8 @@ public class DetailPage extends FrameLayout implements ModulePage {
             // <p>记在这里而不是播放器的入口：首页推的是豆瓣条目（没有源站 id），
             // 要先在详情页里换成源站的片子才谈得上「播了这一集」。
             // 在播放入口记的话，豆瓣那一路就永远记不上。
+            android.util.Log.i(TAG, "开始播放：flag=" + info.playFlag
+                    + " index=" + info.playIndex + " note=" + info.playNote);
             recordHistory();
             host.play(info);
         }
@@ -501,6 +531,8 @@ public class DetailPage extends FrameLayout implements ModulePage {
         }
         // 内核那张表读不到、或读出来是第 0 集时，用 prefs 里那份兜底。
         // 实机上出现过「表里有记录但 id 对不上」的情况，用户看到的就是「又从第一集开始」。
+        android.util.Log.i(TAG, "读续播点：source=" + sourceKey + " id=" + info.id
+                + " flag=" + resumeFlag + " index=" + resumeIndex);
         if (resumeIndex <= 0) {
             ResumeStore.Point point = ResumeStore.read(getContext(), sourceKey, info.id);
             if (point != null && point.index > 0) {
@@ -658,6 +690,21 @@ public class DetailPage extends FrameLayout implements ModulePage {
      * 翻页靠换 adapter 的数据，不靠滚动 —— 见布局里那段注释，
      * 这台电视上滚动方案要么崩要么重影。
      */
+    /** 选集标题：条数 + 上次看到第几集（让「记住了」这件事看得见） */
+    private void updateEpisodeLabel() {
+        if (episodeLabel == null) {
+            return;
+        }
+        StringBuilder text = new StringBuilder("选集");
+        if (!series.isEmpty()) {
+            text.append(" · 共 ").append(series.size()).append(" 集");
+        }
+        if (info != null && info.playIndex >= 0 && info.playIndex < series.size()) {
+            text.append(" · 上次看到第 ").append(info.playIndex + 1).append(" 集");
+        }
+        episodeLabel.setText(text.toString());
+    }
+
     private void renderEpisodes() {
         if (episodes == null) {
             return;
@@ -665,14 +712,192 @@ public class DetailPage extends FrameLayout implements ModulePage {
         // 段起点跟着播放进度走：换集之后回到的那一段才是用户想看的那一段。
         // 但用户手动翻过段之后就不跟了，见 chunkPinned 的说明
         if (!chunkPinned && info != null && info.playIndex >= 0 && info.playIndex < series.size()) {
-            chunkStart = (info.playIndex / CHUNK_SIZE) * CHUNK_SIZE;
+            chunkStart = (info.playIndex / chunkSize) * chunkSize;
         }
         if (chunkStart >= series.size()) {
-            chunkStart = Math.max(0, ((series.size() - 1) / CHUNK_SIZE) * CHUNK_SIZE);
+            chunkStart = Math.max(0, ((series.size() - 1) / chunkSize) * chunkSize);
         }
         applyEpisodeColumns();
         adapter.notifyDataSetChanged();
         renderChunks();
+        updateEpisodeLabel();
+        android.util.Log.i(TAG, "renderEpisodes: chunkStart=" + chunkStart
+                + " playIndex=" + (info == null ? -1 : info.playIndex)
+                + " 列数=" + episodes.getNumColumns() + " 段内=" + adapter.getCount());
+        // 网格高度按「实际几行」量一次。写死 204dp 在长名字（列数变少、行数变多）
+        // 或者字号被系统放大时会切掉最后一行 —— 用户看到的就是「最下面一栏按不下去」。
+        fitEpisodeGrid();
+    }
+
+    /**
+     * 网格高度按内容自动贴合（最多 4 行，多出来的在网格内滚动）。
+     *
+     * <p>为什么必须量：这段的列数是按片名长度算的（2–8 列），32 集在 2 列时是 16 行、
+     * 在 8 列时是 4 行。布局里写死 204dp 只在「8 列 4 行」这一种情况下刚好；
+     * 一旦是长文件名（网盘源那种），最后一行会被切掉一半 —— 焦点移过去看不见，
+     * 用户就会觉得「按不下去、选不完」。
+     */
+    private void fitEpisodeGrid() {
+        if (episodes == null) {
+            return;
+        }
+        episodes.post(new Runnable() {
+            @Override
+            public void run() {
+                if (episodes == null || episodes.getChildCount() == 0) {
+                    return;
+                }
+                // 行高按选及格子的固定高度算，不去量子 View：
+                // 第一次 post 时子 View 还没走完布局，量到的是布局前的旧值（实测 46px，
+                // 实际 60px），算出来的高度仍然差一行 —— 上一版就是这么把第 4 行切一半的。
+                int cellHeight = dp(40);
+                int columns = Math.max(1, episodes.getNumColumns());
+                int totalRows = (episodes.getCount() + columns - 1) / columns;
+                int rows = Math.min(totalRows, MAX_EPISODE_ROWS);
+                int height = episodes.getPaddingTop() + episodes.getPaddingBottom()
+                        + rows * cellHeight
+                        + Math.max(0, rows - 1) * episodes.getVerticalSpacing();
+                ViewGroup.LayoutParams lp = episodes.getLayoutParams();
+                if (lp != null && lp.height != height) {
+                    lp.height = height;
+                    episodes.setLayoutParams(lp);
+                }
+                applyEpisodeSelection();
+            }
+        });
+    }
+
+    /**
+     * 选集网格最多显示几行（再多就在网格里滚动）。
+     *
+     * <p>为什么是 3 不是 4：详情页给选集区的垂直空间只有 241px（实测），
+     * 一行 40dp 加 8dp 间距要 72px，4 行要 300px —— 超出的部分会被父布局裁掉，
+     * 第 4 行只剩一条边，焦点移过去等于看不见。3 行正好 228px，稳稳放下。
+     */
+    /**
+     * 按「上次看到第几集」刷一遍格子的选中态。
+     *
+     * <p>格子的选中态是在 {@code getView} 里按 {@code info.playIndex} 设的，
+     * 而详情数据回来时 playIndex 可能还是 0 —— 续播点要等 {@code applyResume()} 才盖上去。
+     * 于是第一格被标成「上次看的」，用户看到的就是「没记住」。
+     * 这里在布局完成后再对齐一次，不依赖时序。
+     */
+    private void applyEpisodeSelection() {
+        if (episodes == null || info == null) {
+            return;
+        }
+        int first = episodes.getFirstVisiblePosition();
+        for (int i = 0; i < episodes.getChildCount(); i++) {
+            View child = episodes.getChildAt(i);
+            if (child != null) {
+                child.setActivated(chunkStart + first + i == info.playIndex);
+            }
+        }
+    }
+
+    private static final int MAX_EPISODE_ROWS = 3;
+
+    /**
+     * 选集网格上的方向键。
+     *
+     * <p>焦点停在最后一行再按「下」，以前什么都不会发生 —— 用户以为选集卡住了。
+     * 这里把它接到「下一段」：换一段数据、焦点落到新的一段第一格，行为跟直接点分段条一致。
+     * 第一行按「上」同理回到上一段（没有上一段就把它交还给上面的控件）。
+     */
+    private boolean onEpisodeKey(int keyCode, int position) {
+        if (keyCode != android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                && keyCode != android.view.KeyEvent.KEYCODE_DPAD_UP) {
+            return false;
+        }
+        if (position < 0) {
+            return false;
+        }
+        int columns = Math.max(1, episodes.getNumColumns());
+        int count = episodes.getCount();
+        android.util.Log.i(TAG, "选及格按键 key=" + keyCode + " pos=" + position
+                + " 列=" + columns + " 共=" + count);
+        if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
+            int target = position + columns;
+            if (target >= count) {
+                return jumpChunk(1);
+            }
+            moveEpisodeFocus(target);
+            return true;
+        }
+        int target = position - columns;
+        if (target < 0) {
+            return jumpChunk(-1);
+        }
+        moveEpisodeFocus(target);
+        return true;
+    }
+
+    /**
+     * 把焦点挪到第 target 格 —— 先让网格把这一格滚进视口，再补焦点。
+     *
+     * <p>为什么不能交给系统：GridView 只给「视口内的那几行」创建子 View，
+     * 视口外的格子根本不存在，几何寻焦找不到落点，按「下」就没反应。
+     * 所以这里先 {@code setSelection} 让它滚过去（这一步会创建子 View），
+     * 下一帧再把焦点交给它。
+     *
+     * <p>网格高度是按「最多 4 行」量的，长片名（2 列）时 30 集要 15 行，
+     * 全靠这个滚动才能一集一集走到底。
+     */
+    private void moveEpisodeFocus(final int target) {
+        if (episodes == null) {
+            return;
+        }
+        // 目标就在视口里：直接给焦点，别动不动 setSelection（那样每次按「下」
+        // 都会把这一格顶到第一行，滚动很跳）
+        episodeCursor = target;
+        View visible = episodes.getChildAt(target - episodes.getFirstVisiblePosition());
+        if (visible != null && visible.isShown()) {
+            visible.requestFocus();
+            return;
+        }
+        // 视口外：先滚过去（这一下才会创建对应的子 View），下一帧再补焦
+        episodes.setSelection(target);
+        episodes.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                focusEpisodeAt(target, 4);
+            }
+        }, 16L);
+    }
+
+    /** 按「绝对下标」补焦点：先换算成可见子 View 的下标 */
+    private void focusEpisodeAt(final int target, final int retries) {
+        if (episodes == null || gone()) {
+            return;
+        }
+        View child = episodes.getChildAt(target - episodes.getFirstVisiblePosition());
+        if (child != null && child.isShown()) {
+            child.requestFocus();
+            return;
+        }
+        if (retries > 0) {
+            episodes.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    focusEpisodeAt(target, retries - 1);
+                }
+            }, 16L);
+        }
+    }
+
+    /** 换到上/下一段；没有那一段就返回 false（把按键还回去） */
+    private boolean jumpChunk(int direction) {
+        int next = chunkStart + direction * chunkSize;
+        if (next < 0 || next >= series.size()) {
+            return false;
+        }
+        chunkStart = next;
+        chunkPinned = true;
+        adapter.notifyDataSetChanged();
+        updateChunkSelection();
+        fitEpisodeGrid();
+        focusEpisode(0, 4);
+        return true;
     }
 
     /**
@@ -691,34 +916,37 @@ public class DetailPage extends FrameLayout implements ModulePage {
         if (episodes == null || series.isEmpty()) {
             return;
         }
-        int longest = 0;
-        int to = Math.min(chunkStart + CHUNK_SIZE, series.size());
-        for (int i = chunkStart; i < to; i++) {
-            String name = series.get(i) == null ? "" : series.get(i).name;
-            if (name != null && name.length() > longest) {
-                longest = name.length();
-            }
+        // 列数在 bindSeries() 里按全片最长的名字算好了，这里只管套上去。
+        // 段与段一致，才不会出现「这一段的格子和上一段一样宽窄不一」。
+        if (episodes.getNumColumns() != episodeColumns) {
+            episodes.setNumColumns(episodeColumns);
         }
-        int columns;
+    }
+
+    /**
+     * 片名多长用几列。
+     *
+     * <p>名字越长列越少、每颗按钮越宽。8 列是短名字（「第 3 集」）的福利；
+     * 网盘源那种「[5.2GB]JJC.S01E10.mkv【叫金钗】」只能给 2 列，
+     * 再多就截断在体积前缀上，用户根本看不到是第几集。
+     */
+    private int columnsForLength(int longest) {
         if (longest <= 4) {
-            columns = 8;      // 「第 3 集」「预告」这个量级：一屏 32 格
-        } else if (longest <= 7) {
-            columns = 6;      // 「S01E03」「1080P 国语」
-        } else if (longest <= 12) {
-            columns = 5;      // 「4.9 GB 1080P.mp4」
-        } else if (longest <= 17) {
-            columns = 4;      // 「[3.2GB]125.mp4」
-        } else if (longest <= 24) {
-            columns = 3;      // 「[2.3GB]E67.mp4【牧S记】」
-        } else {
-            columns = 2;      // 更长的文件名：一行两颗，名字尽量显示全。
-            // 集数藏在名字中段（[338.1MB]01.mp4【斗罗大陆2】），列数再多
-            // 就截断在体积前缀上，用户根本看不到是第几集 —— 2 列是下限，
-            // 再长也是它，截断交给省略号
+            return 8;
         }
-        if (episodes.getNumColumns() != columns) {
-            episodes.setNumColumns(columns);
+        if (longest <= 7) {
+            return 6;
         }
+        if (longest <= 12) {
+            return 5;
+        }
+        if (longest <= 17) {
+            return 4;
+        }
+        if (longest <= 24) {
+            return 3;
+        }
+        return 2;
     }
 
     /**
@@ -729,8 +957,22 @@ public class DetailPage extends FrameLayout implements ModulePage {
      * 跟标签对不上。按 32 分之后，段号、格位、集数三者完全重合。
      */
     private static final int CHUNK_SIZE = 32;
-    /** 超过一屏（32 集）才做分段条 */
-    private static final int CHUNK_THRESHOLD = CHUNK_SIZE;
+
+    /**
+     * 当前这一段实际放多少集：列数 × 可见行数。
+     *
+     * <p>以前的算法是「固定 32 集一段，一屏放不下就在网格里滚」。可这台的详情页
+     * 只给选集区 3 行的高度，而列数又是按片名长度自适应的（长文件名只有 2 列）——
+     * 32 集要排 16 行，靠滚动才能看全，而 GridView 在这里根本不跟焦点滚，
+     * 用户按到底就卡住了。
+     *
+     * <p>改成「一段正好一屏」：列数 × 3 行，多余的一律不进这一段。
+     * 翻段用上面的分段条，或者在最后一行继续按「下」——两侧都能翻，永远不需要滚动。
+     */
+    private int chunkSize = CHUNK_SIZE;
+
+    /** 这一部片子的选集列数（按全片最长的名字算，段与段之间保持一致） */
+    private int episodeColumns = 8;
 
     /**
      * 选集上方的分段条。
@@ -745,14 +987,14 @@ public class DetailPage extends FrameLayout implements ModulePage {
         }
         chunks.removeAllViews();
         int total = series.size();
-        if (total <= CHUNK_THRESHOLD) {
+        if (total <= chunkSize) {
             chunkScroll.setVisibility(View.GONE);
             return;
         }
         chunkScroll.setVisibility(View.VISIBLE);
-        for (int start = 0; start < total; start += CHUNK_SIZE) {
+        for (int start = 0; start < total; start += chunkSize) {
             final int first = start;
-            final int end = Math.min(start + CHUNK_SIZE, total);
+            final int end = Math.min(start + chunkSize, total);
             TextView chip = new TextView(getContext());
             // 段标签用位置区间：格子里显示的是原始名称，没有统一的「集号」可指，
             // 写「1-32」就是「这段里是列表的第 1 到 32 项」
@@ -800,7 +1042,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
         }
         for (int i = 0; i < chunks.getChildCount(); i++) {
             View child = chunks.getChildAt(i);
-            int first = i * CHUNK_SIZE;
+            int first = i * chunkSize;
             child.setSelected(first == chunkStart);
         }
     }
@@ -841,7 +1083,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
                 return 0;
             }
             int from = Math.min(chunkStart, series.size() - 1);
-            return Math.min(CHUNK_SIZE, series.size() - from);
+            return Math.min(chunkSize, series.size() - from);
         }
 
         @Override
@@ -878,11 +1120,27 @@ public class DetailPage extends FrameLayout implements ModulePage {
                 textSizeSp = 10f;
             }
             item.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, textSizeSp);
-            item.setSelected(info != null && index == info.playIndex);
+            item.setActivated(info != null && index == info.playIndex);
             // 选集以前只靠背景区分焦点，系统在 API 26+ 又叠了一层方形默认高亮，
             // 圆角胶囊外面套个直角方框，看着就像被裁了一刀。挂上缩放后由 FocusScaler
             // 统一关掉系统高亮，焦点语言和其他按钮一致。
             FocusScaler.attach(item, 1.03f);
+            /*
+             * 方向键挂在「每一格」上，不是网格上。
+             * 按键在 Android 里只派发给带焦点的那个子 View，父容器的 OnKeyListener
+             * 收不到（网格那一版挂了等于没挂，按到底什么都不会发生）。
+             */
+            final int keyIndex = index;
+            item.setOnKeyListener(new View.OnKeyListener() {
+                @Override
+                public boolean onKey(View v, int keyCode, android.view.KeyEvent event) {
+                    if (event.getAction() != android.view.KeyEvent.ACTION_DOWN) {
+                        return false;
+                    }
+                    int at = series.indexOf(vodSeries);
+                    return onEpisodeKey(keyCode, at >= 0 ? at - chunkStart : keyIndex - chunkStart);
+                }
+            });
             item.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {

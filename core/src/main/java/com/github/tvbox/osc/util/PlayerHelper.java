@@ -46,6 +46,19 @@ public class PlayerHelper {
             e.printStackTrace();
         }
         if(forcePlayerType>=0)playerType = forcePlayerType;
+        /*
+         * 点播强制走 SurfaceView。
+         *
+         * TextureView 每一帧都要先拷成 GPU 纹理再参与界面合成；这台电视的 GPU 很弱，
+         * 播 4K 时实测每秒丢 17 帧（日志里 dropped 一路涨到 8 万+），画面越来越慢、
+         * 声音照走 —— 就是「音画不同步」的真正来源。
+         * SurfaceView 由硬件叠加层直接上屏，不经过 GPU 合成，是电视上播视频的正路。
+         *
+         * 代价：SurfaceView 不能做旋转/透明度动画。播放页没有这类动画，够用。
+         */
+        renderType = 1;
+        android.util.Log.i("DeskPlayer", "点播渲染=SurfaceView（原配置 " + Hawk.get(HawkConfig.PLAY_RENDER, 0) + "）"
+                + " 内核=" + (playerType == 1 ? "ijk" : "exo"));
         IJKCode codec = ApiConfig.get().getIJKCodec(ijkCode);
         PlayerFactory playerFactory;
         if (playerType == 1) {
@@ -93,6 +106,8 @@ public class PlayerHelper {
 
     public static void updateCfg(VideoView videoView) {
         int playType = Hawk.get(HawkConfig.PLAY_TYPE, 2);
+        android.util.Log.i("DeskPlayer", "播放内核=" + (playType == 1 ? "ijk" : "exo")
+                + " 渲染=" + (Hawk.get(HawkConfig.PLAY_RENDER, 0) == 1 ? "SurfaceView" : "TextureView"));
         PlayerFactory playerFactory;
         if (playType == 1) {
             playerFactory = new PlayerFactory<IjkMediaPlayer>() {

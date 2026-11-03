@@ -62,7 +62,15 @@ public class IjkMediaPlayer extends IjkPlayer {
                 }
             }
         }
-        mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", 30);
+        /*
+         * 帧率上限：30 → 61。
+         *
+         * ijk 的 max-fps 是「超过这个帧率就丢帧」的意思，不是「限速到 30」。电视上
+         * 50/60fps 的片源（体育、动画、部分流媒体）会被丢掉一半的帧：画面越来越慢，
+         * 声音照常走 —— 表现就是「快进之后音画不同步」，而且越看越偏。
+         * 61 等于不限制（保留一个上限，避免异常片源把渲染线程压死）。
+         */
+        mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max-fps", 61);
 
         // 设置视频流格式
 //        mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_PLAYER, "overlay-format", tv.danmaku.ijk.media.player.IjkMediaPlayer.SDL_FCC_RV32);
@@ -85,6 +93,25 @@ public class IjkMediaPlayer extends IjkPlayer {
             mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max_cached_duration", 3000);
             mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_FORMAT, "infbuf", 0);
             mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_CODEC, "threads", "2");
+            /*
+             * 精确 seek（点播才开）。
+             *
+             * 默认的 seek 只跳到「最近的关键帧」，然后靠丢帧追到目标时间。跨度一大
+             * （比如 0 跳到 18 分），追帧期间音频已经按目标时间开播了 —— 音画就差出一截。
+             * 打开精确 seek 后，播放器会把音轨和视频一起定位到目标时间再起播，
+             * 代价是多解一小段（关键帧到目标之间的帧），点播完全承受得起。
+             * 直播不能开：直播没有「目标时间」，开了只会增加延迟。
+             */
+            mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_PLAYER, "enable-accurate-seek", 1);
+            /*
+             * 起播时强制音画对齐（原来这行是注释掉的）。
+             *
+             * 不加的时候，播放器哪个先就绪就先把哪个放出来：声音解得快，先响；
+             * 画面要等关键帧解出来、还要追到目标时间，晚到几百毫秒 ——
+             * 快进之后尤其明显，因为那时候视频要往前追一大段。
+             * 打开之后，起播会等音轨和视频都到位再一起放，代价是起播多等一点点。
+             */
+            mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_PLAYER, "sync-av-start", 1);
         }
 //        mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_PLAYER, "sync-av-start", 1);//强制音画同步
     }

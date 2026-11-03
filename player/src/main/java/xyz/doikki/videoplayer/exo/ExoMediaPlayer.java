@@ -63,8 +63,19 @@ public class ExoMediaPlayer extends AbstractPlayer implements Player.Listener {
     @Override
     public void initPlayer() {
         if (mLoadControl == null) {
+            /*
+             * 缓冲参数（seek 之后的表现基本由这四个数决定）：
+             *
+             *   minBuffer   15s —— 起播前至少攒这么多，网络抖一下不至于卡
+             *   maxBuffer   30s
+             *   playback     2s —— 「攒够 2 秒才开播」。原来是 1 秒：大跨度快进之后
+             *                      视频要从前一个关键帧开始解码、还得丢帧追到目标点，
+             *                      1 秒的缓冲根本不够 —— 音频先响、画面后到，就成了
+             *                      「音画不同步」。这台电视解码弱，这里必须放宽。
+             *   afterRebuffer 4s —— 卡顿后重播同理，给解码器留出追帧的时间。
+             */
             mLoadControl = new DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(15_000, 30_000, 1_000, 3_000)
+                    .setBufferDurationsMs(15_000, 30_000, 2_000, 4_000)
                     .setTargetBufferBytes(32 * 1024 * 1024)
                     .setPrioritizeTimeOverSizeThresholds(false)
                     .setBackBuffer(0, false)
@@ -72,8 +83,21 @@ public class ExoMediaPlayer extends AbstractPlayer implements Player.Listener {
         }
         mInternalPlayer = new SimpleExoPlayer.Builder(
                 mAppContext,
-                mRenderersFactory == null ? mRenderersFactory = new DefaultRenderersFactory(mAppContext).setEnableDecoderFallback(true)  // 启用解码器回退，避免硬件加速问题
-                        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER) : mRenderersFactory,
+                /*
+                 * EXTENSION_RENDERER_MODE_ON，不是 PREFER。
+                 *
+                 * 原来写的是 PREFER（注释还写着「启用解码器回退」——两句话是反的）：
+                 * PREFER 的意思是「有扩展解码器就优先用它」。这个包里带了
+                 * exoplayer-ffmpeg-extension（libffmpegJNI.so），它能解 AAC/AC3/OPUS 等，
+                 * 于是**声音全部走 ffmpeg 软解**，视频走 MediaCodec 硬解 ——
+                 * 一半软一半硬，CPU 吃紧（就是「性能跟不上」），
+                 * 而且大跨度 seek 之后两边的时钟各走各的，音画就对不上了。
+                 *
+                 * ON 才是注释里说的那个意思：平台解码器能解就用硬解，
+                 * 只有硬解不支持（比如 DTS、TrueHD）才回退到 ffmpeg。
+                 */
+                mRenderersFactory == null ? mRenderersFactory = new DefaultRenderersFactory(mAppContext).setEnableDecoderFallback(true)
+                        .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON) : mRenderersFactory,
                 mTrackSelector == null ? mTrackSelector = new DefaultTrackSelector(mAppContext) : mTrackSelector,
                 new DefaultMediaSourceFactory(mAppContext),
                 mLoadControl,
@@ -88,6 +112,40 @@ public class ExoMediaPlayer extends AbstractPlayer implements Player.Listener {
         }
         if(trackSelector == null)trackSelector=(DefaultTrackSelector)mTrackSelector;
         mInternalPlayer.addListener(this);
+        /*
+         * 丢帧统计：只为定位「声音快、画面慢」。
+         *
+         * 如果电视的解码/渲染跟不上，Exo 会不断丢帧来追时钟 —— 日志里 dropped 会一直涨，
+         * 而位置(pos)照常前进。看到这个就能确定「不是同步算错，是渲染真的掉队了」，
+         * 接下来该动的是渲染方式（TextureView → SurfaceView）或降低分辨率。
+         * 反过来如果 dropped 不涨却还是不同步，那就是时钟/输出延迟的问题，方向完全不同。
+         */
+        mInternalPlayer.addAnalyticsListener(
+                new com.google.android.exoplayer2.analytics.AnalyticsListener() {
+                    private long dropped;
+                    private long lastLogAt;
+
+                    @Override
+                    public void onDroppedVideoFrames(EventTime eventTime, int droppedFrames,
+                                                     long elapsedMs) {
+                        dropped += droppedFrames;
+                        long now = android.os.SystemClock.elapsedRealtime();
+                        if (now - lastLogAt < 3_000L) {
+                            return;
+                        }
+                        lastLogAt = now;
+                        long pos = mInternalPlayer == null ? -1 : mInternalPlayer.getCurrentPosition();
+                        android.util.Log.i("DeskPlayer", "丢帧累计=" + dropped
+                                + " 本批=" + droppedFrames + " 位置=" + pos);
+                    }
+
+                    @Override
+                    public void onRenderedFirstFrame(EventTime eventTime, Object output,
+                                                     long renderTimeMs) {
+                        long pos = mInternalPlayer == null ? -1 : mInternalPlayer.getCurrentPosition();
+                        android.util.Log.i("DeskPlayer", "首帧完成 位置=" + pos);
+                    }
+                });
     }
 
     public void setTrackSelector(TrackSelector trackSelector) {

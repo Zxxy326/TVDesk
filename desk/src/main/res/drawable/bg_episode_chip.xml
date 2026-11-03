@@ -15,13 +15,24 @@
         </shape>
     </item>
 
-    <item android:state_selected="true">
+    <!--
+      选中 = 「上次看到这一集」。原来的底色 #2E2E38 和普通格子只差一点点，
+      截图里根本看不出哪一集是上次看过的 —— 用户就以为「没记住」。
+      改成琥珀色描边 + 暖色底：在深色封面上足够显眼，白字仍然读得清。
+    -->
+    <!--
+      注意用 state_activated，不是 state_selected。
+      GridView（AbsListView）会把「当前获得焦点的那一格」自动标成 selected，
+      跟「上次看到这一集」抢同一个状态 —— 用户看到的永远是第一格高亮。
+      activated 是应用自己控制的状态，系统不碰。
+    -->
+    <item android:state_activated="true">
         <shape android:shape="rectangle">
-            <solid android:color="#2E2E38" />
+            <solid android:color="#3A2E18" />
             <corners android:radius="@dimen/radius_control" />
             <stroke
-                android:width="1dp"
-                android:color="#66FFFFFF" />
+                android:width="2dp"
+                android:color="#FFD166" />
         </shape>
     </item>
 
