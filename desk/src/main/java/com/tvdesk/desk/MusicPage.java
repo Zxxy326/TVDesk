@@ -562,6 +562,8 @@ public class MusicPage extends FrameLayout implements ModulePage {
             new ArrayList<>();
     /** 市场清单是否在拉 */
     private boolean marketLoading;
+    /** 上一次拉市场是不是彻底失败（网络/限流）。用来区分「拉不到」和「市场真的没货」 */
+    private boolean marketFailed;
     /**
      * 用户最后落在内容区的第几条。
      *
@@ -3278,6 +3280,11 @@ public class MusicPage extends FrameLayout implements ModulePage {
             TextView rowTail = view.findViewById(R.id.music_row_tail);
 
             bindRowCover((ImageView) view.findViewById(R.id.music_row_cover), row.coverUrl);
+            // 没有封面时在占位底上显示这个版块的字（扫/市/云/装/♪），
+            // 而不是留一块空方块——整屏看过去像图挂了
+            TextView rowGlyph = view.findViewById(R.id.music_row_glyph);
+            rowGlyph.setText(glyphFor(row));
+            rowGlyph.setVisibility(TextUtils.isEmpty(row.coverUrl) ? View.VISIBLE : View.GONE);
             // 焦点走到哪一行，整页背景就跟到哪一行。捕获的是这一次绑定的地址，
             // 不是 row 对象——ListView 复用时 row 已经换成别的位置了
             final String rowCover = row.coverUrl;
@@ -3427,20 +3434,22 @@ public class MusicPage extends FrameLayout implements ModulePage {
     /**
      * 打开音源市场。
      *
-     * <p>做法跟像素播放器一致：市场内容来自固定 GitHub 仓库的 releases，
-     * 每个 release 是一个 zip 音源包，下载解包后把里面的 .js 收进本地音源目录。
+     * <p>清单来自上游的 <b>Releases</b>（每次打开都重新拉一次，不会拿旧清单糊弄），
+     * 每个 release 是一个 zip 音源包；包里有哪些 js 直接列出来，装的时候从缓存的包里解。
      */
     private void openSourceMarket() {
         drillKey = MARKET_KEY;
         drillLabel = "音源市场";
         marketItems.clear();
         marketLoading = true;
+        marketFailed = false;
         rebuildRows();
+        final Context ctx = getContext();
         new Thread(new Runnable() {
             @Override
             public void run() {
                 final List<com.github.catvod.music.MusicSourceMarket.Item> list =
-                        com.github.catvod.music.MusicSourceMarket.fetchMarket();
+                        com.github.catvod.music.MusicSourceMarket.fetchMarket(ctx);
                 post(new Runnable() {
                     @Override
                     public void run() {
@@ -3448,35 +3457,131 @@ public class MusicPage extends FrameLayout implements ModulePage {
                             return;
                         }
                         marketLoading = false;
+                        marketFailed = list.isEmpty();
                         marketItems.addAll(list);
                         rebuildRows();
+                        // 清单终于回来了：焦点落在第一项上，不用用户再按一次下。
+                        // 只在这一屏还是市场时才抢焦点——等待期间用户可能已经返回音源列表了
+                        if (!marketItems.isEmpty() && MARKET_KEY.equals(drillKey)) {
+                            focusList();
+                        }
                     }
                 });
             }
         }, "music-market-list").start();
     }
 
+    /** 这批清单是从哪来的（上游版本号），显示在副标题上 */
+    private String marketVersion() {
+        for (com.github.catvod.music.MusicSourceMarket.Item item : marketItems) {
+            if (!TextUtils.isEmpty(item.version)) {
+                return item.version;
+            }
+        }
+        return "";
+    }
+
+    /** 这个音源是不是已经装过（按落盘文件名认；市场里的名字就是文件名） */
+    private boolean installedSource(String fileName) {
+        if (TextUtils.isEmpty(fileName)) {
+            return false;
+        }
+        synchronized (sources) {
+            for (com.github.catvod.music.LxSource s : sources) {
+                if (s == null || TextUtils.isEmpty(s.fileName)) {
+                    continue;
+                }
+                if (TextUtils.equals(s.fileName, fileName)) {
+                    return true;
+                }
+                // 市场里的名字带 .js，本地落盘也是；个别脚本被重命名过，按去掉扩展名再比一次
+                String a = s.fileName.toLowerCase();
+                String b = fileName.toLowerCase();
+                if (a.equals(b) || (a + ".js").equals(b) || (b + ".js").equals(a)) {
+                    return true;
+                }
+                // 上游每次发版会把版本号写进文件名（墨澜音乐源v2.3.0 → v2.3.4）。
+                // 归一化之后同名就算「已装」——否则用户装过的新版本永远显示「下载」，
+                // 看上去像市场没同步他的安装状态。
+                String na = normalizeSourceName(s.fileName);
+                if (!na.isEmpty() && na.equals(normalizeSourceName(fileName))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 音源名归一化：去掉 .js、版本号（v2.3.4 / V4.1 / 单独的数字）、
+     * 括号里的备注（「酷狗挂了」这类）、空格与标点。
+     *
+     * <p>只用来判断「市场上这一条和本地已装的是不是同一个音源」，
+     * 不参与任何落盘路径 —— 判错了顶多标签显示不对，不会删错文件。
+     */
+    private static String normalizeSourceName(String name) {
+        if (TextUtils.isEmpty(name)) {
+            return "";
+        }
+        String s = name.toLowerCase();
+        if (s.endsWith(".js")) {
+            s = s.substring(0, s.length() - 3);
+        }
+        s = s.replaceAll("(?i)v?\\d+(\\.\\d+)*", "");
+        s = s.replaceAll("[\\(（\\[【][^\\)）\\]】]*[\\)）\\]】]", "");
+        s = s.replaceAll("[\\s_\\-·.,，。:：+]", "");
+        return s;
+    }
+
     /** 市场清单 */
     private void buildMarketRows() {
         title.setText("音源市场");
         if (marketLoading) {
-            subtitle.setText("正在拉取市场…");
+            subtitle.setText("正在拉取上游最新版本…");
             return;
         }
         if (marketItems.isEmpty()) {
-            subtitle.setText("市场拉不到（网络不通）· 可以用「扫码导入音源」");
+            subtitle.setText(marketFailed
+                    ? "市场拉不到（网络不通或接口限流）· 可以用「扫码导入音源」"
+                    : "市场里没有音源");
             return;
         }
-        subtitle.setText(marketItems.size() + " 个音源 · 选一个直接装上 · 按「返回」回音源列表");
+        String version = marketVersion();
+        int installed = 0;
+        for (com.github.catvod.music.MusicSourceMarket.Item item : marketItems) {
+            if (installedSource(item.name)) {
+                installed++;
+            }
+        }
+        StringBuilder line = new StringBuilder();
+        line.append(marketItems.size()).append(" 个音源");
+        if (!TextUtils.isEmpty(version)) {
+            line.append(" · 上游 ").append(version);
+        }
+        if (installed > 0) {
+            line.append(" · 已装 ").append(installed).append(" 个");
+        }
+        line.append(" · 按「返回」回音源列表");
+        subtitle.setText(line.toString());
         for (com.github.catvod.music.MusicSourceMarket.Item item : marketItems) {
             Row row = new Row();
             row.marketItem = item;
-            row.title = item.name;
+            // 标题去掉 .js：用户要的是「哪个音源」，不是文件名
+            row.title = stripJsSuffix(item.name);
+            // 副标题优先显示分类（推荐/优质/一般），没有分类才退回版本号
             row.sub = TextUtils.isEmpty(item.category) ? item.version : item.category;
-            row.tail = "下载";
+            row.tail = installedSource(item.name) ? "已装 · 覆盖更新" : "下载";
             row.glyph = "装";
             rows.add(row);
         }
+    }
+
+    private static String stripJsSuffix(String name) {
+        if (name == null) {
+            return "";
+        }
+        return name.toLowerCase().endsWith(".js")
+                ? name.substring(0, name.length() - 3) : name;
     }
 
     /**
@@ -3489,7 +3594,8 @@ public class MusicPage extends FrameLayout implements ModulePage {
         if (item == null) {
             return;
         }
-        setResolveStatus("正在下载 " + item.name + "…");
+        final boolean existed = installedSource(item.name);
+        setResolveStatus((existed ? "正在从上游更新 " : "正在下载 ") + item.name + "…");
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -3506,14 +3612,49 @@ public class MusicPage extends FrameLayout implements ModulePage {
                             toast("下载失败：" + item.name + "，可以试试扫码导入");
                             return;
                         }
-                        setResolveStatus(item.name + " 已装上");
-                        toast(item.name + " 已装上，正在刷新…");
+                        removeOutdatedSource(file.getName());
+                        setResolveStatus(item.name + (existed ? " 已更新" : " 已装上"));
+                        toast(item.name + (existed ? " 已更新到上游版本" : " 已装上") + "，正在刷新…");
                         // 重新扫描：把新装的脚本收进列表，用户马上就能用
                         scanSources(false);
                     }
                 });
             }
         }, "music-market").start();
+    }
+
+    /**
+     * 装上新版之后，把同一个音源的老版本脚本删掉。
+     *
+     * <p>上游会把版本号写进文件名（{@code 墨澜音乐源v2.3.0.js} → {@code 墨澜音乐源v2.3.4.js}）。
+     * 不删的话音源列表里会并排出现两条同名条目，用户根本分不清哪条是新的，
+     * 「更新了上游」这件事反而变成了一堆垃圾文件。
+     */
+    private void removeOutdatedSource(String installedName) {
+        String target = normalizeSourceName(installedName);
+        if (TextUtils.isEmpty(target)) {
+            return;
+        }
+        try {
+            File dir = com.github.catvod.music.LxManager.dir(getContext());
+            File[] files = dir.listFiles();
+            if (files == null) {
+                return;
+            }
+            for (File f : files) {
+                if (!f.isFile() || !f.getName().toLowerCase().endsWith(".js")) {
+                    continue;
+                }
+                if (f.getName().equals(installedName)) {
+                    continue;
+                }
+                if (target.equals(normalizeSourceName(f.getName())) && f.delete()) {
+                    android.util.Log.i(TAG, "清掉旧版音源：" + f.getName());
+                }
+            }
+        } catch (Throwable th) {
+            android.util.Log.w(TAG, "清旧版音源失败：" + th.getMessage());
+        }
     }
 
     /**

@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  音乐列表的一行。歌曲和分组（歌手/专辑/文件夹）共用：
+  音乐列表的一行。歌曲和分组（歌手/专辑/文件夹/音源）共用：
   分组行只有标题和右侧计数，没有副标题，把副标题隐藏即可。
 
   行本身可聚焦——ListView 必须 setItemsCanFocus(true) 才会把焦点交给子项。
   焦点语言沿用设置页那套（bg_setting_row：亮底 + 白描边）。
+
+  行距靠 ListView 的 dividerHeight（10dp，透明）撑开，不靠 margin：
+  AbsListView 会丢掉子项的 margin，写在 layout_margin 上等于没写。
+  行高放大到 56dp 封面 + 28dp 上下内边距 = 84dp：原来 72dp 在电视上
+  两行字挤在一起，三米外看像一整块。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -13,24 +18,42 @@
     android:clickable="true"
     android:focusable="true"
     android:gravity="center_vertical"
+    android:minHeight="84dp"
     android:orientation="horizontal"
-    android:paddingStart="18dp"
-    android:paddingTop="12dp"
-    android:paddingEnd="18dp"
-    android:paddingBottom="12dp">
+    android:paddingStart="20dp"
+    android:paddingTop="14dp"
+    android:paddingEnd="22dp"
+    android:paddingBottom="14dp">
 
     <!--
       行封面。在线曲目是专辑图，歌单/榜单行是歌单封面；本地曲库和分组行没有封面，
       只留这块占位底——不占的话有封面和没封面的行文字起点对不齐，一列看下去像锯齿。
+      音源行没有封面，就在这块占位底上显示它的字（扫/市/云/装），
+      空白方块在整屏里看着像个坏图。
     -->
-    <ImageView
-        android:id="@+id/music_row_cover"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_marginEnd="14dp"
-        android:background="@drawable/bg_cover_placeholder"
-        android:importantForAccessibility="no"
-        android:scaleType="centerCrop" />
+    <FrameLayout
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_marginEnd="18dp"
+        android:background="@drawable/bg_cover_placeholder">
+
+        <ImageView
+            android:id="@+id/music_row_cover"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop" />
+
+        <TextView
+            android:id="@+id/music_row_glyph"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:text=""
+            android:textColor="#8A8F9C"
+            android:textSize="22sp"
+            android:visibility="gone" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"
@@ -46,27 +69,27 @@
             android:singleLine="true"
             android:text=""
             android:textColor="@color/text_primary"
-            android:textSize="16sp" />
+            android:textSize="17sp" />
 
         <TextView
             android:id="@+id/music_row_sub"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
+            android:layout_marginTop="5dp"
             android:ellipsize="end"
             android:singleLine="true"
             android:text=""
             android:textColor="@color/text_tertiary"
-            android:textSize="12sp" />
+            android:textSize="13sp" />
     </LinearLayout>
 
     <TextView
         android:id="@+id/music_row_tail"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
+        android:layout_marginStart="22dp"
         android:text=""
         android:textColor="@color/text_tertiary"
-        android:textSize="12sp" />
+        android:textSize="13sp" />
 
 </LinearLayout>

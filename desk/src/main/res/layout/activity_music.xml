@@ -246,19 +246,34 @@
                 android:visibility="gone" />
         </LinearLayout>
 
-        <!-- paddingBottom 让最后一行不被悬浮播放条压住（条高 92 + 离底 safe_bottom 44，再留 16 的视觉空隙） -->
-        <ListView
-            android:id="@+id/music_list"
+        <!--
+          行列表要外面套一层「裁剪盒」，原因在 clipToPadding：
+          ListView 自己 clipToPadding=false 时，滚动的行会画到自己的边界之外（padding 区、
+          甚至顶边以上）。父容器 music_content 的 clipChildren 默认放过它，
+          于是第一行会直接盖到「音源市场」那个副标题上（用户截图就是这个）。
+          套一层 FrameLayout 并让它 clipChildren=true，滚动内容就只能在盒子里走：
+          上边不再压标题，下边仍然可以滚到悬浮播放条底下（盒子一直到底）。
+        -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:layout_marginTop="20dp"
-            android:clipToPadding="false"
-            android:divider="@null"
-            android:dividerHeight="0dp"
-            android:paddingTop="14dp"
-            android:paddingBottom="152dp"
-            android:scrollbars="none" />
+            android:layout_marginTop="16dp"
+            android:clipChildren="true"
+            android:clipToPadding="false">
+
+            <!-- paddingBottom 让最后一行不被悬浮播放条压住（条高 92 + 离底 safe_bottom 44，再留 16 的视觉空隙） -->
+            <ListView
+                android:id="@+id/music_list"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:divider="@android:color/transparent"
+                android:dividerHeight="10dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="152dp"
+                android:scrollbars="none" />
+        </FrameLayout>
 
         <!--
           内容卡片墙。和影视页的海报墙同参数（6 列 / 20dp 横距 / 24dp 行距 / 透明 selector），
