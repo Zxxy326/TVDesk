@@ -419,6 +419,8 @@ public class MusicPage extends FrameLayout implements ModulePage {
      * 用户会以为遥控器坏了），以及当作一把锁——同一时刻只放一个取链接任务进来。
      */
     private Track resolvingTrack;
+    /** 上一次开始取链接的时间：用来分辨「遥控器连发」和「用户真的换歌了」 */
+    private long resolveStartedAt;
 
     private LinearLayout switcher;
     private LinearLayout switcherMenu;
@@ -555,6 +557,14 @@ public class MusicPage extends FrameLayout implements ModulePage {
     private int lastContentPosition = -1;
 
     private MediaPlayer player;
+    /**
+     * 播放器里现在装的是哪一首。
+     *
+     * <p>换歌时 {@code nowPlaying} 会立刻指向新歌，而 {@code player} 里还是上一首
+     * （在线歌要几十秒换链接）。进度条、暂停键、单曲重播都必须按这个字段判断，
+     * 否则会把上一首的位置/声音当成新歌的 —— 用户看到的是「切了歌，进度还停在上一首」。
+     */
+    private Track playerTrack;
     private int queueIndex = -1;
     private Track nowPlaying;
 
@@ -3121,28 +3131,17 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
         if (event.getAction() == KeyEvent.ACTION_DOWN && stageOpen) {
             if (stageChromeHidden) {
-                // BACK 仍然交给宿主收起这一层；其余键先把控制区唤回来。
-                // 这一键不能再往下发：唤回之前焦点挂在整层上，默认寻焦会按几何把
-                // 它挪到旁边的按钮（实测按右键落到「下一首」，下一键就把歌切了）。
-                // 左右键的含义在这里直接执行，和亮着控制区时按同一个键等价；
-                // 确定键只负责唤回，免得黑着屏按一下就被当成暂停。
+                // BACK 仍然交给宿主收起这一层；其余键只负责把控制区唤回来。
                 if (event.getKeyCode() != KeyEvent.KEYCODE_BACK) {
                     showStageControls(true);
-                    // 左右键<b>不</b>在这里当快退快进。
+                    // 这一键必须<b>吃掉</b>，不能交给焦点导航。
                     //
-                    // <p>以前这一层把左右直接吞掉拖进度，于是控制区一收起（6 秒自动淡出），
-                    // 用户按右键想切到「下一首」就变成拖进度条 —— 焦点被钉在「暂停」上，
-                    // 永远走不到切歌那颗。表现就是「上一首/下一首按钮无反应」，
-                    // 而且用户根本不知道控制区已经收起来了（它淡出得很安静）。
-                    //
-                    // <p>现在左右键交回焦点导航：控制区亮着时它就是「走到切歌/收藏」，
-                    // 收着时第一下先把控制区唤回来，第二下才走位 —— 两步都符合直觉。
-                    if (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_CENTER
-                            || event.getKeyCode() == KeyEvent.KEYCODE_ENTER
-                            || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP
-                            || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_DOWN) {
-                        return true;
-                    }
+                    // <p>控制区收起时焦点挂在整层 {@code stage} 上（hideStageControls 里定的），
+                    // 而整层是满屏的 —— 交给导航的话，方向键会按几何关系去找「屏幕右边有什么」，
+                    // 找到的是被盖在下面的「正在播放」胶囊。用户看到的是：按右键，屏幕上没有
+                    // 任何焦点框；再按确定，什么都没发生（还以为切歌按钮坏了）。
+                    // 先唤回、这一键到此为止，第二下才在控制区里走位 —— 两步都符合直觉。
+                    return true;
                 }
             } else {
                 scheduleStageChromeHide();
@@ -3903,6 +3902,29 @@ public class MusicPage extends FrameLayout implements ModulePage {
         if (!likedLoaded && netease().loggedIn()) {
             loadLiked();
         }
+        // 换歌的第一时间就把它当成「当前歌」。
+        //
+        // <p>标题、封面、歌词、进度全部以 nowPlaying 为准；如果等 startPlayer 才设，
+        // 在线歌取链接那几十秒里播放页显示的还是上一首 —— 歌已经切了、画面没切，
+        // 用户看到的就是「切歌后画面和提示都不对」。同理，上一首留下的状态
+        //（「已切换到 XX」「解析失败：…」）也要在这里清掉，不能跟到下一首身上。
+        resolveStatus = "";
+        nowPlaying = track;
+        // 换歌先把上一首停掉：在线歌取链接要几十秒，不停的话这几十秒里
+        // 声音还是上一首、画面已经是新歌。用户明确按了下一首，不该继续听上一首。
+        if (player != null && playerTrack != null && playerTrack != track) {
+            try {
+                player.pause();
+            } catch (Throwable ignored) {
+            }
+            playIntent = false;
+        }
+        resetStageProgress();
+        if (stageLyric != null) {
+            // 旧的歌词行不清掉的话，新词回来之前屏幕上一直是上一首的词
+            stageLyric.clearLyric();
+        }
+        updateBar();
         // 歌词和播放链接是两条独立的网络请求，一起发出去。在线歌换链接要几十秒，
         // 等播起来了再取词的话，用户展开播放页看到的就是好几秒的空白。
         loadLyric(track);
@@ -3917,6 +3939,25 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
         if (!startPlayer(track)) {
             toast("这首歌打不开，可能文件已经不在原位置了");
+        }
+    }
+
+    /**
+     * 换歌时把进度条和时间先归零。
+     *
+     * <p>不归零的话，新歌还在取链接，进度条却停着上一首的位置 ——
+     * 用户会以为这首歌从中间开始放。
+     */
+    private void resetStageProgress() {
+        if (stageProgress == null) {
+            return;
+        }
+        stageProgress.setProgress(0);
+        if (stagePos != null) {
+            stagePos.setText(formatDuration(0));
+        }
+        if (stageDur != null) {
+            stageDur.setText(formatDuration(0));
         }
     }
 
@@ -3968,6 +4009,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
                         // 用户看到的是「点了一整张歌单，一首都没响」。所以吃下来，说清楚。
                         android.util.Log.w(TAG, "MediaPlayer 报错 what=" + what + " extra=" + extra);
                         nowPlaying = null;
+                        playerTrack = null;
                         updateBar();
                         notifyContentChanged();
                         toast("这一首放不出来，可能链接已经过期或文件不在了");
@@ -4005,6 +4047,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
             }
             player.prepareAsync();
             nowPlaying = track;
+            playerTrack = track;
             playIntent = true;
             countPlay(track);
             updateBar();
@@ -4039,10 +4082,16 @@ public class MusicPage extends FrameLayout implements ModulePage {
      * @param sourceId 指定音源（{@code wy} 或 {@code lx:文件名}）；空表示自动挑
      */
     private void playOnline(final Track track, final String sourceId) {
-        if (resolvingTrack != null) {
+        // 连点保护：800ms 内的重复触发当成一次误触（遥控器连发），别把 quickjs 跑满。
+        // 超过这个窗口就是用户真的换歌了 —— 新的那首要**接管**，不能因为「上一首还在取」
+        // 就把按键吞掉：以前这里直接 return，队列已经往下走了一格，声音却还停在上一首，
+        // 用户看到的就是「歌切了但画面/提示都不对」。
+        long now = System.currentTimeMillis();
+        if (resolvingTrack != null && now - resolveStartedAt < 800L) {
             setResolveStatus("上一首还在取链接…");
             return;
         }
+        resolveStartedAt = now;
         resolvingTrack = track;
         updateBar();
         // 「正在取播放链接…」不再弹系统 Toast：连着切歌会连着弹三次，
@@ -4376,6 +4425,14 @@ public class MusicPage extends FrameLayout implements ModulePage {
             }
             return;
         }
+        if (playerTrack != nowPlaying) {
+            // 播放器里还是上一首（新歌正在取链接）：这一下当成「继续播当前这首」，
+            // 不能去 start/pause 上一首 —— 那会让画面和声音各播各的。
+            if (resolvingTrack == null) {
+                play(nowPlaying);
+            }
+            return;
+        }
         try {
             // 按意图而不是 isPlaying() 切：准备中 isPlaying() 是 false，
             // 那时按暂停会被当成「播放」，反而把它叫醒
@@ -4447,7 +4504,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
      *         让调用方退回正常的切歌逻辑，否则界面会停在一个不再前进的进度上。
      */
     private boolean rewindCurrent() {
-        if (player == null || nowPlaying == null) {
+        if (player == null || nowPlaying == null || playerTrack != nowPlaying) {
             return false;
         }
         try {
@@ -4712,10 +4769,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
         nowTitle.setText(TextUtils.isEmpty(shown.title) ? fileName(shown.path) : shown.title);
         // 取链接那几十秒里必须有个说法，否则用户看到的是一首「正在播」但听不到声音的歌
-        nowMeta.setText(resolving && nowPlaying == null
-                ? "正在取播放链接…"
-                : (!TextUtils.isEmpty(resolveStatus) ? resolveStatus
-                : join(safe(shown.artist), safe(shown.album))));
+        nowMeta.setText(metaTextFor(shown));
         renderBarCover(shown);
         setLikeShown(isLikedNow());
 
@@ -4733,6 +4787,21 @@ public class MusicPage extends FrameLayout implements ModulePage {
             renderStageHead(shown);
             applyPlaying(playing);
         }
+    }
+
+    /** 播放条和播放页共用的第二行文字：取链接中说取链接，有状态说状态，否则歌手 · 专辑 */
+    private String metaTextFor(Track shown) {
+        if (shown == null) {
+            return "";
+        }
+        boolean resolvingThis = resolvingTrack != null && resolvingTrack == shown;
+        if (resolvingThis) {
+            return TextUtils.isEmpty(resolveStatus) ? "正在取播放链接…" : resolveStatus;
+        }
+        if (!TextUtils.isEmpty(resolveStatus)) {
+            return resolveStatus;
+        }
+        return join(safe(shown.artist), safe(shown.album));
     }
 
     /**
@@ -4798,6 +4867,29 @@ public class MusicPage extends FrameLayout implements ModulePage {
         FocusScaler.attach(stageNext, 1.06f);
         FocusScaler.attach(stageLike, 1.06f);
         FocusScaler.attach(stageMode, 1.06f);
+        // 控制区是播放页里唯一的可聚焦区：显式指定左右邻居，上下也钉在这一排里。
+        // 不指定的话，几何寻焦会去找「屏幕右边/上边最近的控件」——那是被这一层盖住的
+        // 「正在播放」胶囊和播放条，于是用户按右键看不到焦点框、再按确定毫无反应。
+        stageMode.setNextFocusRightId(R.id.stage_prev);
+        stageMode.setNextFocusLeftId(R.id.stage_mode);
+        stagePrev.setNextFocusRightId(R.id.stage_toggle);
+        stagePrev.setNextFocusLeftId(R.id.stage_mode);
+        stageToggle.setNextFocusRightId(R.id.stage_next);
+        stageToggle.setNextFocusLeftId(R.id.stage_prev);
+        stageNext.setNextFocusRightId(R.id.stage_like);
+        stageNext.setNextFocusLeftId(R.id.stage_toggle);
+        stageLike.setNextFocusRightId(R.id.stage_like);
+        stageLike.setNextFocusLeftId(R.id.stage_next);
+        stageMode.setNextFocusUpId(R.id.stage_toggle);
+        stageMode.setNextFocusDownId(R.id.stage_toggle);
+        stagePrev.setNextFocusUpId(R.id.stage_toggle);
+        stagePrev.setNextFocusDownId(R.id.stage_toggle);
+        stageToggle.setNextFocusUpId(R.id.stage_toggle);
+        stageToggle.setNextFocusDownId(R.id.stage_toggle);
+        stageNext.setNextFocusUpId(R.id.stage_toggle);
+        stageNext.setNextFocusDownId(R.id.stage_toggle);
+        stageLike.setNextFocusUpId(R.id.stage_toggle);
+        stageLike.setNextFocusDownId(R.id.stage_toggle);
         // 电视遥控器用不到 touch 模式，但模拟器/触屏盒子点一下屏幕就会进 touch 模式，
         // 这时普通 focusable 的 ImageView 收不到 requestFocus，控制区淡出后就唤不回来。
         stagePrev.setFocusableInTouchMode(true);
@@ -5028,7 +5120,9 @@ public class MusicPage extends FrameLayout implements ModulePage {
     private void syncStageProgress() {
         int position = 0;
         int duration = 0;
-        if (player != null && nowPlaying != null) {
+        // 只信「播放器里装的就是当前这首」的数据：换歌时新歌还在取链接，
+        // 播放器里是上一首，读出来的位置会突然跳回上一首的进度
+        if (player != null && nowPlaying != null && playerTrack == nowPlaying) {
             try {
                 position = player.getCurrentPosition();
                 duration = player.getDuration();
@@ -5044,8 +5138,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
     /** 曲名、歌手、封面、背景。换歌和刚展开时各刷一次，不跟着进度走 */
     private void renderStageHead(Track shown) {
         stageTitle.setText(TextUtils.isEmpty(shown.title) ? fileName(shown.path) : shown.title);
-        stageMeta.setText(TextUtils.isEmpty(resolveStatus)
-                ? join(safe(shown.artist), safe(shown.album)) : resolveStatus);
+        stageMeta.setText(metaTextFor(shown));
         boolean hasCover = !TextUtils.isEmpty(shown.coverUrl);
         stageCover.setVisibility(hasCover ? View.VISIBLE : View.GONE);
         stageNote.setVisibility(hasCover ? View.GONE : View.VISIBLE);
