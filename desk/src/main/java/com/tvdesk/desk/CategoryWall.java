@@ -360,8 +360,21 @@ public class CategoryWall extends FrameLayout {
         });
     }
 
+    /**
+     * 首屏缓存的键。
+     *
+     * <p>筛选条件必须进 key：同一类目「不筛」和「筛 2025 / 美剧」是两份完全不同的列表，
+     * 只用 {@code sort.id} 的话，勾完筛选命中的是之前那屏缓存 —— 画面一点变化都没有，
+     * 用户以为「筛选没生效」。条件用 TreeMap 排过序，勾选顺序不同也不会多存一份。
+     */
     private String cacheKey(MovieSort.SortData sort) {
-        return sort == null ? "home" : sort.id;
+        if (sort == null) {
+            return "home";
+        }
+        if (sort.filterSelect == null || sort.filterSelect.isEmpty()) {
+            return sort.id;
+        }
+        return sort.id + "?" + new java.util.TreeMap<>(sort.filterSelect);
     }
 
     private void cacheFirstPage(String key) {

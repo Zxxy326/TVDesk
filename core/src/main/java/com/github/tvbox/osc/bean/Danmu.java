@@ -36,15 +36,22 @@ public class Danmu {
         if (TextUtils.isEmpty(xml)) return danmu;
         long position = Math.max(0, startPosition);
         if (position > 0) {
+            // 快路：只取「当前位置之后」的那批，起播不用先把整份弹幕都建出来
             parseByTag(danmu, xml, position, cancelChecker);
             if (isCancelled(cancelChecker)) return danmu;
             if (!danmu.data.isEmpty()) return danmu;
+            // 一条都没剩，通常不是「这部片没弹幕」，而是这批弹幕全在当前位置之前
+            // （电影前几分钟的吐槽、或者续播点已经过了 20 分钟）。
+            // 以前这里继续按位置过滤再解析一遍，结果还是 0 —— 上层据此判定「加载失败」，
+            // 用户看到的就是「这部片明明有弹幕，却一条都不显示」。
+            // 位置过滤只是加快起播，不是数据裁剪：兜底必须取全量。
+            danmu.data.clear();
         }
         String fixedXml = escapeIllegalEntities(xml);
-        if (parseByXmlPull(danmu, fixedXml, position, cancelChecker)) return danmu;
+        if (parseByXmlPull(danmu, fixedXml, 0, cancelChecker)) return danmu;
         if (isCancelled(cancelChecker)) return danmu;
         danmu.data.clear();
-        parseByTag(danmu, xml, position, cancelChecker);
+        parseByTag(danmu, xml, 0, cancelChecker);
         return danmu;
     }
 

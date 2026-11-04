@@ -1292,9 +1292,16 @@ public class PlayFragment extends BaseLazyFragment {
     }
 
     private void searchDanmu(String danmaku) {
-        if (!TextUtils.isEmpty(danmaku) || !DanmakuApi.canSearch() || mVodInfo == null) return;
+        if (!TextUtils.isEmpty(danmaku) || !DanmakuApi.canSearch() || mVodInfo == null) {
+            // 弹幕没出来时，先看是哪一环断的：源给了地址（不该再搜）/ 接口没开 / 还没详情
+            LOG.i("echo-danmu skip search: given=" + !TextUtils.isEmpty(danmaku)
+                    + ", canSearch=" + DanmakuApi.canSearch() + ", info=" + (mVodInfo != null));
+            return;
+        }
         VodInfo.VodSeries series = getCurrentSeries(mVodInfo.playFlag, mVodInfo.playIndex);
-        String key = progressKey;
+        final String key = progressKey;
+        LOG.i("echo-danmu search: title=" + (mVodInfo.name == null ? "" : mVodInfo.name)
+                + ", episode=" + (series == null ? "" : series.name));
         DanmakuApi.search(mVodInfo.name, series == null ? "" : series.name, new DanmakuApi.SearchCallback() {
             @Override
             public void onFound(String url) {
@@ -1305,6 +1312,7 @@ public class PlayFragment extends BaseLazyFragment {
             @Override
             public void onNotFound() {
                 if (!TextUtils.equals(key, progressKey)) return;
+                LOG.i("echo-danmu search: 没搜到");
                 checkDanmu("");
             }
         });

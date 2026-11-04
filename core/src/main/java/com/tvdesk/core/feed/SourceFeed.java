@@ -947,31 +947,94 @@ public final class SourceFeed {
             return;
         }
 
-        OkGo.<String>get(bean.getApi())
+        // 筛选条件：CMS 接口（type 0/1）的约定是把选中的条件<b>平铺</b>成同名参数，
+        // 再整体塞一份 JSON 进 f —— 实测两种站点各认其中一种，两个都带上最稳。
+        // 以前这两行没有，筛选弹窗选完只是把这屏重拉了一遍，源站根本没收到条件，
+        // 用户看到的就是「按了筛选没反应」。
+        final java.util.HashMap<String, String> filters = sort.filterSelect == null
+                ? new java.util.HashMap<String, String>() : sort.filterSelect;
+        String filterJson = "";
+        if (!filters.isEmpty()) {
+            try {
+                filterJson = new org.json.JSONObject(filters).toString();
+            } catch (Throwable ignored) {
+            }
+        }
+
+        // type 4：接口不吃平铺参数，要 base64 过的 ext（选中的筛选）和 extend（源配置里的扩展）
+        if (type == 4) {
+            String ext = "";
+            try {
+                ext = android.util.Base64.encodeToString(
+                        (filters.isEmpty() ? "{}" : new org.json.JSONObject(filters).toString())
+                                .getBytes("UTF-8"),
+                        android.util.Base64.DEFAULT | android.util.Base64.NO_WRAP);
+            } catch (Throwable th) {
+                ext = android.util.Base64.encodeToString("{}".getBytes(),
+                        android.util.Base64.DEFAULT | android.util.Base64.NO_WRAP);
+            }
+            String extend = fixUrl(bean.getExt());
+            com.lzy.okgo.request.GetRequest<String> request = OkGo.<String>get(bean.getApi())
+                    .tag(bean.getKey() + "_desk_list")
+                    .params("ac", "detail")
+                    .params("filter", "true")
+                    .params("t", sort.id)
+                    .params("pg", page)
+                    .params("ext", ext);
+            if (!TextUtils.isEmpty(extend)) {
+                request.params("extend", extend);
+            }
+            request.execute(listCallback(bean, type, callback));
+            return;
+        }
+
+        com.lzy.okgo.request.GetRequest<String> request = OkGo.<String>get(bean.getApi())
                 .tag(bean.getKey() + "_desk_list")
                 .params("ac", type == 0 ? "videolist" : "detail")
                 .params("t", sort.id)
-                .params("pg", page)
-                .execute(new AbsCallback<String>() {
-                    @Override
-                    public String convertResponse(okhttp3.Response response) throws Throwable {
-                        return response.body() == null ? "" : response.body().string();
-                    }
+                .params("pg", page);
+        if (!filters.isEmpty()) {
+            request.params(filters);
+            request.params("f", filterJson);
+        }
+        request.execute(listCallback(bean, type, callback));
+    }
 
-                    @Override
-                    public void onSuccess(Response<String> response) {
-                        List<Movie.Video> videos = type == 0
-                                ? videosOf(parseXml(response.body()), bean.getKey())
-                                : videosOf(parseJson(response.body()), bean.getKey());
-                        postList(callback, videos);
-                    }
+    /** 类目列表的响应处理：type 0 是 XML，其余按 JSON 解析 */
+    private static AbsCallback<String> listCallback(final SourceBean bean, final int type,
+            final ListCallback callback) {
+        return new AbsCallback<String>() {
+            @Override
+            public String convertResponse(okhttp3.Response response) throws Throwable {
+                return response.body() == null ? "" : response.body().string();
+            }
 
-                    @Override
-                    public void onError(Response<String> response) {
-                        super.onError(response);
-                        postError(callback, response.getException());
-                    }
-                });
+            @Override
+            public void onSuccess(Response<String> response) {
+                List<Movie.Video> videos = type == 0
+                        ? videosOf(parseXml(response.body()), bean.getKey())
+                        : videosOf(parseJson(response.body()), bean.getKey());
+                postList(callback, videos);
+            }
+
+            @Override
+            public void onError(Response<String> response) {
+                super.onError(response);
+                postError(callback, response.getException());
+            }
+        };
+    }
+
+    /** 源配置里的扩展地址：相对路径补全成绝对地址 */
+    private static String fixUrl(String url) {
+        if (TextUtils.isEmpty(url)) {
+            return "";
+        }
+        String value = url.trim();
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            return value;
+        }
+        return value;
     }
 
     // ---------------------------------------------------------------- 高清背景

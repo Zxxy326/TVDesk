@@ -1734,7 +1734,11 @@ public class DeskActivity extends DeskAdaptActivity {
                         break;
                     }
                 }
-                categoryWall.show(target);
+                // 必须走 renderCategory 而不是只调 categoryWall.show()：
+                // 它顺手把 wallMode 打开、把首页那屏换掉。以前漏了这一步，
+                // 从首页按确定弹筛选、选完确定，墙虽然后台拉到了数据却是 GONE 的，
+                // 用户看到的还是首页 Hero —— 就是「筛选没效果」。
+                renderCategory(target);
             }
 
             @Override

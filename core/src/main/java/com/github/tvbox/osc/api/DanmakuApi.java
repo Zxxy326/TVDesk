@@ -34,12 +34,38 @@ public class DanmakuApi {
 //    private static final String BUILTIN_API = "https://saas-oa.shyeguang.cn";
     private static final String BUILTIN_API = "https://logvardanmu.konfan.cn/87654321";
     private static final String USE_DEFAULT_KEY = "danmu_api_use_default";
-    private static final long BUILTIN_TIMEOUT = TimeUnit.SECONDS.toMillis(20);
-    private static final int BUILTIN_MAX_RETRY = 2;
+    private static final long BUILTIN_TIMEOUT = TimeUnit.SECONDS.toMillis(15);
+    private static final int BUILTIN_MAX_RETRY = 1;
     private static final int EPISODE_QUERY_NUMBER = 0;
     private static final int EPISODE_QUERY_EMPTY = 1;
     private static final Handler handler = new Handler(Looper.getMainLooper());
     private static final AtomicInteger searchSeq = new AtomicInteger();
+
+    /**
+     * 弹幕接口专用客户端：超时自己定，DNS 走系统解析。
+     *
+     * <p>为什么单独拿出来：配置里带 DoH 时，全站请求都会先问 DoH 服务器
+     * （见 {@code OkDns}）。视频站需要它绕污染，但弹幕接口（logvardanmu）在国内直连就好，
+     * 走 DoH 反而每换一个域名就要多等一次解析 —— 实机上表现是「弹幕时有时无，
+     * 有时要等十几秒」，日志里全是 timeout。这里只把 DNS 换成系统解析，其余不动。
+     */
+    private static volatile okhttp3.OkHttpClient danmuClient;
+
+    private static okhttp3.OkHttpClient danmuClient() {
+        okhttp3.OkHttpClient client = danmuClient;
+        if (client == null) {
+            synchronized (DanmakuApi.class) {
+                client = danmuClient;
+                if (client == null) {
+                    client = OkHttp.client(BUILTIN_TIMEOUT).newBuilder()
+                            .dns(okhttp3.Dns.SYSTEM)
+                            .build();
+                    danmuClient = client;
+                }
+            }
+        }
+        return client;
+    }
 
     public interface SearchCallback {
         void onFound(String url);
@@ -93,7 +119,9 @@ public class DanmakuApi {
 
     public static void search(String name, String episode, SearchCallback callback) {
         String apiUrl = getApiUrl();
-//        LOG.i("echo-danmaku search apiUrl: " + apiUrl);
+        // 排查「没有弹幕」时先看这一行：实际用的是哪个接口（自定义 / 内置）
+        LOG.i("echo-danmaku search api: " + safeLog(apiUrl)
+                + ", name: " + safeLog(name) + ", episode: " + safeLog(episode));
         if (TextUtils.isEmpty(apiUrl) || callback == null) return;
         try {
             OkHttp.cancel(TAG);
@@ -189,7 +217,7 @@ public class DanmakuApi {
             notifySearchResultSuccess(callback, seq, result.getUrl());
             return;
         }
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), result.getUrl(), TAG).enqueue(new Callback() {
+        OkHttp.newCall(danmuClient(), result.getUrl(), TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 notifySearchResultError(callback, seq, getErrorMessage(e));
@@ -220,7 +248,7 @@ public class DanmakuApi {
     private static void searchBuiltinList(String apiUrl, String name, SearchListCallback callback, int seq) {
         String baseUrl = normalizeBaseUrl(apiUrl);
         String searchUrl = baseUrl + "/api/v2/search/episodes?anime=" + encode(Trans.t2s(name == null ? "" : name));
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), searchUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(danmuClient(), searchUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 notifySearchListError(callback, seq, getErrorMessage(e));
@@ -252,8 +280,9 @@ public class DanmakuApi {
         final String episodeQuery = getEpisodeQuery(simpleEpisode, queryMode);
         final String searchUrl = baseUrl + "/api/v2/search/episodes?anime=" + encode(simpleName)
                 + (TextUtils.isEmpty(episodeQuery) ? "" : "&episode=" + encode(episodeQuery));
-//        LOG.i("echo-danmaku builtin search episodes: " + searchUrl + ", retry=" + retry + ", mode=" + queryMode);
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), searchUrl, TAG).enqueue(new Callback() {
+        // 这一行是排查「没有弹幕」的第一现场：集名解出来的集数对不对，一眼就能看出来
+        LOG.i("echo-danmaku builtin search: " + searchUrl + ", retry=" + retry + ", mode=" + queryMode);
+        OkHttp.newCall(danmuClient(), searchUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
@@ -276,6 +305,24 @@ public class DanmakuApi {
                 if (!isCurrentSearch(seq)) return;
                 try {
                     String body = response.body() == null ? "" : response.body().string();
+                    // 这个公共弹幕服务在限流/抖动时会返回一张 HTML 错误页而不是 JSON。
+                    // 把它当成「网络抖了一下」重试，比直接判「这部片没弹幕」体验好得多。
+                    if (!looksLikeJson(body)) {
+                        LOG.e("echo-danmaku builtin search: 返回的不是 JSON（多半被限流）");
+                        if (retry < BUILTIN_MAX_RETRY) {
+                            handler.postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    if (isCurrentSearch(seq)) {
+                                        searchBuiltin(apiUrl, name, episode, callback, retry + 1, seq, queryMode);
+                                    }
+                                }
+                            }, 1200L * (retry + 1));
+                        } else {
+                            notifyNotFound(callback, seq);
+                        }
+                        return;
+                    }
                     EpisodeMatch episodeMatch = findEpisodeFromSearchEpisodes(body, simpleEpisode);
                     if (episodeMatch != null && !TextUtils.isEmpty(episodeMatch.id)) {
                         loadBuiltinComment(baseUrl, simpleName, simpleEpisode, episodeMatch, callback, seq);
@@ -309,7 +356,7 @@ public class DanmakuApi {
     private static void searchBuiltinAnime(String baseUrl, String name, String episode, SearchCallback callback, int seq, boolean notifyOnEmpty) {
         final String searchUrl = baseUrl + "/api/v2/search/anime?keyword=" + encode(name);
         LOG.i("echo-danmaku builtin search anime: " + searchUrl);
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), searchUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(danmuClient(), searchUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
@@ -339,7 +386,7 @@ public class DanmakuApi {
     private static void loadBuiltinBangumi(String baseUrl, String animeId, String episode, SearchCallback callback, int seq) {
         final String bangumiUrl = baseUrl + "/api/v2/bangumi/" + animeId;
 //        LOG.i("echo-danmaku builtin bangumi: " + bangumiUrl);
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), bangumiUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(danmuClient(), bangumiUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
@@ -375,7 +422,7 @@ public class DanmakuApi {
                 + ", matched number: " + episodeMatch.number
                 + ", episodeId: " + episodeMatch.id);
         LOG.i("echo-danmaku builtin comment: " + commentUrl);
-        OkHttp.newCall(OkHttp.client(BUILTIN_TIMEOUT), commentUrl, TAG).enqueue(new Callback() {
+        OkHttp.newCall(danmuClient(), commentUrl, TAG).enqueue(new Callback() {
             @Override
             public void onFailure(@NonNull Call call, @NonNull IOException e) {
                 if (!isCurrentSearch(seq)) return;
@@ -419,6 +466,13 @@ public class DanmakuApi {
 
     private static boolean isCurrentSearch(int seq) {
         return seq == searchSeq.get();
+    }
+
+    /** 响应体像不像 JSON（公共接口被限流时会直接甩一张 HTML 错误页回来） */
+    private static boolean looksLikeJson(String body) {
+        if (TextUtils.isEmpty(body)) return false;
+        String text = body.trim();
+        return text.startsWith("{") || text.startsWith("[");
     }
 
     private static Call newCall(String apiUrl, String name, String episode) {
@@ -499,30 +553,46 @@ public class DanmakuApi {
 
     private static EpisodeMatch findEpisode(String body, String episode, boolean allowMovieFallback) throws Exception {
         JSONObject object = new JSONObject(body);
-        EpisodeList episodeList = findEpisodeList(object);
-        JSONArray episodes = episodeList == null ? null : episodeList.episodes;
-        if (episodes == null || episodes.length() <= 0) return null;
+        // 一个「按集搜索」的响应里通常挂着好几条同名番剧（腾讯、360、爱奇艺…），
+        // 每条的集数表是独立的一份。以前只看第一条，结果目标集在第二条里就永远匹配不到 ——
+        // 表现就是「这部片有时候有弹幕、有时候没有」，全看源站先给哪家。
+        List<EpisodeList> lists = findEpisodeLists(object);
+        if (lists.isEmpty()) return null;
         int targetNumber = extractNumber(episode);
         EpisodeMatch first = null;
         EpisodeMatch firstMandarin = null;
-        for (int i = 0; i < episodes.length(); i++) {
-            JSONObject item = episodes.optJSONObject(i);
-            if (item == null) continue;
-            String id = firstString(item, "episodeId", "id");
-            if (TextUtils.isEmpty(id)) continue;
-            String title = firstString(item, "episodeTitle", "title", "name");
-            int number = parseEpisodeNumber(firstString(item, "episodeNumber", "number", "sort"));
-            EpisodeMatch match = new EpisodeMatch(id, title, number);
-            if (first == null) first = match;
-            if (firstMandarin == null && isMandarinTitle(title)) firstMandarin = match;
-            if (!TextUtils.isEmpty(episode) && !TextUtils.isEmpty(title) && title.contains(episode)) {
-                return match;
+        EpisodeMatch firstMovie = null;
+        EpisodeMatch firstMovieMandarin = null;
+        for (EpisodeList list : lists) {
+            JSONArray episodes = list.episodes;
+            if (episodes == null) continue;
+            for (int i = 0; i < episodes.length(); i++) {
+                JSONObject item = episodes.optJSONObject(i);
+                if (item == null) continue;
+                String id = firstString(item, "episodeId", "id");
+                if (TextUtils.isEmpty(id)) continue;
+                String title = firstString(item, "episodeTitle", "title", "name");
+                int number = parseEpisodeNumber(firstString(item, "episodeNumber", "number", "sort"));
+                EpisodeMatch match = new EpisodeMatch(id, title, number);
+                if (first == null) first = match;
+                if (firstMandarin == null && isMandarinTitle(title)) firstMandarin = match;
+                if (list.isMovie) {
+                    if (firstMovie == null) firstMovie = match;
+                    if (firstMovieMandarin == null && isMandarinTitle(title)) firstMovieMandarin = match;
+                    continue;
+                }
+                if (!TextUtils.isEmpty(episode) && !TextUtils.isEmpty(title) && title.contains(episode)) {
+                    return match;
+                }
+                if (targetNumber > 0 && number == targetNumber) return match;
+                if (targetNumber > 0 && extractNumber(title) == targetNumber) return match;
             }
-            if (targetNumber > 0 && number == targetNumber) return match;
-            if (targetNumber > 0 && extractNumber(title) == targetNumber) return match;
         }
         if (TextUtils.isEmpty(episode)) return first;
-        if (allowMovieFallback && episodeList.isMovie) return firstMandarin == null ? first : firstMandarin;
+        if (allowMovieFallback) {
+            if (firstMovie != null) return firstMovieMandarin == null ? firstMovie : firstMovieMandarin;
+            if (lists.get(0).isMovie) return firstMandarin == null ? first : firstMandarin;
+        }
         return null;
     }
 
@@ -542,12 +612,39 @@ public class DanmakuApi {
     }
 
     private static EpisodeList findEpisodeList(JSONObject object) {
+        List<EpisodeList> lists = findEpisodeLists(object);
+        return lists.isEmpty() ? null : lists.get(0);
+    }
+
+    /**
+     * 把响应里<b>所有</b>集数表都取出来。
+     *
+     * <p>按集搜索的响应是「多条同名番剧，各自一段 episodes」：
+     *
+     * <pre>
+     * {"animes":[
+     *   {"animeTitle":"…from tencent","episodes":[{"episodeTitle":"…_21"}]},
+     *   {"animeTitle":"…from 360","episodes":[{"episodeTitle":"…第22集"}]}
+     * ]}
+     * </pre>
+     *
+     * <p>以前只取第一条，目标集只要落在后面几家就永远匹配不上，用户看到的就是
+     * 「这部片有时有弹幕、有时没有」——取决于源站这次先返回哪家。
+     */
+    private static List<EpisodeList> findEpisodeLists(JSONObject object) {
+        List<EpisodeList> out = new ArrayList<>();
         JSONArray array = object.optJSONArray("episodes");
-        if (array != null) return new EpisodeList(array, isMovieType(object));
+        if (array != null) {
+            out.add(new EpisodeList(array, isMovieType(object)));
+            return out;
+        }
         JSONObject bangumi = object.optJSONObject("bangumi");
         if (bangumi != null) {
             array = bangumi.optJSONArray("episodes");
-            if (array != null) return new EpisodeList(array, isMovieType(bangumi));
+            if (array != null) {
+                out.add(new EpisodeList(array, isMovieType(bangumi)));
+                return out;
+            }
         }
         JSONArray animes = object.optJSONArray("animes");
         if (animes == null) animes = object.optJSONArray("anime");
@@ -557,10 +654,12 @@ public class DanmakuApi {
                 JSONObject item = animes.optJSONObject(i);
                 if (item == null) continue;
                 array = item.optJSONArray("episodes");
-                if (array != null && array.length() > 0) return new EpisodeList(array, isMovieType(item));
+                if (array != null && array.length() > 0) {
+                    out.add(new EpisodeList(array, isMovieType(item)));
+                }
             }
         }
-        return null;
+        return out;
     }
 
     private static boolean isMovieType(JSONObject object) {
@@ -651,19 +750,109 @@ public class DanmakuApi {
         }
     }
 
+    /**
+     * 体积 / 分辨率 / 编码这些「不是集数」的数字，先摘掉再找集数。
+     *
+     * <p>边界刻意写成 {@code (?![a-z0-9])} 而不是 {@code \b}：Java 的 {@code \b} 是
+     * Unicode 感知的，「4K官方」「1080p国语」这种中文紧贴英文的写法里 K/p 后面
+     * 仍算「词内」，{@code \b} 不成立，于是 4K / 1080p 摘不掉 —— 兜底取最后一个数字时
+     * 就取到了 4，拿「第 4 集」去搜一部电影，自然搜不到弹幕。
+     */
+    private static final java.util.regex.Pattern P_NOISE = java.util.regex.Pattern.compile(
+            // 文件扩展名要先摘：不然 ".mp4" 里的 4 会被后面的兜底当成第 4 集
+            "(?i)\\.(mp4|mkv|avi|rmvb|rm|mov|flv|wmv|m2ts|m4v|webm|mpg|mpeg|ts)(?![a-z0-9])"
+                    + "|\\d+(\\.\\d+)?\\s*(gb|mb|tb|kb)(?![a-z0-9])"
+                    + "|\\d+(\\.\\d+)?\\s*[gm](?![a-z0-9])"
+                    + "|\\d{3,4}\\s*[pi](?![a-z0-9])"
+                    + "|\\d{3,4}\\s*[x×]\\s*\\d{3,4}"
+                    + "|(?<![a-z0-9])(4k|8k|uhd|hdr10?|dolby|bluray|blu-?ray|web-?dl"
+                    + "|remux|hevc|avc|h\\.?26[45])(?![a-z0-9])");
+
+    /** 年份也当噪声：电影名里的 2026 不是集数 */
+    private static final java.util.regex.Pattern P_YEAR =
+            java.util.regex.Pattern.compile("(?:19|20)\\d{2}");
+
+    /** S01E22 / S1.E22 */
+    private static final java.util.regex.Pattern P_SXXEXX =
+            java.util.regex.Pattern.compile("(?i)s\\d{1,2}\\s*[._-]?\\s*e\\s*(\\d{1,4})(?!\\d)");
+
+    /** E22 / EP22 / E.22 / E_22（前面不能紧贴字母，避免把 EXTENDED 之类当成 E） */
+    private static final java.util.regex.Pattern P_EP =
+            java.util.regex.Pattern.compile("(?i)(?:^|[^a-z])(?:ep|e)\\s*[._-]?\\s*(\\d{1,4})(?!\\d)");
+
+    /** 第22集 / 第22话 / 第22期 */
+    private static final java.util.regex.Pattern P_CN =
+            java.util.regex.Pattern.compile("第\\s*(\\d{1,4})\\s*[集话話期]");
+
+    /** 22集 / 22话 */
+    private static final java.util.regex.Pattern P_CN2 =
+            java.util.regex.Pattern.compile("(\\d{1,4})\\s*[集话話期]");
+
+    /** [22] / （22）这类方括号里只有一个数的情况 */
+    private static final java.util.regex.Pattern P_BRACKET =
+            java.util.regex.Pattern.compile("[\\[\\(（【]\\s*(\\d{1,4})\\s*[\\]\\)）】]");
+
+    /** 兜底用：所有独立数字 */
+    private static final java.util.regex.Pattern P_NUM =
+            java.util.regex.Pattern.compile("(?<!\\d)(\\d{1,4})(?!\\d)");
+
+    /**
+     * 从「集名」里取出集数。
+     *
+     * <h3>为什么不能把数字全拼起来</h3>
+     * 网盘源的集名就是一整条文件名，例如 {@code [5.0GB]E22.mkv【尚公-组】}。
+     * 老实现把所有数字拼成一个整数，这里会拼出 <b>5022</b> ——
+     * 拿 5022 去问弹幕接口当然一条都搜不到，用户看到的就是「这部片没有弹幕」。
+     *
+     * <p>所以按「明确写法 → 兜底」的顺序找：S01E22、E22、第22集、[22]，
+     * 都不中才取最后一个独立数字（文件名通常以集数结尾），年份和体积/分辨率先摘掉。
+     *
+     * @return 集数；认不出来返回 -1（电影、预告这类没有集数的条目走另一条路）
+     */
     private static int extractNumber(String text) {
         if (TextUtils.isEmpty(text)) return -1;
-        StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < text.length(); i++) {
-            char ch = text.charAt(i);
-            if (Character.isDigit(ch)) builder.append(ch);
+        String cleaned = P_NOISE.matcher(text).replaceAll(" ");
+        Integer found = firstNumber(P_SXXEXX, cleaned);
+        if (found != null) return found;
+        found = firstNumber(P_EP, cleaned);
+        if (found != null) return found;
+        found = firstNumber(P_CN, cleaned);
+        if (found != null) return found;
+        found = firstNumber(P_CN2, cleaned);
+        if (found != null) return found;
+        found = firstNumber(P_BRACKET, cleaned);
+        if (found != null) return found;
+        // 兜底：去掉年份后取最后一个数
+        String rest = P_YEAR.matcher(cleaned).replaceAll(" ");
+        java.util.regex.Matcher matcher = P_NUM.matcher(rest);
+        int last = -1;
+        while (matcher.find()) {
+            try {
+                int value = Integer.parseInt(matcher.group(1));
+                if (value >= 0 && value <= MAX_EPISODE) {
+                    last = value;
+                }
+            } catch (Throwable ignored) {
+            }
         }
-        if (builder.length() == 0) return -1;
-        try {
-            return Integer.parseInt(builder.toString());
-        } catch (Throwable th) {
-            return -1;
+        return last;
+    }
+
+    /** 集数上限：再大就不是集数了（年份、文件大小残留、id 之类），宁可认不出也别乱猜 */
+    private static final int MAX_EPISODE = 999;
+
+    private static Integer firstNumber(java.util.regex.Pattern pattern, String text) {
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            try {
+                int value = Integer.parseInt(matcher.group(1));
+                if (value >= 0 && value <= MAX_EPISODE) {
+                    return value;
+                }
+            } catch (Throwable ignored) {
+            }
         }
+        return null;
     }
 
     private static String commentJsonToXml(String body) throws Exception {
