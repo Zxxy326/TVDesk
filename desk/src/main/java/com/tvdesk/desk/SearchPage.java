@@ -172,24 +172,25 @@ public class SearchPage extends FrameLayout implements ModulePage {
     @Override
     public boolean handleKeyDown(int keyCode) {
         if (keyCode == KeyEvent.KEYCODE_BACK && input.hasFocus()) {
-            // 层级表 L4：输入法弹着的时候，第一次返回只把它收起来；
-            // 输入法没弹（用左边屏幕键盘打的字），这一下就该退出搜索页了。
+            // 层级表 L4：输入法弹着的时候，第一次返回只把它收起来（焦点退回键盘，
+            // 再按一次才是退出本页）；输入法没弹（用左边屏幕键盘打的字），这一下就该退页了。
             if (imeActive()) {
                 hideIme();
+                focusFirstKey();
                 return Back.consume("影视搜索·收起输入法");
             }
             return Back.pass("影视搜索·退出搜索页");
         }
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // 焦点还在结果墙／最近搜索里：返回先回「片名框」这一层（本页的顶栏），
+            // 焦点还在结果墙／最近搜索里：返回先回「顶栏」（片名框 + 键盘这一块），
             // 再按一次才退出搜索页。和其它模块「内容 → 顶栏」是同一个口径。
+            //
+            // 落点选键盘而不是片名框：焦点一进 EditText，系统输入法会自己再弹出来，
+            // 下一次返回又会被判成「还在输入态」，用户得按三次才出得去。
             if (grid.findFocus() != null || historyWords.findFocus() != null) {
-                input.requestFocus();
-                Editable text = input.getText();
-                if (text != null) {
-                    input.setSelection(text.length());
-                }
-                return Back.consume("影视搜索·回片名框");
+                hideIme();
+                focusFirstKey();
+                return Back.consume("影视搜索·回搜索栏");
             }
             return Back.pass("影视搜索·退出搜索页");
         }

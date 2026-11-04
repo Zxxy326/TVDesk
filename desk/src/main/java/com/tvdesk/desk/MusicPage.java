@@ -422,6 +422,21 @@ public class MusicPage extends FrameLayout implements ModulePage {
     /** 上一次开始取链接的时间：用来分辨「遥控器连发」和「用户真的换歌了」 */
     private long resolveStartedAt;
 
+    /** 起播失败时「刚才那条链接是哪个源给的」：换源重试要跳过它 */
+    private String playingSourceId = "";
+    private String playingQuality = "";
+    /** 当前这首已经试过、放不出来的源 */
+    private final java.util.Set<String> deadSources = new java.util.HashSet<>();
+    /** 当前这首换源重试了几次 */
+    private int sourceRetries;
+    /** 换源计数是冲着哪一首记的：换歌就重置上面这几项 */
+    private Track retryTrack;
+    /** 连续几首「换源也放不出来」了。超过上限就停下来，别让整张歌单一路空转 */
+    private int consecutiveFailures;
+    /** 同一首歌最多换几个源；连续几首失败后停下来 */
+    private static final int MAX_SOURCE_RETRIES = 2;
+    private static final int MAX_CONSECUTIVE_FAILURES = 2;
+
     private LinearLayout switcher;
     private LinearLayout switcherMenu;
     private LinearLayout navItems;
@@ -3910,6 +3925,12 @@ public class MusicPage extends FrameLayout implements ModulePage {
         //（「已切换到 XX」「解析失败：…」）也要在这里清掉，不能跟到下一首身上。
         resolveStatus = "";
         nowPlaying = track;
+        // 换了一首歌就重置「换源重试」的记账：上一首试废了哪几个源，跟这一首无关
+        if (retryTrack != track) {
+            retryTrack = track;
+            deadSources.clear();
+            sourceRetries = 0;
+        }
         // 换歌先把上一首停掉：在线歌取链接要几十秒，不停的话这几十秒里
         // 声音还是上一首、画面已经是新歌。用户明确按了下一首，不该继续听上一首。
         if (player != null && playerTrack != null && playerTrack != track) {
@@ -4008,11 +4029,22 @@ public class MusicPage extends FrameLayout implements ModulePage {
                         // 不接住的话默认行为是当作「播完了」去切下一首，于是一路往下滚，
                         // 用户看到的是「点了一整张歌单，一首都没响」。所以吃下来，说清楚。
                         android.util.Log.w(TAG, "MediaPlayer 报错 what=" + what + " extra=" + extra);
+                        // 播放器里这一首已经废了，先把「哪一首、哪个源」捞出来再清状态：
+                        // 起播失败是异步的，startPlayer 那边早就返回成功了，只有这里知道真相
+                        final Track failed = playerTrack != null ? playerTrack : nowPlaying;
                         nowPlaying = null;
                         playerTrack = null;
-                        updateBar();
                         notifyContentChanged();
-                        toast("这一首放不出来，可能链接已经过期或文件不在了");
+                        // 换源重试会 reset 播放器 —— 不在 onError 回调里直接做，
+                        // 有些机器的播放器在错误回调里被重入会卡死，挪到下一个消息再办
+                        ui.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (!gone()) {
+                                    handlePlaybackFailure(failed, what, extra);
+                                }
+                            }
+                        });
                         return true;
                     }
                 });
@@ -4027,6 +4059,8 @@ public class MusicPage extends FrameLayout implements ModulePage {
                         return;
                     }
                     mp.start();
+                    // 真的响起来了才算这首歌成功：连续失败计数在这里清零
+                    consecutiveFailures = 0;
                     updateBar();
                 }
             });
@@ -4122,6 +4156,10 @@ public class MusicPage extends FrameLayout implements ModulePage {
                         track.path = res.url;
                         lastSourceId = res.sourceId;
                         lastSourceQuality = res.quality;
+                        // 记下这条链接是谁给的：万一播到一半/起播时播放器报错，
+                        // 换源重试要跳过这个源，也要把它的缓存删掉
+                        playingSourceId = res.sourceId;
+                        playingQuality = res.quality;
                         if (!startPlayer(track)) {
                             // 链接取到了却放不出来：这个源的地址已经废了（过期、CDN 拒绝）。
                             // 自动换一个源再试一次；所有源都不行就自动切下一首，
@@ -4184,14 +4222,70 @@ public class MusicPage extends FrameLayout implements ModulePage {
      * @return 已经用新源重试了就返回 true
      */
     private boolean retryWithAnotherSource(final Track track, String failedSourceId) {
-        if (TextUtils.isEmpty(failedSourceId) || failedSourceId.equals(lastSourceId)) {
-            // 已经是上次成功的那个源了，再换没有意义
+        if (TextUtils.isEmpty(failedSourceId)) {
             return false;
         }
+        if (retryTrack != track) {
+            retryTrack = track;
+            deadSources.clear();
+            sourceRetries = 0;
+        }
+        deadSources.add(failedSourceId);
+        // 以前这里是「和上次成功的源比一下」，可失败的那次刚把 lastSourceId 覆盖成它自己，
+        // 判断永远成立、换源从来没真正发生过。改成按「这首试过几个源」计数。
+        if (sourceRetries >= MAX_SOURCE_RETRIES) {
+            return false;
+        }
+        sourceRetries++;
         pendingRetrySourceId = failedSourceId;
         setResolveStatus("这个源放不出来，换一个源再试…");
         playOnline(track, "");
         return true;
+    }
+
+    /**
+     * 起播失败（播放器异步报错）后的补救。
+     *
+     * <p>顺序是：把这条死链接从缓存里删掉 → 换一个源重试 → 都不行就自动下一首。
+     * 光「换源」不删缓存没用：解析器第一个读的就是 {@code songKey|auto|quality} 那份，
+     * 删不掉就会把同一条死链再拿回来，用户看到的是「换源了还是放不出来」。
+     *
+     * @param failed 刚才放不出来的那首（可能为 null：状态已经清过）
+     */
+    private void handlePlaybackFailure(Track failed, int what, int extra) {
+        if (failed == null) {
+            updateBar();
+            return;
+        }
+        android.util.Log.w(TAG, "起播失败 what=" + what + " extra=" + extra
+                + " 曲目=" + safe(failed.title) + " 源=" + playingSourceId
+                + " 已试源=" + deadSources.size() + " 重试=" + sourceRetries);
+        // 1) 死链接从缓存里清掉（源 id 那份和 auto 那份都要删）
+        if (!TextUtils.isEmpty(playingSourceId) || !TextUtils.isEmpty(playingQuality)) {
+            UrlCache.remove(getContext(), UrlCache.key(songKeyOf(failed), playingSourceId, playingQuality));
+            UrlCache.remove(getContext(), UrlCache.key(songKeyOf(failed), "auto", playingQuality));
+        }
+        if (!TextUtils.isEmpty(playingSourceId)) {
+            deadSources.add(playingSourceId);
+        }
+        // 2) 在线歌：换一个源再试同一首（画面回到「正在取播放链接…」，不用退出去重选）
+        if (failed.isOnline() && retryTrack == failed && sourceRetries < MAX_SOURCE_RETRIES) {
+            sourceRetries++;
+            pendingRetrySourceId = playingSourceId;
+            setResolveStatus("这个源放不出来，换一个源再试…");
+            play(failed);
+            return;
+        }
+        // 3) 换源也没用：自动下一首。连续几首都不行才停手，免得整张歌单一路空转。
+        if (!queue.isEmpty() && consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
+            consecutiveFailures++;
+            setResolveStatus("这首歌放不出来，自动下一首…");
+            skipToNextTrack();
+            return;
+        }
+        setResolveStatus("这首放不出来 · 按上一首 / 下一首继续");
+        toast("这一首放不出来，可能链接已经过期或文件不在了");
+        updateBar();
     }
 
     /** 上一次失败的源 id，下一次解析要跳过它 */

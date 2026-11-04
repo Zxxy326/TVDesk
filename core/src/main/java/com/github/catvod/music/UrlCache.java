@@ -100,6 +100,19 @@ public final class UrlCache {
         return u.contains("127.0.0.1") || u.contains("localhost") || u.contains("[::1]");
     }
 
+    /**
+     * 删掉一条缓存。
+     *
+     * <p>「链接取到了但放不出来」时用：那条地址已经是死的，留在缓存里会让下一次解析
+     * 继续拿到同一条，换源就成了白换（{@code auto} 那份尤其要删 —— 自动解析第一个读的就是它）。
+     */
+    public static void remove(Context context, String cacheKey) {
+        if (context == null || TextUtils.isEmpty(cacheKey)) {
+            return;
+        }
+        prefs(context).edit().remove(cacheKey).remove(cacheKey + "#at").apply();
+    }
+
     /** 清空全部缓存 */
     public static void clear(Context context) {
         if (context == null) {
