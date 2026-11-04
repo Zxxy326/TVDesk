@@ -5440,15 +5440,23 @@ public class MusicPage extends FrameLayout implements ModulePage {
                 focusSearch();
                 return Back.consume("音乐·清空搜索词");
             }
-            // 顶栏是内容的上一层：焦点不在页签行上时，返回只把焦点收回来，
-            // 再按一次才退出模块（统一走 BackTop，见那个类的注释）
-            if (BackTop.toTopBar("音乐", navItems, new Runnable() {
-                @Override
-                public void run() {
-                    hideIme();
-                    focusChip();
-                }
-            })) {
+            // 按视觉层级一层层退：列表/卡片墙 → 「播放全部」那一行 → 顶栏页签 → 宿主关页。
+            // 没有可播曲目时「播放全部」是 GONE，这一层自动跳过（见 BackTop）。
+            if (BackTop.climb("音乐",
+                    BackTop.step("回操作行", playAllBtn, new Runnable() {
+                        @Override
+                        public void run() {
+                            hideIme();
+                            playAllBtn.requestFocus();
+                        }
+                    }),
+                    BackTop.step("回顶栏", navItems, new Runnable() {
+                        @Override
+                        public void run() {
+                            hideIme();
+                            focusChip();
+                        }
+                    }))) {
                 return true;
             }
             // 没层级可退了，交给宿主关页回桌面。

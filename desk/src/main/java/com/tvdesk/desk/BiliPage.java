@@ -1749,14 +1749,23 @@ public class BiliPage extends FrameLayout implements ModulePage {
                 focusSearch();
                 return Back.consume("哔哩哔哩·清空搜索词");
             }
-            // 顶栏是内容的上一层：焦点不在页签行上时，返回只把焦点收回来，
-            // 再按一次才退出模块（统一走 BackTop，见那个类的注释）
-            if (BackTop.toTopBar("哔哩哔哩", navItems, new Runnable() {
-                @Override
-                public void run() {
-                    focusChip();
-                }
-            })) {
+            // 按视觉层级一层层退：卡片墙 → 子页签（换一批/刷新/分区）→ 顶栏页签 → 宿主关页。
+            // 子页签在没有子项的栏目里是 GONE，这一层自动跳过（见 BackTop）。
+            if (BackTop.climb("哔哩哔哩",
+                    BackTop.step("回子页签", subScroll, new Runnable() {
+                        @Override
+                        public void run() {
+                            if (subNav.getChildCount() > 0) {
+                                subNav.getChildAt(0).requestFocus();
+                            }
+                        }
+                    }),
+                    BackTop.step("回顶栏", navItems, new Runnable() {
+                        @Override
+                        public void run() {
+                            focusChip();
+                        }
+                    }))) {
                 return true;
             }
             return Back.pass("哔哩哔哩·页内已无层级");

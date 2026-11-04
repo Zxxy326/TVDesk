@@ -1511,7 +1511,9 @@ public class AppPage extends FrameLayout implements ModulePage {
                 return Back.consume("应用·清空搜索词");
             }
             // 顶栏是内容的上一层：焦点不在页签行上时，返回只把焦点收回来，
-            // 再按一次才退出模块（统一走 BackTop，见那个类的注释）
+            // 再按一次才退出模块（统一走 BackTop，见那个类的注释）。
+            // 这一页目前没有「操作行」（排序 chips 已改成长按拖动，subScroll 常驻 GONE），
+            // 所以是两层；将来加了操作行就换成 BackTop.climb 多列一层。
             if (BackTop.toTopBar("应用", navItems, new Runnable() {
                 @Override
                 public void run() {
