@@ -442,6 +442,14 @@ public class MusicPage extends FrameLayout implements ModulePage {
     private LinearLayout navItems;
     private ListView list;
     /**
+     * 列表外面那层裁剪盒（见 activity_music.xml）。
+     *
+     * <p>它占的是 weight=1 的那一格，所以显隐必须跟 ListView 一起切：
+     * 只藏 ListView 的话盒子还在，卡片墙会被挤到下面半屏 —— 表现就是
+     * 「每日推荐的内容区整个往下掉了一大块」。
+     */
+    private FrameLayout listBox;
+    /**
      * 内容卡片墙。除了「音源管理」，所有版块都铺成和影视页一样的海报卡片：
      * 每日推荐 / 榜单目录 / 榜单曲目 / 推荐歌单 / 歌单曲目 / 我的 / 本地分组 / 搜索。
      */
@@ -635,6 +643,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
         switcherMenu = findViewById(R.id.music_menu);
         navItems = findViewById(R.id.music_nav_items);
         list = findViewById(R.id.music_list);
+        listBox = findViewById(R.id.music_list_box);
         grid = findViewById(R.id.music_grid);
         playAllBtn = findViewById(R.id.music_play_all);
         title = findViewById(R.id.music_title);
@@ -1402,8 +1411,13 @@ public class MusicPage extends FrameLayout implements ModulePage {
 
     private void applyContentMode() {
         boolean hasRows = !rows.isEmpty();
+        boolean showList = !cardMode && hasRows;
         grid.setVisibility(cardMode && hasRows ? View.VISIBLE : View.GONE);
-        list.setVisibility(!cardMode && hasRows ? View.VISIBLE : View.GONE);
+        // 盒子和列表一起切：盒子占着 weight=1，只藏列表的话卡片墙会被盒子推下去一大截
+        list.setVisibility(showList ? View.VISIBLE : View.GONE);
+        if (listBox != null) {
+            listBox.setVisibility(showList ? View.VISIBLE : View.GONE);
+        }
         playAllBtn.setVisibility(hasTrackRows() ? View.VISIBLE : View.GONE);
     }
 
@@ -5925,6 +5939,9 @@ public class MusicPage extends FrameLayout implements ModulePage {
         emptyView.setText(hint);
         emptyView.setVisibility(View.VISIBLE);
         list.setVisibility(View.GONE);
+        if (listBox != null) {
+            listBox.setVisibility(View.GONE);
+        }
     }
 
     private void toast(String text) {

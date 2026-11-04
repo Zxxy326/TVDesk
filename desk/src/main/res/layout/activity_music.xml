@@ -255,6 +255,7 @@
           上边不再压标题，下边仍然可以滚到悬浮播放条底下（盒子一直到底）。
         -->
         <FrameLayout
+            android:id="@+id/music_list_box"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"

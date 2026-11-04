@@ -1,11 +1,11 @@
 {
-  "versionCode": 15,
-  "versionName": "1.1.4",
-  "notes": "待机唤醒/关机重启都会自己回到 TVDesk：修好了通知监听没被系统认领导致复活链断裂；唤醒后不再白等 15 秒；重启后被关掉的 ADB 会自动写回。",
-  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.4/TVDesk-1.1.4-universal.apk",
+  "versionCode": 16,
+  "versionName": "1.1.5",
+  "notes": "播放与选集：音乐切歌画面/歌词/进度立刻跟上，起播失败自动换源；影视续播按集名认集（换线路也记得住），选集一屏放得下、当前集琥珀高亮，点播改 SurfaceView 后不再丢帧；弹幕与筛选真正生效。交互：返回键按层级逐层退，搜索页焦点不再乱跳。音源市场改读上游 Releases，能同步到最新版本了。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.5/TVDesk-1.1.5-universal.apk",
   "assets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.4/TVDesk-1.1.4-armeabi-v7a.apk",
-    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.4/TVDesk-1.1.4-arm64-v8a.apk",
-    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.4/TVDesk-1.1.4-universal.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.5/TVDesk-1.1.5-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.5/TVDesk-1.1.5-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.5/TVDesk-1.1.5-universal.apk"
   }
 }
