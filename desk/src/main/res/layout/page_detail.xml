@@ -134,6 +134,26 @@
                         android:scaleType="fitCenter"
                         android:src="@drawable/ic_play_dark" />
 
+                    <!-- 收藏。以前只有首页那颗「简介旁边的星」能收，从搜索/收藏/历史点进来的
+                         详情页反而收不了 —— 用户看到一部想留的片子，得先退回首页去找。
+                         放在播放右边，是这一行第二个动作。 -->
+                    <TextView
+                        android:id="@+id/detail_fav"
+                        android:layout_width="wrap_content"
+                        android:layout_height="46dp"
+                        android:layout_marginStart="12dp"
+                        android:background="@drawable/bg_pill"
+                        android:clickable="true"
+                        android:contentDescription="收藏"
+                        android:focusable="true"
+                        android:gravity="center"
+                        android:minWidth="104dp"
+                        android:paddingStart="22dp"
+                        android:paddingEnd="22dp"
+                        android:text="收藏"
+                        android:textColor="@color/text_primary"
+                        android:textSize="15sp" />
+
                     <TextView
                         android:id="@+id/detail_search"
                         android:layout_width="wrap_content"

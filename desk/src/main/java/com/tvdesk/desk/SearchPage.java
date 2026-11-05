@@ -625,9 +625,13 @@ public class SearchPage extends FrameLayout implements ModulePage {
             TextView name = root.findViewById(R.id.poster_name);
             TextView note = root.findViewById(R.id.poster_note);
             name.setText(vod.name);
-            String noteText = vod.note != null ? vod.note : "";
-            if (TextUtils.isEmpty(noteText)) {
-                noteText = sourceName(vod.sourceKey);
+            // 每条结果都标出来自哪个源。同一部片会在好几个站各有一条（就像 TVBox），
+            // 以前只有「备注为空」时才显示源名，而网盘源几乎都带「4K正式版」这类备注，
+            // 于是一屏卡片看起来像同一个站刷出来的，用户以为没聚合。
+            String src = sourceName(vod.sourceKey);
+            String noteText = vod.note == null ? "" : vod.note.trim();
+            if (!TextUtils.isEmpty(src) && !src.equals(noteText)) {
+                noteText = noteText.isEmpty() ? src : src + " · " + noteText;
             }
             note.setText(noteText);
             note.setVisibility(TextUtils.isEmpty(noteText) ? View.GONE : View.VISIBLE);

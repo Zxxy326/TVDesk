@@ -402,6 +402,17 @@ public class DeskActivity extends DeskAdaptActivity {
         public void search(String keyword) {
             openSearch(keyword, true);
         }
+
+        @Override
+        public void favoriteChanged() {
+            // 首页那颗 ♥ 的心形状态
+            renderLikeState();
+            // 收藏墙就压在详情页底下：不重铺的话，用户收完退回去还是「还没有收藏」。
+            // 重铺只动数据，焦点会由 popPage 的「来处」再放一次。
+            if (favoritesMode) {
+                renderFavorites();
+            }
+        }
     };
 
     /** 搜索结果点击 → 内嵌详情，仍是同一个窗口 */
@@ -3848,7 +3859,7 @@ public class DeskActivity extends DeskAdaptActivity {
         // \uFE0E 强制文本呈现：不加的话 ♥ 会被 emoji 字体接管，画成一颗红心，
         // 和满屏 tabler 描边图标不是一个语言
         favWall.showList(VodFavorites.list(this),
-                "还没有收藏。\n回首页选中想看的片子，按 ♥\uFE0E 键收进来。",
+                "还没有收藏。\n在首页简介旁按 ♥\uFE0E，或在详情页按「收藏」收进来。",
                 "长按海报取消收藏");
         histWall.showList(VodHistory.list(this),
                 "还没有播放历史。\n播过的片子会自动记进这一栏。",

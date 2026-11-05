@@ -50,16 +50,25 @@ public final class DetailFeed {
     /**
      * 搜索单独一组线程。详情和搜索共用一个线程池时，搜索刚发起就点结果，
      * 详情会排在这批搜索后面，页面干转圈好几分钟。
+     *
+     * <p>并发数跟着「要问多少个源」走：配置里的站点动辄四五十个，4 条线程会让
+     * 排在后面的源一直排到预算耗完 —— 用户看到的就是「只有一两个站有结果」。
      */
-    private static final ExecutorService SEARCH_POOL = Executors.newFixedThreadPool(4);
+    private static final ExecutorService SEARCH_POOL = Executors.newFixedThreadPool(8);
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     /** 聚合搜索的总预算。超时后已到的结果照常显示，只是不再等剩下的源 */
-    private static final long SEARCH_BUDGET_MS = 15000L;
+    private static final long SEARCH_BUDGET_MS = 22000L;
 
-    /** 一次最多问几个搜索源，太多会把预算都耗在排队的慢源上 */
-    private static final int MAX_SEARCH_SOURCES = 18;
+    /**
+     * 一次最多问几个搜索源。
+     *
+     * <p>以前是 18：配置里明明有几十个站，超过 18 的直接不问，
+     * 搜索页永远只显示头十几个站的结果 —— 和 TVBox「所有数据源都列出来」差得很远。
+     * 现在放到 64（并发 8 条），够覆盖常见聚合配置；真超了也是从后面截，不影响主站。
+     */
+    private static final int MAX_SEARCH_SOURCES = 64;
 
     private static final AtomicInteger SEARCH_SEQ = new AtomicInteger();
 
@@ -306,6 +315,7 @@ public final class DetailFeed {
         }
 
         final AtomicInteger remaining = new AtomicInteger(sources.size());
+        android.util.Log.i(TAG, "搜索「" + wd + "」：参与 " + sources.size() + " 个源");
         final AtomicBoolean done = new AtomicBoolean(false);
         final Runnable finish = new Runnable() {
             @Override

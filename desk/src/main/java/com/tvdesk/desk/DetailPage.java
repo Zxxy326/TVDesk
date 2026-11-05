@@ -15,6 +15,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.content.res.AppCompatResources;
 
@@ -49,6 +50,15 @@ public class DetailPage extends FrameLayout implements ModulePage {
         void play(VodInfo info);
 
         void search(String keyword);
+
+        /**
+         * 详情页里收藏状态变了。
+         *
+         * <p>收藏清单是两份入口共用的一份数据：首页那颗 ♥ 和这一页的按钮。
+         * 宿主收到之后要把首页的心形和收藏墙刷一遍，否则用户从详情收完退回收藏页，
+         * 看到的还是「还没有收藏」。
+         */
+        void favoriteChanged();
     }
 
     private final Host host;
@@ -73,6 +83,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
     private TextView meta;
     private TextView desc;
     private ImageView playButton;
+    private TextView favButton;
     private TextView searchButton;
     private TextView retryButton;
     private TextView lineLabel;
@@ -117,6 +128,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
         meta = findViewById(R.id.detail_meta);
         desc = findViewById(R.id.detail_desc);
         playButton = findViewById(R.id.detail_play);
+        favButton = findViewById(R.id.detail_fav);
         searchButton = findViewById(R.id.detail_search);
         retryButton = findViewById(R.id.detail_retry);
         lineLabel = findViewById(R.id.detail_line_label);
@@ -144,6 +156,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
                 });
 
         FocusScaler.attach(playButton, 1.06f);
+        FocusScaler.attach(favButton, 1.06f);
         FocusScaler.attach(searchButton, 1.06f);
         FocusScaler.attach(retryButton, 1.06f);
 
@@ -151,6 +164,12 @@ public class DetailPage extends FrameLayout implements ModulePage {
             @Override
             public void onClick(View v) {
                 playCurrent();
+            }
+        });
+        favButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toggleFavorite();
             }
         });
         searchButton.setOnClickListener(new View.OnClickListener() {
@@ -176,6 +195,74 @@ public class DetailPage extends FrameLayout implements ModulePage {
         autoPlay = true;
     }
 
+    // ---------------------------------------------------------------- 收藏
+
+    /** 当前这部片是不是已收藏（只用来决定按钮长什么样） */
+    private boolean favoriteLiked;
+
+    /**
+     * 收藏 / 取消收藏。
+     *
+     * <p>存的和首页那颗星是同一份清单（{@link VodFavorites}），所以首页收的这里看得见，
+     * 这里收的首页也立刻变亮 —— 两个入口只是同一个动作的两处按钮。
+     */
+    private void toggleFavorite() {
+        Movie.Video vod = favoriteTarget();
+        if (vod == null) {
+            return;
+        }
+        favoriteLiked = VodFavorites.toggle(getContext(), vod);
+        applyFavoriteState();
+        if (host != null) {
+            host.favoriteChanged();
+        }
+        Toast.makeText(getContext(),
+                favoriteLiked ? "已收藏：" + vod.name : "已取消收藏：" + vod.name,
+                Toast.LENGTH_SHORT).show();
+    }
+
+    /** 进页面 / 详情到位 / 从别处回来时，把按钮刷成清单里的真实状态 */
+    private void refreshFavoriteState() {
+        Movie.Video vod = favoriteTarget();
+        favoriteLiked = vod != null && VodFavorites.contains(getContext(), vod);
+        applyFavoriteState();
+    }
+
+    private void applyFavoriteState() {
+        if (favButton == null) {
+            return;
+        }
+        favButton.setText(favoriteLiked ? "★ 已收藏" : "收藏");
+        favButton.setTextColor(favoriteLiked ? 0xFFFFD166 : 0xFFF2F5FA);
+        favButton.setContentDescription(favoriteLiked ? "取消收藏" : "收藏");
+    }
+
+    /**
+     * 收藏要存的那条数据。
+     *
+     * <p>优先用详情里的那份：它带着真正的 {@code sourceKey} 和 {@code id}，
+     * 收藏页点进去能直接回到详情，而不是再按片名搜一遍。
+     */
+    private Movie.Video favoriteTarget() {
+        if (info != null && !TextUtils.isEmpty(info.name)) {
+            Movie.Video vod = new Movie.Video();
+            vod.id = info.id;
+            vod.name = info.name;
+            vod.pic = info.pic;
+            vod.type = info.type;
+            vod.area = info.area;
+            vod.year = info.year;
+            vod.note = info.note;
+            vod.des = info.des;
+            vod.sourceKey = info.sourceKey;
+            return vod;
+        }
+        if (seed != null && !TextUtils.isEmpty(seed.name)) {
+            return seed;
+        }
+        return null;
+    }
+
     // ---------------------------------------------------------------- 生命周期
 
     @Override
@@ -190,6 +277,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
         // 用户可能在播放器里用选集面板翻到了别的段，页面上不该还停在旧的那一段。
         chunkPinned = false;
         refreshSelection();
+        refreshFavoriteState();
         // 从播放器退回来时落在「正在看的那一集」上：以前一律给「开始播放」，
         // 看着像是又要从头开一遍。找不到那一格（选集还没铺完、段落对不上）才退回默认落点。
         if (!focusPlayingEpisode()) {
@@ -280,8 +368,10 @@ public class DetailPage extends FrameLayout implements ModulePage {
         meta.setVisibility(View.VISIBLE);
         desc.setVisibility(View.VISIBLE);
         playButton.setVisibility(View.VISIBLE);
+        favButton.setVisibility(View.VISIBLE);
         searchButton.setVisibility(View.VISIBLE);
         retryButton.setVisibility(View.GONE);
+        refreshFavoriteState();
         lineLabel.setVisibility(View.VISIBLE);
         lines.setVisibility(View.VISIBLE);
         episodeLabel.setVisibility(View.VISIBLE);
@@ -644,6 +734,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
         meta.setVisibility(View.GONE);
         desc.setVisibility(View.GONE);
         playButton.setVisibility(View.GONE);
+        favButton.setVisibility(View.GONE);
         searchButton.setVisibility(View.GONE);
         retryButton.setVisibility(View.GONE);
         lineLabel.setVisibility(View.GONE);
@@ -668,6 +759,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
         meta.setVisibility(View.GONE);
         desc.setVisibility(View.GONE);
         playButton.setVisibility(View.GONE);
+        favButton.setVisibility(View.GONE);
         searchButton.setVisibility(View.VISIBLE);
         retryButton.setVisibility(View.VISIBLE);
         lineLabel.setVisibility(View.GONE);

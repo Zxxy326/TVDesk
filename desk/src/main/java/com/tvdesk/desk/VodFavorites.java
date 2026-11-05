@@ -50,13 +50,11 @@ public final class VodFavorites {
             return false;
         }
         list(context);
-        String key = keyOf(video);
-        for (int i = 0; i < entries.size(); i++) {
-            if (keyOf(entries.get(i)).equals(key)) {
-                entries.remove(i);
-                write(context);
-                return false;
-            }
+        int index = indexOf(video);
+        if (index >= 0) {
+            entries.remove(index);
+            write(context);
+            return false;
         }
         entries.add(0, copy(video));
         while (entries.size() > MAX) {
@@ -71,13 +69,35 @@ public final class VodFavorites {
             return false;
         }
         list(context);
+        return indexOf(video) >= 0;
+    }
+
+    /**
+     * 这条片子在收藏清单里的下标，没有就是 -1。
+     *
+     * <p>先按身份认（{@code sourceKey|id}）。认不到时再按片名兜底一次：
+     * 首页榜单那批豆瓣条目两个字段都是空的，只存了片名；从首页收过一部片子，
+     * 再从详情页（那里有真正的 id）收一次，不该在收藏里变成两条。
+     */
+    private static int indexOf(Movie.Video video) {
         String key = keyOf(video);
-        for (Movie.Video entry : entries) {
-            if (keyOf(entry).equals(key)) {
-                return true;
+        for (int i = 0; i < entries.size(); i++) {
+            if (keyOf(entries.get(i)).equals(key)) {
+                return i;
             }
         }
-        return false;
+        String name = video.name == null ? "" : video.name.trim();
+        if (name.isEmpty() || TextUtils.isEmpty(video.sourceKey) || TextUtils.isEmpty(video.id)) {
+            return -1;
+        }
+        for (int i = 0; i < entries.size(); i++) {
+            Movie.Video entry = entries.get(i);
+            if (TextUtils.isEmpty(entry.sourceKey) && TextUtils.isEmpty(entry.id)
+                    && name.equals(entry.name == null ? "" : entry.name.trim())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
