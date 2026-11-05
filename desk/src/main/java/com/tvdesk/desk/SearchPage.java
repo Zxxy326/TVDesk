@@ -467,6 +467,11 @@ public class SearchPage extends FrameLayout implements ModulePage {
             if (i % 2 == 0) {
                 line = new LinearLayout(getContext());
                 line.setOrientation(LinearLayout.HORIZONTAL);
+                // 这一行是「宽度刚好等于两个条目」的容器：默认 clipChildren=true 时，
+                // 条目按 1.06 放大出来的那一圈会被这一行的边界切掉，
+                // 看到的就是焦点框左右两侧被裁平（用户报的正是这个）
+                line.setClipChildren(false);
+                line.setClipToPadding(false);
                 LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                 lineParams.bottomMargin = dp(6);
