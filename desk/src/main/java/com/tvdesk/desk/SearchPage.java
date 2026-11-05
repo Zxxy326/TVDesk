@@ -13,6 +13,7 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.BaseAdapter;
@@ -141,7 +142,57 @@ public class SearchPage extends FrameLayout implements ModulePage {
         if (query().isEmpty()) {
             showHistory();
         }
-        focusFirstKey();
+        focusInput();
+    }
+
+    /**
+     * 进页面时焦点落在片名框里。
+     *
+     * <p>用户进搜索页要做的第一件事就是输入，焦点先站在字母键盘上等于让他先挪一次手。
+     * 但电视上焦点落到输入框会顺手把系统输入法叫出来，把下半屏盖掉 —— 这里的默认输入
+     * 方式是左边那套字母键盘，所以落焦之后要把输入法收回去（{@link #hideIme()}）。
+     */
+    private void focusInput() {
+        // 页面刚塞进宿主、还没量完布局时 requestFocus 会落空，
+        // 随后系统按「第一个可聚焦」把焦点给到键盘的 A —— 那正是要避免的结果。
+        // 所以等这一轮布局结束再要焦点。
+        if (input.getViewTreeObserver().isAlive()) {
+            input.getViewTreeObserver().addOnGlobalLayoutListener(
+                    new ViewTreeObserver.OnGlobalLayoutListener() {
+                        @Override
+                        public void onGlobalLayout() {
+                            input.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                            grabInputFocus();
+                        }
+                    });
+        }
+        postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                grabInputFocus();
+            }
+        }, 220);
+        // 输入法是「焦点变了之后」才弹的，一次 hide 往往赶在它前面
+        postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!gone() && input.hasFocus()) {
+                    hideIme();
+                }
+            }
+        }, 420);
+    }
+
+    private void grabInputFocus() {
+        if (gone() || input.hasFocus()) {
+            return;
+        }
+        input.requestFocus();
+        Editable text = input.getText();
+        if (text != null) {
+            input.setSelection(text.length());
+        }
+        hideIme();
     }
 
     /**
@@ -286,7 +337,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
             line.setOrientation(LinearLayout.HORIZONTAL);
             LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lineParams.bottomMargin = dp(8);
+            lineParams.bottomMargin = dp(6);
             line.setLayoutParams(lineParams);
             for (String key : row) {
                 line.addView(buildKey(key));
@@ -324,7 +375,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
 
     private TextView buildKey(final String text) {
         TextView key = new TextView(getContext());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1f);
         lp.rightMargin = dp(8);
         key.setLayoutParams(lp);
         key.setBackgroundResource(R.drawable.bg_dialog_item);
@@ -346,7 +397,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
 
     private TextView buildAction(String text, boolean primary, View.OnClickListener listener) {
         TextView button = new TextView(getContext());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1f);
         lp.rightMargin = dp(8);
         button.setLayoutParams(lp);
         button.setBackgroundResource(primary ? R.drawable.bg_btn_primary : R.drawable.bg_pill);
@@ -406,25 +457,32 @@ public class SearchPage extends FrameLayout implements ModulePage {
             historyBox.setVisibility(View.GONE);
             return;
         }
-        for (int i = 0; i < words.size(); i++) {
+        // 只摆 4 条：键盘占掉大半列，再多就会画到下面的提示文字上
+        int count = Math.min(words.size(), 4);
+        for (int i = 0; i < count; i++) {
             final String word = words.get(i);
             TextView item = new TextView(getContext());
             item.setText(word);
-            item.setTextSize(16);
+            item.setTextSize(15);
             item.setSingleLine(true);
+            item.setEllipsize(TextUtils.TruncateAt.END);
             item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            item.setTextColor(getResources().getColor(R.color.text_primary));
-            item.setBackgroundResource(R.drawable.bg_module_item);
+            item.setTextColor(0xFFB9B9C2);
             item.setFocusable(true);
             item.setFocusableInTouchMode(true);
             item.setClickable(true);
-            item.setPadding(dp(16), 0, dp(16), 0);
+            item.setPadding(dp(4), 0, dp(4), 0);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(40));
-            lp.bottomMargin = dp(6);
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
             item.setLayoutParams(lp);
-            com.tvdesk.desk.motion.FocusScaler.attach(item,
-                    com.tvdesk.desk.motion.FocusScaler.SCALE_FOCUSED);
+            // 只用文字：不做背景、不做放大，靠颜色变化表示焦点。
+            // 贴在键盘下面再来一排带底的卡片，视觉上会和按键混成一片。
+            item.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+                @Override
+                public void onFocusChange(View v, boolean hasFocus) {
+                    ((TextView) v).setTextColor(hasFocus ? 0xFFFFFFFF : 0xFFB9B9C2);
+                }
+            });
             item.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -592,7 +650,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
     // ---------------------------------------------------------------- 结果
 
     /** 搜索结果每行 4 张（沿用原来 GridView 的排版） */
-    private static final int GRID_COLUMNS = 4;
+    private static final int GRID_COLUMNS = 5;
 
     private final class ResultAdapter implements com.tvdesk.desk.widget.TileWall.Adapter {
         @Override

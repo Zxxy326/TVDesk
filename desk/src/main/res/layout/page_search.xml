@@ -81,17 +81,59 @@
             android:clipToPadding="false"
             android:orientation="horizontal">
 
-            <!-- 6 列字母键盘由代码生成；宽度固定，右边结果区自己撑满 -->
+            <!-- 左边一列：键盘 + 键盘下面的「最近搜索」。
+                 键盘宽度从 560dp 收到 430dp：键盘是输入工具，不是内容，
+                 占掉半屏之后右边结果区只剩 4 张小卡。 -->
             <LinearLayout
-                android:id="@+id/search_keys"
-                android:layout_width="560dp"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
+                android:layout_width="430dp"
+                android:layout_height="match_parent"
+                android:clipChildren="true"
+                android:clipToPadding="true"
+                android:orientation="vertical">
+
+                <!-- 6 列字母键盘由代码生成；宽度跟着这一列走 -->
+                <LinearLayout
+                    android:id="@+id/search_keys"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <!-- 最近搜索：电视上打字贵，搜过的词直接点回来。
+                     只留文字（没有底卡片），是因为它就贴在键盘下面 ——
+                     再来一排带底的按钮，视觉上会跟键盘的按键混成一片。 -->
+                <LinearLayout
+                    android:id="@+id/search_history"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="10dp"
+                    android:layout_weight="1"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="最近搜索"
+                        android:textColor="@color/text_tertiary"
+                        android:textSize="12sp" />
+
+                    <LinearLayout
+                        android:id="@+id/search_history_words"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:clipChildren="false"
+                        android:clipToPadding="false"
+                        android:orientation="vertical" />
+                </LinearLayout>
+            </LinearLayout>
 
             <FrameLayout
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
-                android:layout_marginStart="26dp"
+                android:layout_marginStart="22dp"
                 android:layout_weight="1"
                 android:clipChildren="false"
                 android:clipToPadding="false">
@@ -128,37 +170,6 @@
                     android:textColor="#8A93A6"
                     android:textSize="18sp"
                     android:visibility="gone" />
-
-                <!-- 最近搜索：电视上打字贵，搜过的词直接点回来 -->
-                <LinearLayout
-                    android:id="@+id/search_history"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="top"
-                    android:clipChildren="false"
-                    android:clipToPadding="false"
-                    android:orientation="vertical"
-                    android:paddingStart="24dp"
-                    android:paddingTop="8dp"
-                    android:paddingEnd="24dp"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="最近搜索"
-                        android:textColor="@color/text_tertiary"
-                        android:textSize="14sp" />
-
-                    <LinearLayout
-                        android:id="@+id/search_history_words"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:clipChildren="false"
-                        android:clipToPadding="false"
-                        android:orientation="vertical" />
-                </LinearLayout>
             </FrameLayout>
         </LinearLayout>
 
@@ -166,7 +177,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="遥控器：方向键选字母、确定输入；中文可按右键进入片名框，用输入法直接打字。"
+            android:text="遥控器：焦点默认在片名框，按「下」进字母键盘；确定输入。片名框上按确定可调出输入法打中文。"
             android:textColor="@color/text_tertiary"
             android:textSize="12sp" />
     </LinearLayout>
