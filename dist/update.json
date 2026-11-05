@@ -1,11 +1,11 @@
 {
-  "versionCode": 16,
-  "versionName": "1.1.5",
-  "notes": "播放与选集：音乐切歌画面/歌词/进度立刻跟上，起播失败自动换源；影视续播按集名认集（换线路也记得住），选集一屏放得下、当前集琥珀高亮，点播改 SurfaceView 后不再丢帧；弹幕与筛选真正生效。交互：返回键按层级逐层退，搜索页焦点不再乱跳。音源市场改读上游 Releases，能同步到最新版本了。",
-  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.5/TVDesk-1.1.5-universal.apk",
+  "versionCode": 17,
+  "versionName": "1.1.6",
+  "notes": "桌面守护修复：按 HOME 键不再回固件桌面（系统关掉无障碍总开关后会自动补回，掉线每分钟自检）。详情页新增收藏按钮，与首页那颗 ♥ 共用一份清单。搜索改成问遍全部源（18 → 64），结果卡标出源名。搜索页键盘收窄、结果区多一列、进页面焦点直接落在片名框，最近搜索挪到键盘下方两列。底部所有提示条统一为圆角半透明磨砂。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.6/TVDesk-1.1.6-universal.apk",
   "assets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.5/TVDesk-1.1.5-armeabi-v7a.apk",
-    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.5/TVDesk-1.1.5-arm64-v8a.apk",
-    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.5/TVDesk-1.1.5-universal.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.6/TVDesk-1.1.6-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.6/TVDesk-1.1.6-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.6/TVDesk-1.1.6-universal.apk"
   }
 }
