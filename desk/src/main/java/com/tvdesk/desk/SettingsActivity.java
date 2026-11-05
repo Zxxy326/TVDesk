@@ -376,8 +376,14 @@ public class SettingsActivity extends DeskAdaptActivity {
                 return TextUtils.isEmpty(builtin) ? url : builtin;
             }
             case "guard": {
-                if (GuardSetup.isServiceEnabled(this)) {
+                // 「开着」要看两样：列表里有它 + 无障碍总开关是 1。
+                // 只看列表会误报 —— 系统把总开关关掉之后名字还留着，
+                // 那时按 HOME 已经回固件桌面了。
+                if (GuardSetup.isGuardReady(this)) {
                     return DeskPrefs.homeGuard(this) ? "已开启" : "已暂停";
+                }
+                if (GuardSetup.isServiceEnabled(this)) {
+                    return "已掉线 · 按确定修复";
                 }
                 return GuardSetup.hasWriteSecureSettings(this) ? "待开启" : "未开启";
             }
@@ -434,7 +440,9 @@ public class SettingsActivity extends DeskAdaptActivity {
      * 桌面守护那张卡：没开就当场把它打开（有权限时），开不了才送去系统设置页。
      */
     private void onGuardClicked() {
-        if (!GuardSetup.isServiceEnabled(this)) {
+        // 判「能不能用」而不是「名字在不在」：系统关掉总开关之后名字还留着，
+        // 那种状态下按 HOME 已经回固件桌面了，得走下面的修复分支
+        if (!GuardSetup.isGuardReady(this)) {
             if (GuardSetup.ensureEnabled(this)) {
                 // 刚写进去，服务要几秒才连上，这里先给个即时反馈
                 Toast.makeText(this, "已开启桌面守护 · 按 HOME 会回到 TVDesk",

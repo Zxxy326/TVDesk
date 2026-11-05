@@ -323,10 +323,13 @@ public class HomeGuardService extends AccessibilityService {
             // 用户刚主动打开了原桌面，这一键留给他
             return false;
         }
-        if (HomeRole.isDefault(this)) {
-            // 已经是默认桌面：HOME 本来就归我们，不需要过滤
-            return false;
-        }
+        // 这里**不再**用 HomeRole.isDefault 放行。
+        //
+        // 原来写的是「已经是默认桌面就不用过滤」，但那套假设在这台固件上不成立：
+        // 实测即使 TVDesk 拿着 HOME 这个 role（isDefault=true），按 HOME 仍然是
+        // com.mitv.tvhome 被拉起来 —— 固件自己抢走了这一键。放行的后果就是
+        // 用户看到「HOME 回系统桌面」，然后靠窗口事件兜底那一下再弹回来，中间闪一下。
+        // 所以只要是接管状态就自己吞掉这一键，不管 role 在谁手里。
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             // 按下就拉，别等抬起 —— 等抬起的话原桌面已经画出来了，看得见闪一下
             bringDeskFront("HOME 键");

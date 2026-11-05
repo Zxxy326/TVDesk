@@ -44,6 +44,16 @@ public class BootReceiver extends BroadcastReceiver {
             Log.i(TAG, "桌面守护关着，开机不自启");
             return;
         }
+        // 开机/升级后先把守护补回来：待机会把无障碍总开关关掉、升级会让系统把服务
+        // 标记成 crashed 而不再绑定。不补的话「守护开着但按 HOME 回固件桌面」——
+        // 1.1.6 升级时就是这么坏的。
+        try {
+            GuardSetup.ensureEnabled(context);
+            GuardSetup.ensureNotificationListener(context);
+            GuardSetup.scheduleReviveAlarm(context);
+        } catch (Throwable th) {
+            Log.w(TAG, "开机补守护失败：" + th.getMessage());
+        }
         try {
             Intent desk = new Intent(context, DeskActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK

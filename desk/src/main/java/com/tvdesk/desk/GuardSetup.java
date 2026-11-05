@@ -157,8 +157,61 @@ final class GuardSetup {
         return enabledServices(context).contains(SERVICE);
     }
 
+    /** 无障碍总开关现在是不是开着 */
+    static boolean accessibilityEnabled(Context context) {
+        try {
+            return Settings.Secure.getInt(context.getContentResolver(),
+                    Settings.Secure.ACCESSIBILITY_ENABLED, 0) == 1;
+        } catch (Throwable th) {
+            return false;
+        }
+    }
+
+    /**
+     * 守护真的可用吗：列表里有它 <b>并且</b> 无障碍总开关开着。
+     *
+     * <p>只看列表是不够的：实测踩过一次 —— 系统把 {@code accessibility_enabled} 改成 0，
+     * 但 {@code enabled_accessibility_services} 里还留着我们的名字。当时的
+     * {@link #ensureEnabled} 只判「名字在不在」，于是每次启动都以为「已经开着」直接返回，
+     * 守护根本没绑上：按 HOME 直接回固件桌面，谁也拉不回来。
+     */
+    static boolean isGuardReady(Context context) {
+        return isServiceEnabled(context) && accessibilityEnabled(context);
+    }
+
+    /** 服务真的被系统绑上了吗（设置页显示状态用） */
+    static boolean isBound(Context context) {
+        try {
+            android.view.accessibility.AccessibilityManager am =
+                    (android.view.accessibility.AccessibilityManager)
+                            context.getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if (am == null) {
+                return false;
+            }
+            for (android.accessibilityservice.AccessibilityServiceInfo info
+                    : am.getEnabledAccessibilityServiceList(
+                    android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)) {
+                if (info != null && SERVICE.equals(info.getId())) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+            // 读不到就当没绑上：设置页显示「已开启」，实际由 ensureEnabled 兜
+        }
+        return false;
+    }
+
     /**
      * 确保守护是开着的。
+     *
+     * <p>要修的是两个东西，缺一个都不算开：<b>启用列表里的名字</b>和<b>无障碍总开关</b>。
+     *
+     * <p>总开关单独被判一次是有教训的：系统在服务崩掉或被清理之后，会把它改成 0，
+     * 但列表里的名字还留着。只判名字的实现会认为「已经开着」，于是一直不去碰总开关，
+     * 表现就是「守护开着，但按 HOME 回固件桌面」。
+     *
+     * <p>总开关从 0 变 1 时顺手把这一条摘掉再加回去：系统对「标记为 crashed」的服务
+     * 不一定会重绑，摘一次能逼它重新读配置、重新绑。
      *
      * @return 真的开启了（或者本来就开着）；没权限 / 写失败返回 false
      */
@@ -166,22 +219,46 @@ final class GuardSetup {
         if (!hasWriteSecureSettings(context)) {
             return false;
         }
-        if (isServiceEnabled(context)) {
+        boolean listed = isServiceEnabled(context);
+        boolean master = accessibilityEnabled(context);
+        if (listed && master) {
             return true;
         }
         try {
+            android.content.ContentResolver cr = context.getContentResolver();
             String current = enabledServices(context);
-            String next = TextUtils.isEmpty(current) ? SERVICE : current + ":" + SERVICE;
-            Settings.Secure.putString(context.getContentResolver(),
-                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, next);
-            Settings.Secure.putInt(context.getContentResolver(),
-                    Settings.Secure.ACCESSIBILITY_ENABLED, 1);
-            Log.i(TAG, "已把桌面守护写进系统设置");
+            if (listed && !master) {
+                // 名字在、总开关被关了：摘一次再放回去，逼系统重新绑
+                Settings.Secure.putString(cr,
+                        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                        removeService(current));
+                Settings.Secure.putString(cr,
+                        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                        addService(removeService(current)));
+                Log.i(TAG, "无障碍总开关被关过，已重新登记守护");
+            } else if (!listed) {
+                Settings.Secure.putString(cr,
+                        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                        addService(current));
+                Log.i(TAG, "已把桌面守护写进系统设置");
+            }
+            Settings.Secure.putInt(cr, Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+            Log.i(TAG, "桌面守护已开启（列表 " + listed + "，总开关 " + master + "）");
             return true;
         } catch (Throwable th) {
             Log.w(TAG, "写无障碍设置失败：" + th.getMessage());
             return false;
         }
+    }
+
+    private static String addService(String list) {
+        if (TextUtils.isEmpty(list)) {
+            return SERVICE;
+        }
+        if (list.contains(SERVICE)) {
+            return list;
+        }
+        return list + ":" + SERVICE;
     }
 
     /**
@@ -301,8 +378,11 @@ final class GuardSetup {
 
     /** 给设置页显示的一句话状态 */
     static String describe(Context context) {
-        if (isServiceEnabled(context)) {
+        if (isGuardReady(context)) {
             return "已开启";
+        }
+        if (isServiceEnabled(context)) {
+            return "已掉线";
         }
         if (hasWriteSecureSettings(context)) {
             return "可自动开启";

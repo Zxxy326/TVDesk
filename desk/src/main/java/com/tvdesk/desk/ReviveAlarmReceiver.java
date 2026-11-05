@@ -44,10 +44,10 @@ public class ReviveAlarmReceiver extends BroadcastReceiver {
         boolean wasInteractive = DeskPrefs.lastInteractive(context);
         DeskPrefs.setLastInteractive(context, interactive);
 
-        // 主判据：无障碍绑定还在不在。系统待机清理时会把
-        // enabled_accessibility_services 一起清空 —— 这个信号比「黑屏还是亮屏」准，
-        // 因为它只在「我们被系统清理过」时才成立，用户正常使用时绝不触发。
-        boolean lost = !GuardSetup.isServiceEnabled(context);
+        // 主判据：守护是不是真的可用（列表里有名字 **且** 无障碍总开关开着）。
+        // 只看列表会漏掉「系统把总开关关了、名字还留着」这种情况 ——
+        // 那时按 HOME 会直接回固件桌面，而且没人再补，正是用户看到的「守护失效」。
+        boolean lost = !GuardSetup.isGuardReady(context);
         if (lost) {
             Log.i(TAG, "无障碍绑定已丢失（系统清理过），补回来");
             try {

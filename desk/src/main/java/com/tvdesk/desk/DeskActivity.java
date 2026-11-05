@@ -826,6 +826,33 @@ public class DeskActivity extends DeskAdaptActivity {
         return false;
     }
 
+    /**
+     * 守护看门狗。
+     *
+     * <p>系统会趁我们不注意把无障碍总开关关掉（服务崩一次、待机清理一次都可能），
+     * 而 `enabled_accessibility_services` 里的名字还留着 —— 用户按 HOME 就直接回固件桌面，
+     * 看起来就是「守护失效」。只在启动时检查一次不够（用户可能几天不重启电视），
+     * 所以运行期间每分钟复核一次，掉了就补回来。
+     */
+    private static final long GUARD_WATCHDOG_MS = 60_000L;
+
+    private final Runnable guardWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                if (DeskPrefs.homeGuard(DeskActivity.this)
+                        && GuardSetup.hasWriteSecureSettings(DeskActivity.this)
+                        && !GuardSetup.isGuardReady(DeskActivity.this)) {
+                    android.util.Log.w("DeskGuard", "守护掉线，补回（总开关/列表）");
+                    GuardSetup.ensureEnabled(DeskActivity.this);
+                }
+            } catch (Throwable ignored) {
+                // 看门狗自己不能把桌面带崩
+            }
+            okHandler.postDelayed(this, GUARD_WATCHDOG_MS);
+        }
+    };
+
     private void applyDeskGlass() {
         // 拍「氛围光 + Hero 海报」两层叠起来的效果：只拍海报的话，
         // 海报还没加载完时拍到的是纯透明，玻璃就退回一块黑
@@ -951,6 +978,8 @@ public class DeskActivity extends DeskAdaptActivity {
             @Override
             public void run() {
                 ensureGuardEnabled();
+                okHandler.removeCallbacks(guardWatchdog);
+                okHandler.postDelayed(guardWatchdog, GUARD_WATCHDOG_MS);
         applyDeskGlass();
                 applyClockWeatherPrefs();
             }
@@ -4563,6 +4592,7 @@ public class DeskActivity extends DeskAdaptActivity {
 
     @Override
     protected void onDestroy() {
+        okHandler.removeCallbacks(guardWatchdog);
         releasePlayer();
         // 页面栈里一次性的详情/搜索随宿主销毁；缓存的模块页在下面单独释放
         for (ModulePage page : pageStack) {

@@ -337,7 +337,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
             line.setOrientation(LinearLayout.HORIZONTAL);
             LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lineParams.bottomMargin = dp(6);
+            lineParams.bottomMargin = dp(5);
             line.setLayoutParams(lineParams);
             for (String key : row) {
                 line.addView(buildKey(key));
@@ -375,7 +375,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
 
     private TextView buildKey(final String text) {
         TextView key = new TextView(getContext());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(34), 1f);
         lp.rightMargin = dp(8);
         key.setLayoutParams(lp);
         key.setBackgroundResource(R.drawable.bg_dialog_item);
@@ -385,7 +385,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
         key.setGravity(Gravity.CENTER);
         key.setText(text);
         key.setTextColor(AppCompatResources.getColorStateList(getContext(), R.color.nav_item_text));
-        key.setTextSize(16);
+        key.setTextSize(15);
         key.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -397,7 +397,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
 
     private TextView buildAction(String text, boolean primary, View.OnClickListener listener) {
         TextView button = new TextView(getContext());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(40), 1f);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(36), 1f);
         lp.rightMargin = dp(8);
         button.setLayoutParams(lp);
         button.setBackgroundResource(primary ? R.drawable.bg_btn_primary : R.drawable.bg_pill);
@@ -457,32 +457,41 @@ public class SearchPage extends FrameLayout implements ModulePage {
             historyBox.setVisibility(View.GONE);
             return;
         }
-        // 只摆 4 条：键盘占掉大半列，再多就会画到下面的提示文字上
-        int count = Math.min(words.size(), 4);
+        // 两列、最多 6 条：键盘占掉大半列，再多就会画到下面的提示文字上。
+        // 「仅文字」那一版没有焦点框，遥控器走上去看不出停在哪，所以这里给回
+        // 带底的条目 + 放大，跟键盘按键是同一套视觉语言。
+        int count = Math.min(words.size(), 6);
+        LinearLayout line = null;
         for (int i = 0; i < count; i++) {
             final String word = words.get(i);
+            if (i % 2 == 0) {
+                line = new LinearLayout(getContext());
+                line.setOrientation(LinearLayout.HORIZONTAL);
+                LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                lineParams.bottomMargin = dp(6);
+                line.setLayoutParams(lineParams);
+                historyWords.addView(line);
+            }
             TextView item = new TextView(getContext());
             item.setText(word);
-            item.setTextSize(15);
+            item.setTextSize(14);
             item.setSingleLine(true);
             item.setEllipsize(TextUtils.TruncateAt.END);
             item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            item.setTextColor(0xFFB9B9C2);
+            item.setTextColor(AppCompatResources.getColorStateList(getContext(), R.color.nav_item_text));
+            item.setBackgroundResource(R.drawable.bg_module_item);
             item.setFocusable(true);
             item.setFocusableInTouchMode(true);
             item.setClickable(true);
-            item.setPadding(dp(4), 0, dp(4), 0);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+            item.setPadding(dp(12), 0, dp(12), 0);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+            if (i % 2 == 0) {
+                lp.rightMargin = dp(6);
+            }
             item.setLayoutParams(lp);
-            // 只用文字：不做背景、不做放大，靠颜色变化表示焦点。
-            // 贴在键盘下面再来一排带底的卡片，视觉上会和按键混成一片。
-            item.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-                @Override
-                public void onFocusChange(View v, boolean hasFocus) {
-                    ((TextView) v).setTextColor(hasFocus ? 0xFFFFFFFF : 0xFFB9B9C2);
-                }
-            });
+            com.tvdesk.desk.motion.FocusScaler.attach(item,
+                    com.tvdesk.desk.motion.FocusScaler.SCALE_FOCUSED);
             item.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -491,7 +500,9 @@ public class SearchPage extends FrameLayout implements ModulePage {
                     searchNow(true);
                 }
             });
-            historyWords.addView(item);
+            if (line != null) {
+                line.addView(item);
+            }
         }
         historyBox.setVisibility(View.VISIBLE);
     }
