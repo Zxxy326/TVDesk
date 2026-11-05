@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.Manifest;
 import android.animation.ValueAnimator;
 import android.app.Activity;
@@ -5945,7 +5946,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
     }
 
     private void toast(String text) {
-        Toast.makeText(getContext(), text, Toast.LENGTH_SHORT).show();
+        DeskToast.makeText(getContext(), text, Toast.LENGTH_SHORT).show();
     }
 
     private int dp(int value) {

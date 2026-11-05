@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.activity;
 
+import com.tvdesk.core.ui.DeskToast;
 import static xyz.doikki.videoplayer.util.PlayerUtils.safeTimeMs;
 
 import android.Manifest;
@@ -2732,7 +2733,7 @@ public class LivePlayActivity extends BaseActivity {
                                 if (mVideoView != null) mVideoView.release();
                                 ApiConfig.get().refreshLiveApiHistoryItems();
                                 setEmptyLiveChannelList(false);
-                                Toast.makeText(LivePlayActivity.this, msg, Toast.LENGTH_SHORT).show();
+                                DeskToast.makeText(LivePlayActivity.this, msg, Toast.LENGTH_SHORT).show();
                             }
                         });
                     }
@@ -2743,7 +2744,7 @@ public class LivePlayActivity extends BaseActivity {
                             @Override
                             public void run() {
                                 if (requestId != liveConfigRequestId || isFinishing()) return;
-                                Toast.makeText(LivePlayActivity.this, msg, Toast.LENGTH_SHORT).show();
+                                DeskToast.makeText(LivePlayActivity.this, msg, Toast.LENGTH_SHORT).show();
                             }
                         });
                     }
@@ -2851,7 +2852,7 @@ public class LivePlayActivity extends BaseActivity {
                 mHandler.post(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(LivePlayActivity.this, msg, Toast.LENGTH_SHORT).show();
+                        DeskToast.makeText(LivePlayActivity.this, msg, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -3261,7 +3262,7 @@ public class LivePlayActivity extends BaseActivity {
                     channelGroupPasswordConfirmed.add(groupIndex);
                     loadChannelGroupDataAndPlay(groupIndex, liveChannelIndex);
                 } else {
-                    Toast.makeText(App.getInstance(), "密码错误", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(App.getInstance(), "密码错误", Toast.LENGTH_SHORT).show();
                 }
 
                 if (tvLeftChannelListLayout.getVisibility() == View.VISIBLE)
@@ -3389,7 +3390,7 @@ public class LivePlayActivity extends BaseActivity {
 
     private boolean isCurrentLiveChannelValid() {
         if (currentLiveChannelItem == null) {
-            Toast.makeText(App.getInstance(), "请先选择频道", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(App.getInstance(), "请先选择频道", Toast.LENGTH_SHORT).show();
             return false;
         }
         return true;
@@ -3618,6 +3619,6 @@ public class LivePlayActivity extends BaseActivity {
 
     private void setEmptyLiveChannelList(boolean releasePlayer) {
         clearLiveChannelList(releasePlayer);
-//        Toast.makeText(App.getInstance(), "源异常,请切换到其他源", Toast.LENGTH_SHORT).show();
+//        DeskToast.makeText(App.getInstance(), "源异常,请切换到其他源", Toast.LENGTH_SHORT).show();
     }
 }

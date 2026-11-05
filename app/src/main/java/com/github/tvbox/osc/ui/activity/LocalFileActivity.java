@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.activity;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
@@ -73,7 +74,7 @@ public class LocalFileActivity extends BaseActivity {
 
     private void loadDir(File dir) {
         if (dir == null || !dir.exists() || !dir.isDirectory()) {
-            Toast.makeText(this, "无法打开目录", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(this, "无法打开目录", Toast.LENGTH_SHORT).show();
             return;
         }
         currentDir = dir;

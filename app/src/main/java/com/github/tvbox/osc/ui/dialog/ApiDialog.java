@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.dialog;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.content.Context;
 import android.view.KeyEvent;
@@ -92,7 +93,7 @@ public class ApiDialog extends BaseDialog {
             public void onClick(View v) {
                 ArrayList<String> history = Hawk.get(HawkConfig.LIVE_API_HISTORY, new ArrayList<String>());
                 if (history.isEmpty()){
-                    Toast.makeText(getContext(), "直播历史为空", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(getContext(), "直播历史为空", Toast.LENGTH_SHORT).show();
                     return;
                 }
                 String current = Hawk.get(HawkConfig.LIVE_API_URL, "");
@@ -121,7 +122,7 @@ public class ApiDialog extends BaseDialog {
             @Override
             public void onClick(View v) {
                 if (XXPermissions.isGranted(getContext(), Permission.Group.STORAGE)) {
-                    Toast.makeText(getContext(), "已获得存储权限", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(getContext(), "已获得存储权限", Toast.LENGTH_SHORT).show();
                 } else {
                     XXPermissions.with(getContext())
                             .permission(Permission.Group.STORAGE)
@@ -129,17 +130,17 @@ public class ApiDialog extends BaseDialog {
                                 @Override
                                 public void onGranted(List<String> permissions, boolean all) {
                                     if (all) {
-                                        Toast.makeText(getContext(), "已获得存储权限", Toast.LENGTH_SHORT).show();
+                                        DeskToast.makeText(getContext(), "已获得存储权限", Toast.LENGTH_SHORT).show();
                                     }
                                 }
 
                                 @Override
                                 public void onDenied(List<String> permissions, boolean never) {
                                     if (never) {
-                                        Toast.makeText(getContext(), "获取存储权限失败,请在系统设置中开启", Toast.LENGTH_SHORT).show();
+                                        DeskToast.makeText(getContext(), "获取存储权限失败,请在系统设置中开启", Toast.LENGTH_SHORT).show();
                                         XXPermissions.startPermissionActivity((Activity) getContext(), permissions);
                                     } else {
-                                        Toast.makeText(getContext(), "获取存储权限失败", Toast.LENGTH_SHORT).show();
+                                        DeskToast.makeText(getContext(), "获取存储权限失败", Toast.LENGTH_SHORT).show();
                                     }
                                 }
                             });

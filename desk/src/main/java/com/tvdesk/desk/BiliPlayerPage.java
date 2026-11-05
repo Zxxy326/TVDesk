@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -433,7 +434,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                         return;
                     }
                     showControls();
-                    Toast.makeText(getContext(), "播放结束", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(getContext(), "播放结束", Toast.LENGTH_SHORT).show();
                 }
             }
 
@@ -506,7 +507,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
             }
         }
         player.setPlayWhenReady(wasPlaying);
-        Toast.makeText(getContext(), "这条线路不通，已自动换一条", Toast.LENGTH_SHORT).show();
+        DeskToast.makeText(getContext(), "这条线路不通，已自动换一条", Toast.LENGTH_SHORT).show();
     }
 
     /**
@@ -547,7 +548,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
 
     private void loadVod() {
         if (detail == null || episode == null) {
-            Toast.makeText(getContext(), "这条视频没有可播的分 P", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), "这条视频没有可播的分 P", Toast.LENGTH_SHORT).show();
             return;
         }
         streamBvid = TextUtils.isEmpty(episode.bvid) ? detail.bvid : episode.bvid;
@@ -585,7 +586,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                 if (initial || player == null) {
                     showStreamError("取流超时，线路响应太慢");
                 } else {
-                    Toast.makeText(getContext(), "取流超时，线路响应太慢", Toast.LENGTH_LONG).show();
+                    DeskToast.makeText(getContext(), "取流超时，线路响应太慢", Toast.LENGTH_LONG).show();
                 }
             }
         }, STREAM_TIMEOUT_MS);
@@ -614,7 +615,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                             if (initial || player == null) {
                                 showStreamError(failure);
                             } else {
-                                Toast.makeText(getContext(), failure == null
+                                DeskToast.makeText(getContext(), failure == null
                                         ? "取不到播放地址" : failure, Toast.LENGTH_LONG).show();
                             }
                             return;
@@ -828,7 +829,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                         loadingView.setVisibility(View.GONE);
                         BiliEpisode first = value == null ? null : value.first();
                         if (first == null || first.cid <= 0) {
-                            Toast.makeText(getContext(), failure == null
+                            DeskToast.makeText(getContext(), failure == null
                                     ? "这个视频没有可播的分 P" : failure, Toast.LENGTH_LONG).show();
                             return;
                         }
@@ -936,7 +937,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                         }
                         loadingView.setVisibility(View.GONE);
                         if (value == null || value.urls.isEmpty()) {
-                            Toast.makeText(getContext(), failure == null
+                            DeskToast.makeText(getContext(), failure == null
                                     ? "进不去这个直播间" : failure, Toast.LENGTH_LONG).show();
                             return;
                         }
@@ -985,7 +986,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
             play(value.urls.get(0));
             return;
         }
-        Toast.makeText(getContext(), "这个清晰度取不到可播的流", Toast.LENGTH_SHORT).show();
+        DeskToast.makeText(getContext(), "这个清晰度取不到可播的流", Toast.LENGTH_SHORT).show();
     }
 
     /**
@@ -1076,13 +1077,13 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
     private void doTriple() {
         final BiliClient client = BiliClient.get(getContext());
         if (!client.loggedIn()) {
-            Toast.makeText(getContext(), "一键三连要先登录 B 站", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), "一键三连要先登录 B 站", Toast.LENGTH_SHORT).show();
             return;
         }
         final String bvid = streamBvid;
         final long aid = detail == null ? 0 : detail.aid;
         if (TextUtils.isEmpty(bvid)) {
-            Toast.makeText(getContext(), "这个视频没有可三连的标识", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), "这个视频没有可三连的标识", Toast.LENGTH_SHORT).show();
             return;
         }
         if (tripleView == null || tripleBusy) {
@@ -1106,7 +1107,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                         public void run() {
                             tripleBusy = false;
                             tripleView.setText("三连");
-                            Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
+                            DeskToast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
                         }
                     });
                     return;
@@ -1119,10 +1120,10 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                         tripleBusy = false;
                         tripleView.setText(ok ? "已三连" : "三连");
                         if (ok) {
-                            Toast.makeText(getContext(), "已三连：点赞 + 投币 + 收藏",
+                            DeskToast.makeText(getContext(), "已三连：点赞 + 投币 + 收藏",
                                     Toast.LENGTH_SHORT).show();
                         } else {
-                            Toast.makeText(getContext(), "三连没成功：" + err,
+                            DeskToast.makeText(getContext(), "三连没成功：" + err,
                                     Toast.LENGTH_SHORT).show();
                         }
                     }
@@ -1241,7 +1242,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
         playMode = (playMode + 1) % MODE_NAMES.length;
         DeskPrefs.setBiliPlayMode(getContext(), playMode);
         applyModeIcon();
-        Toast.makeText(getContext(), "连播：" + MODE_NAMES[playMode], Toast.LENGTH_SHORT).show();
+        DeskToast.makeText(getContext(), "连播：" + MODE_NAMES[playMode], Toast.LENGTH_SHORT).show();
         if (playMode == MODE_ORDER || playMode == MODE_LIST) {
             fetchRelated();
         }
@@ -1334,7 +1335,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                 continue;
             }
             seekToDuration(endMs);
-            Toast.makeText(getContext(), "空降助手：已跳过「" + sponsorName(item.category)
+            DeskToast.makeText(getContext(), "空降助手：已跳过「" + sponsorName(item.category)
                     + "」" + BiliClient.humanTime(startMs / 1000) + "–"
                     + BiliClient.humanTime(endMs / 1000), Toast.LENGTH_SHORT).show();
             break;

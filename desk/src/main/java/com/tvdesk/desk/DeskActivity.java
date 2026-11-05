@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.res.Resources;
@@ -3218,7 +3219,7 @@ public class DeskActivity extends DeskAdaptActivity {
     private void openWebPage(String url, String title) {
         if (TextUtils.isEmpty(url)) {
             // 地址都拼不出来的话，至少说一声——点了没反应比报错更让人以为坏了
-            android.widget.Toast.makeText(this, "这一项要联网才能打开配置页，请检查电视网络",
+            DeskToast.makeText(this, "这一项要联网才能打开配置页，请检查电视网络",
                     android.widget.Toast.LENGTH_LONG).show();
             return;
         }
@@ -3475,7 +3476,7 @@ public class DeskActivity extends DeskAdaptActivity {
     }
 
     private void toastDesk(String text) {
-        android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_SHORT).show();
+        DeskToast.makeText(this, text, android.widget.Toast.LENGTH_SHORT).show();
     }
 
     /** B 站登录。二维码由本机 zxing 画，cookie 由 BiliClient 自己落盘 */
@@ -3538,7 +3539,7 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         Fragment fragment = newPlayFragment();
         if (fragment == null || playerHost == null) {
-            android.widget.Toast.makeText(this, "播放器没就绪", android.widget.Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(this, "播放器没就绪", android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         App.getInstance().setVodInfo(info);
@@ -4087,7 +4088,7 @@ public class DeskActivity extends DeskAdaptActivity {
             startActivity(intent);
         } catch (Exception e) {
             android.util.Log.w("DeskActivity", "launch " + className + " failed", e);
-            android.widget.Toast.makeText(this, "该页面还没就绪", android.widget.Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(this, "该页面还没就绪", android.widget.Toast.LENGTH_SHORT).show();
         }
     }
 

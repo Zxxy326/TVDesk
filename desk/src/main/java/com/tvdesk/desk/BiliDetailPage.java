@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -382,7 +383,7 @@ public class BiliDetailPage extends FrameLayout implements ModulePage {
     }
 
     private void toast(String text) {
-        Toast.makeText(getContext(), text, Toast.LENGTH_SHORT).show();
+        DeskToast.makeText(getContext(), text, Toast.LENGTH_SHORT).show();
     }
 
     // ---------------------------------------------------------------- 三连与在线

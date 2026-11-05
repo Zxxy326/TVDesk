@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.fragment;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.content.Context;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -406,7 +407,7 @@ public class GridFragment extends BaseLazyFragment {
                     if (maxPage>0 && page > maxPage) {
                         gridAdapter.loadMoreEnd();
                         gridAdapter.setEnableLoadMore(false);
-                        if(page>2)Toast.makeText(getContext(), "没有更多了", Toast.LENGTH_SHORT).show();
+                        if(page>2)DeskToast.makeText(getContext(), "没有更多了", Toast.LENGTH_SHORT).show();
                     }else {
                         gridAdapter.loadMoreComplete();
                         gridAdapter.setEnableLoadMore(true);
@@ -416,7 +417,7 @@ public class GridFragment extends BaseLazyFragment {
                         hasActionItems = false;
                         showEmpty();
                     } else if(page > 2){// 只有一页数据时不提示
-                        Toast.makeText(getContext(), "没有更多了", Toast.LENGTH_SHORT).show();
+                        DeskToast.makeText(getContext(), "没有更多了", Toast.LENGTH_SHORT).show();
                     }
                     gridAdapter.loadMoreEnd();
                     gridAdapter.setEnableLoadMore(false);
@@ -429,7 +430,7 @@ public class GridFragment extends BaseLazyFragment {
                 if (jsonObject == null) return;
                 String msg = jsonObject.optString("msg");
                 if (!msg.isEmpty()) {
-                    Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
                     forceRefresh();
                 }
             }

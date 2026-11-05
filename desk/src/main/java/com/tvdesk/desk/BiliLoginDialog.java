@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.app.Dialog;
 import android.os.Bundle;
@@ -246,7 +247,7 @@ public final class BiliLoginDialog extends Dialog {
                         if (listener != null) {
                             listener.onLoggedIn();
                         }
-                        Toast.makeText(getContext(), TextUtils.isEmpty(name)
+                        DeskToast.makeText(getContext(), TextUtils.isEmpty(name)
                                 ? "已登录" : "已登录：" + name, Toast.LENGTH_SHORT).show();
                         dismiss();
                     }
@@ -264,7 +265,7 @@ public final class BiliLoginDialog extends Dialog {
             return;
         }
         if (!raw.contains("SESSDATA")) {
-            Toast.makeText(getContext(), "这段 cookie 里没有 SESSDATA，登不上",
+            DeskToast.makeText(getContext(), "这段 cookie 里没有 SESSDATA，登不上",
                     Toast.LENGTH_SHORT).show();
             return;
         }

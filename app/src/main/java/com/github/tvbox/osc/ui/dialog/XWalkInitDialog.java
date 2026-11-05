@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.dialog;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.view.View;
@@ -67,7 +68,7 @@ public class XWalkInitDialog extends BaseDialog {
                             dismiss();
                         } catch (Throwable e) {
                             e.printStackTrace();
-                            Toast.makeText(context, e.getMessage(), Toast.LENGTH_LONG).show();
+                            DeskToast.makeText(context, e.getMessage(), Toast.LENGTH_LONG).show();
                             setTextEnable(true);
                         }
                     }
@@ -75,7 +76,7 @@ public class XWalkInitDialog extends BaseDialog {
                     @Override
                     public void onError(Response<File> response) {
                         super.onError(response);
-                        Toast.makeText(context, response.getException().getMessage(), Toast.LENGTH_LONG).show();
+                        DeskToast.makeText(context, response.getException().getMessage(), Toast.LENGTH_LONG).show();
                         setTextEnable(true);
                     }
 

@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
@@ -503,7 +504,7 @@ public final class NeteaseLoginDialog extends Dialog {
         boolean webOk = hasLoginCookie(webCookie);
         if (!manualOk && !webOk) {
             // 两条路都没拿到账号态：不是「清空账号」（那有单独的按钮），只是还没登完，留在弹窗里继续
-            Toast.makeText(getContext(), R.string.ncm_toast_no_login, Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), R.string.ncm_toast_no_login, Toast.LENGTH_SHORT).show();
             return;
         }
         hideIme();

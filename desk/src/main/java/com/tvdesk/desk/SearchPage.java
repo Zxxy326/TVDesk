@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
@@ -575,7 +576,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
         MAIN.removeCallbacks(liveSearch);
         String wd = query();
         if (TextUtils.isEmpty(wd)) {
-            Toast.makeText(getContext(), "先输入片名", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), "先输入片名", Toast.LENGTH_SHORT).show();
             focusFirstKey();
             return;
         }

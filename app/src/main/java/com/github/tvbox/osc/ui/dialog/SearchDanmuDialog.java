@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.dialog;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.content.Context;
 import android.text.TextUtils;
@@ -95,7 +96,7 @@ public class SearchDanmuDialog extends BaseDialog {
     private void search(String word) {
         searchAdapter.setNewData(new ArrayList<DanmuSearchResult>());
         if (TextUtils.isEmpty(word)) {
-            Toast.makeText(getContext(), "输入内容不能为空", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), "输入内容不能为空", Toast.LENGTH_SHORT).show();
             return;
         }
         showLoading();
@@ -108,7 +109,7 @@ public class SearchDanmuDialog extends BaseDialog {
             @Override
             public void onError(String message) {
                 showResults(new ArrayList<DanmuSearchResult>());
-                Toast.makeText(getContext(), message, Toast.LENGTH_SHORT).show();
+                DeskToast.makeText(getContext(), message, Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -126,7 +127,7 @@ public class SearchDanmuDialog extends BaseDialog {
             public void onError(String message) {
                 loadingBar.setVisibility(View.GONE);
                 gridView.setVisibility(View.VISIBLE);
-                Toast.makeText(getContext(), message, Toast.LENGTH_SHORT).show();
+                DeskToast.makeText(getContext(), message, Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -142,7 +143,7 @@ public class SearchDanmuDialog extends BaseDialog {
         gridView.setVisibility(View.VISIBLE);
         searchAdapter.setNewData(results);
         if (results.isEmpty()) {
-            Toast.makeText(getContext(), "未查询到匹配弹幕", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), "未查询到匹配弹幕", Toast.LENGTH_SHORT).show();
             return;
         }
         gridView.requestFocus();

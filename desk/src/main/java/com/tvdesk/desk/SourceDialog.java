@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
@@ -445,7 +446,7 @@ public final class SourceDialog extends Dialog {
         if (TextUtils.isEmpty(url)) {
             // 空地址不算「清空」——清空有它自己的按钮，是个明确得多的动作。
             // 这里只是没填完，留在弹窗里继续填。
-            Toast.makeText(getContext(), R.string.settings_toast_empty_url, Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), R.string.settings_toast_empty_url, Toast.LENGTH_SHORT).show();
             input.requestFocus();
             return;
         }

@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.dialog;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.content.Context;
 import android.os.Bundle;
 import android.view.View;
@@ -58,7 +59,7 @@ public class SearchRemoteTvDialog extends BaseDialog{
             if (ModelSettingFragment.loadingSearchRemoteTvDialog != null) {
                 ModelSettingFragment.loadingSearchRemoteTvDialog.showEmpty();
             }
-            Toast.makeText(getContext(), "未找到附近TVBox", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), "未找到附近TVBox", Toast.LENGTH_SHORT).show();
             return;
         }
         if (ModelSettingFragment.loadingSearchRemoteTvDialog != null) {
@@ -75,7 +76,7 @@ public class SearchRemoteTvDialog extends BaseDialog{
             @Override
             public void click(String value, int pos) {
                 RemoteTVBox.setAvalible(value);
-                Toast.makeText(getContext(), "设置成功", Toast.LENGTH_SHORT).show();
+                DeskToast.makeText(getContext(), "设置成功", Toast.LENGTH_SHORT).show();
             }
 
             @Override

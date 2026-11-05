@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.activity;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -232,7 +233,7 @@ public class SearchActivity extends BaseActivity {
                 if(wd.contains("热词")){
                     ArrayList<String> hisWord= Hawk.get(HawkConfig.SEARCH_HISTORY, new ArrayList<String>());
                     if (hisWord.isEmpty()){
-                        Toast.makeText(mContext, "暂无历史搜索", Toast.LENGTH_SHORT).show();
+                        DeskToast.makeText(mContext, "暂无历史搜索", Toast.LENGTH_SHORT).show();
                     }else {
                         wordsSwitch.setText("历史 搜索");
                         wordAdapter.setNewData(hisWord);
@@ -252,7 +253,7 @@ public class SearchActivity extends BaseActivity {
                 FastClickCheckUtil.check(v);
                 HistoryHelper.clearSearchHistory();
                 refreshSearchHistoryWords();
-                Toast.makeText(mContext, "已清空搜索历史", Toast.LENGTH_SHORT).show();
+                DeskToast.makeText(mContext, "已清空搜索历史", Toast.LENGTH_SHORT).show();
             }
         });
         tvSearch.setOnClickListener(new View.OnClickListener() {
@@ -270,7 +271,7 @@ public class SearchActivity extends BaseActivity {
                         search(wd);
                     }
                 } else {
-                    Toast.makeText(mContext, "输入内容不能为空", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(mContext, "输入内容不能为空", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -300,7 +301,7 @@ public class SearchActivity extends BaseActivity {
                             search(wd);
                         }
                     } else {
-                        Toast.makeText(mContext, "输入内容不能为空", Toast.LENGTH_SHORT).show();
+                        DeskToast.makeText(mContext, "输入内容不能为空", Toast.LENGTH_SHORT).show();
                     }
                     return true;
                 }
@@ -324,7 +325,7 @@ public class SearchActivity extends BaseActivity {
                             search(wd);
                         }
                     } else {
-                        Toast.makeText(mContext, "输入内容不能为空", Toast.LENGTH_SHORT).show();
+                        DeskToast.makeText(mContext, "输入内容不能为空", Toast.LENGTH_SHORT).show();
                     }
                     return true;
                 }
@@ -823,7 +824,7 @@ public class SearchActivity extends BaseActivity {
             searchTasks.add(new SearchTask(bean.getKey(), searchTitle, currentSearchToken, isBlockingSearchSource(bean)));
         }
         if (searchTasks.size() <= 0) {
-            Toast.makeText(mContext, "没有指定搜索源", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(mContext, "没有指定搜索源", Toast.LENGTH_SHORT).show();
             showEmpty();
             return;
         }

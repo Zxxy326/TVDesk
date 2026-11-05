@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
@@ -178,7 +179,7 @@ final class UpdatePrompt {
 
     private static void toast(Activity activity, String text) {
         try {
-            Toast.makeText(activity, text, Toast.LENGTH_LONG).show();
+            DeskToast.makeText(activity, text, Toast.LENGTH_LONG).show();
         } catch (Throwable ignored) {
         }
     }

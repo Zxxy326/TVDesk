@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.content.res.Resources;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -420,7 +421,7 @@ public class SettingsActivity extends DeskAdaptActivity {
                         boolean changed = SourceConfig.apply(url);
                         Log.i(TAG, "应用内容源：" + url);
                         refreshValues();
-                        Toast.makeText(SettingsActivity.this,
+                        DeskToast.makeText(SettingsActivity.this,
                                 changed ? R.string.settings_toast_applied
                                         : R.string.settings_toast_unchanged,
                                 Toast.LENGTH_LONG).show();
@@ -430,7 +431,7 @@ public class SettingsActivity extends DeskAdaptActivity {
                     public void onClear() {
                         SourceConfig.clear();
                         refreshValues();
-                        Toast.makeText(SettingsActivity.this,
+                        DeskToast.makeText(SettingsActivity.this,
                                 R.string.settings_toast_cleared, Toast.LENGTH_LONG).show();
                     }
                 }).show();
@@ -445,12 +446,12 @@ public class SettingsActivity extends DeskAdaptActivity {
         if (!GuardSetup.isGuardReady(this)) {
             if (GuardSetup.ensureEnabled(this)) {
                 // 刚写进去，服务要几秒才连上，这里先给个即时反馈
-                Toast.makeText(this, "已开启桌面守护 · 按 HOME 会回到 TVDesk",
+                DeskToast.makeText(this, "已开启桌面守护 · 按 HOME 会回到 TVDesk",
                         Toast.LENGTH_LONG).show();
                 refreshValues();
                 return;
             }
-            Toast.makeText(this, "请在系统无障碍里打开「TVDesk 桌面守护」",
+            DeskToast.makeText(this, "请在系统无障碍里打开「TVDesk 桌面守护」",
                     Toast.LENGTH_LONG).show();
             HomeGuardService.openSettings(this);
             return;
@@ -483,12 +484,12 @@ public class SettingsActivity extends DeskAdaptActivity {
     private void requestHome() {
         if (HomeRole.isDefault(this)) {
             if (!HomeRole.openHomeSettings(this)) {
-                Toast.makeText(this, R.string.settings_toast_home_failed, Toast.LENGTH_LONG).show();
+                DeskToast.makeText(this, R.string.settings_toast_home_failed, Toast.LENGTH_LONG).show();
             }
             return;
         }
         if (!HomeRole.request(this, REQ_HOME)) {
-            Toast.makeText(this, R.string.settings_toast_home_failed, Toast.LENGTH_LONG).show();
+            DeskToast.makeText(this, R.string.settings_toast_home_failed, Toast.LENGTH_LONG).show();
         }
     }
 
@@ -497,7 +498,7 @@ public class SettingsActivity extends DeskAdaptActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_HOME) {
             refreshValues();
-            Toast.makeText(this, HomeRole.isDefault(this)
+            DeskToast.makeText(this, HomeRole.isDefault(this)
                     ? "已设为电视桌面 · 按 HOME 键就能回来"
                     : "还没设为默认桌面", Toast.LENGTH_LONG).show();
         }
@@ -507,7 +508,7 @@ public class SettingsActivity extends DeskAdaptActivity {
         if (SystemSettings.open(this)) {
             return;
         }
-        Toast.makeText(this, R.string.settings_toast_no_system_settings, Toast.LENGTH_LONG).show();
+        DeskToast.makeText(this, R.string.settings_toast_no_system_settings, Toast.LENGTH_LONG).show();
     }
 
     /** 更新源：弹一个输入框，留空回到内置镜像 */
@@ -549,13 +550,13 @@ public class SettingsActivity extends DeskAdaptActivity {
                                 + (info == null ? "null" : (info.versionName + "/" + info.versionCode
                                 + " newer=" + info.newer)));
                         if (info == null) {
-                            Toast.makeText(SettingsActivity.this,
+                            DeskToast.makeText(SettingsActivity.this,
                                     com.tvdesk.desk.update.UpdateClient.lastError(),
                                     Toast.LENGTH_LONG).show();
                             return;
                         }
                         if (!info.newer) {
-                            Toast.makeText(SettingsActivity.this,
+                            DeskToast.makeText(SettingsActivity.this,
                                     "已是最新（" + com.tvdesk.desk.update.UpdateClient
                                             .currentVersionName(SettingsActivity.this) + "）",
                                     Toast.LENGTH_SHORT).show();

@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.dialog;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -66,7 +67,7 @@ public class BackupDialog extends BaseDialog {
             @Override
             public void onClick(View v) {
                 if (XXPermissions.isGranted(getContext(), Permission.Group.STORAGE)) {
-                    Toast.makeText(getContext(), "已获得存储权限", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(getContext(), "已获得存储权限", Toast.LENGTH_SHORT).show();
                 } else {
                     XXPermissions.with(getContext())
                             .permission(Permission.Group.STORAGE)
@@ -75,17 +76,17 @@ public class BackupDialog extends BaseDialog {
                                 public void onGranted(List<String> permissions, boolean all) {
                                     if (all) {
                                         adapter.setNewData(allBackup());
-                                        Toast.makeText(getContext(), "已获得存储权限", Toast.LENGTH_SHORT).show();
+                                        DeskToast.makeText(getContext(), "已获得存储权限", Toast.LENGTH_SHORT).show();
                                     }
                                 }
 
                                 @Override
                                 public void onDenied(List<String> permissions, boolean never) {
                                     if (never) {
-                                        Toast.makeText(getContext(), "获取存储权限失败,请在系统设置中开启", Toast.LENGTH_SHORT).show();
+                                        DeskToast.makeText(getContext(), "获取存储权限失败,请在系统设置中开启", Toast.LENGTH_SHORT).show();
                                         XXPermissions.startPermissionActivity((Activity) getContext(), permissions);
                                     } else {
-                                        Toast.makeText(getContext(), "获取存储权限失败", Toast.LENGTH_SHORT).show();
+                                        DeskToast.makeText(getContext(), "获取存储权限失败", Toast.LENGTH_SHORT).show();
                                     }
                                 }
                             });
@@ -146,7 +147,7 @@ public class BackupDialog extends BaseDialog {
                                 sharedPreferences.edit().putString(key, value).commit();
                             }
                         }
-                        Toast.makeText(getContext(), "恢复成功,即将自动重启应用!", Toast.LENGTH_SHORT).show();
+                        DeskToast.makeText(getContext(), "恢复成功,即将自动重启应用!", Toast.LENGTH_SHORT).show();
                         new Handler().postDelayed(new Runnable() {
                             @Override
                             public void run() {
@@ -154,10 +155,10 @@ public class BackupDialog extends BaseDialog {
                             }
                         }, 3000);
                     } else {
-                        Toast.makeText(getContext(), "Hawk恢复失败!", Toast.LENGTH_SHORT).show();
+                        DeskToast.makeText(getContext(), "Hawk恢复失败!", Toast.LENGTH_SHORT).show();
                     }
                 } else {
-                    Toast.makeText(getContext(), "DB文件恢复失败!", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(getContext(), "DB文件恢复失败!", Toast.LENGTH_SHORT).show();
                 }
             }
         } catch (Throwable e) {
@@ -198,17 +199,17 @@ public class BackupDialog extends BaseDialog {
                 }
                 if (!FileUtils.writeSimple(jsonObject.toString().getBytes("UTF-8"), new File(backup, "hawk"))) {
                     backup.delete();
-                    Toast.makeText(getContext(), "备份Hawk失败!", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(getContext(), "备份Hawk失败!", Toast.LENGTH_SHORT).show();
                 } else {
-                    Toast.makeText(getContext(), "备份成功!", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(getContext(), "备份成功!", Toast.LENGTH_SHORT).show();
                 }
             } else {
-                Toast.makeText(getContext(), "DB文件不存在!", Toast.LENGTH_SHORT).show();
+                DeskToast.makeText(getContext(), "DB文件不存在!", Toast.LENGTH_SHORT).show();
                 backup.delete();
             }
         } catch (Throwable e) {
             e.printStackTrace();
-            Toast.makeText(getContext(), "备份失败!", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), "备份失败!", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -217,7 +218,7 @@ public class BackupDialog extends BaseDialog {
             String root = Environment.getExternalStorageDirectory().getAbsolutePath();
             File backup = new File(root + "/tvbox_backup/" + dir);
             FileUtils.recursiveDelete(backup);
-            Toast.makeText(getContext(), "删除成功!", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(getContext(), "删除成功!", Toast.LENGTH_SHORT).show();
         } catch (Throwable e) {
             e.printStackTrace();
         }

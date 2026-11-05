@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
@@ -216,7 +217,7 @@ public class DetailPage extends FrameLayout implements ModulePage {
         if (host != null) {
             host.favoriteChanged();
         }
-        Toast.makeText(getContext(),
+        DeskToast.makeText(getContext(),
                 favoriteLiked ? "已收藏：" + vod.name : "已取消收藏：" + vod.name,
                 Toast.LENGTH_SHORT).show();
     }

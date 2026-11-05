@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.fragment;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.os.Bundle;
@@ -203,7 +204,7 @@ public class UserFragment extends BaseLazyFragment implements View.OnClickListen
                     VodInfo vodInfo = RoomDataManger.getVodInfo(vod.sourceKey, vod.id);
                     assert vodInfo != null;
                     RoomDataManger.deleteVodRecord(vod.sourceKey, vodInfo);
-                    Toast.makeText(mContext, "已删除当前记录", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(mContext, "已删除当前记录", Toast.LENGTH_SHORT).show();
                 } else if (vod.id != null && vod.id.startsWith("msearch:")) {
                     jumpSearch(vod);
                 } else {
@@ -268,7 +269,7 @@ public class UserFragment extends BaseLazyFragment implements View.OnClickListen
             public void onChanged(JSONObject jsonObject) {
                 if (jsonObject == null) return;
                 String msg = jsonObject.optString("msg");
-                if (!msg.isEmpty()) Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
+                if (!msg.isEmpty()) DeskToast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
             }
         });
     }

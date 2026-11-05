@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.activity;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.Manifest;
 import android.animation.Animator;
 import android.animation.AnimatorSet;
@@ -284,7 +285,7 @@ public class HomeActivity extends BaseActivity {
                     File cspCacheDir = new File(FileUtils.getFilePath() + "/csp/" + MD5.string2MD5(jarSource) + ".jar");
                     File jarCacheDir = new File(FileUtils.getCachePath() + "/jar/" + MD5.string2MD5(jarSource) + ".jar");
                     File jarFullCacheDir = new File(FileUtils.getCachePath() + "/jar/" + MD5.string2MD5(jarUrl) + ".jar");
-                    Toast.makeText(mContext, "缓存已清除", Toast.LENGTH_LONG).show();
+                    DeskToast.makeText(mContext, "缓存已清除", Toast.LENGTH_LONG).show();
                     new Thread(() -> {
                         try {
                             FileUtils.deleteFile(cspCacheDir);
@@ -398,7 +399,7 @@ public class HomeActivity extends BaseActivity {
                         mHandler.postDelayed(new Runnable() {
                             @Override
                             public void run() {
-//                                if (!useCacheConfig) Toast.makeText(HomeActivity.this, "自定义jar加载成功", Toast.LENGTH_SHORT).show();
+//                                if (!useCacheConfig) DeskToast.makeText(HomeActivity.this, "自定义jar加载成功", Toast.LENGTH_SHORT).show();
                                 initData();
                             }
                         }, 50);
@@ -409,7 +410,7 @@ public class HomeActivity extends BaseActivity {
                         mHandler.post(new Runnable() {
                             @Override
                             public void run() {
-                                Toast.makeText(HomeActivity.this, msg, Toast.LENGTH_SHORT).show();
+                                DeskToast.makeText(HomeActivity.this, msg, Toast.LENGTH_SHORT).show();
                             }
                         });
                     }
@@ -421,7 +422,7 @@ public class HomeActivity extends BaseActivity {
                         mHandler.postDelayed(new Runnable() {
                             @Override
                             public void run() {
-                                Toast.makeText(HomeActivity.this, msg+" jar load err", Toast.LENGTH_SHORT).show();
+                                DeskToast.makeText(HomeActivity.this, msg+" jar load err", Toast.LENGTH_SHORT).show();
                                 initData();
                             }
                         },50);
@@ -436,7 +437,7 @@ public class HomeActivity extends BaseActivity {
                 mHandler.post(new Runnable() {
                     @Override
                     public void run() {
-                        Toast.makeText(HomeActivity.this, msg, Toast.LENGTH_SHORT).show();
+                        DeskToast.makeText(HomeActivity.this, msg, Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -689,7 +690,7 @@ public class HomeActivity extends BaseActivity {
         } else {
             // 否则仅提示用户，再按一次退出应用
             mExitTime = System.currentTimeMillis();
-            Toast.makeText(mContext, "再按一次返回键退出应用", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(mContext, "再按一次返回键退出应用", Toast.LENGTH_SHORT).show();
         }
     }
 

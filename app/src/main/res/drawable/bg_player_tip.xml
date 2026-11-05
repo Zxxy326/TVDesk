@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  播放器里的状态提示（「正在获取播放信息」「正在解析播放地址」…）。
+  和 App 的底部提示条（DeskToast）同一套：圆角 + 半透明深色磨砂 + 淡描边。
+  以前这里只有一行白字压在画面上，遇到亮场景基本看不清。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="18dp" />
+    <gradient
+        android:angle="270"
+        android:endColor="#D9181921"
+        android:startColor="#E622232B" />
+    <stroke
+        android:width="1dp"
+        android:color="#22FFFFFF" />
+</shape>

@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.activity;
 
+import com.tvdesk.core.ui.DeskToast;
 import android.annotation.SuppressLint;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -360,11 +361,11 @@ public class DetailActivity extends BaseActivity {
                 String text = tvCollect.getText().toString();
                 if ("加入收藏".equals(text)) {
                     RoomDataManger.insertVodCollect(sourceKey, vodInfo);
-                    Toast.makeText(DetailActivity.this, "已加入收藏夹", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(DetailActivity.this, "已加入收藏夹", Toast.LENGTH_SHORT).show();
                     tvCollect.setText("取消收藏");
                 } else {
                     RoomDataManger.deleteVodCollect(sourceKey, vodInfo);
-                    Toast.makeText(DetailActivity.this, "已移除收藏夹", Toast.LENGTH_SHORT).show();
+                    DeskToast.makeText(DetailActivity.this, "已移除收藏夹", Toast.LENGTH_SHORT).show();
                     tvCollect.setText("加入收藏");
                 }
             }
@@ -376,7 +377,7 @@ public class DetailActivity extends BaseActivity {
                 ClipboardManager cm = (ClipboardManager)getSystemService(mContext.CLIPBOARD_SERVICE);
                 //设置内容到剪切板
                 cm.setPrimaryClip(ClipData.newPlainText(null, tvPlayUrl.getText().toString().replace("播放地址：","")));
-                Toast.makeText(DetailActivity.this, "已复制", Toast.LENGTH_SHORT).show();
+                DeskToast.makeText(DetailActivity.this, "已复制", Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -871,12 +872,12 @@ public class DetailActivity extends BaseActivity {
                     if (fallbackResult) {
                         SourceBean fallbackSource = ApiConfig.get().getSource(sourceKey);
                         String fallbackName = fallbackSource == null ? sourceKey : fallbackSource.getName();
-                        Toast.makeText(DetailActivity.this, "站点切换至" + fallbackName, Toast.LENGTH_SHORT).show();
+                        DeskToast.makeText(DetailActivity.this, "站点切换至" + fallbackName, Toast.LENGTH_SHORT).show();
                     }
                     showSuccess();
                     if(!TextUtils.isEmpty(absXml.msg) && !absXml.msg.equals("数据列表")){
                         resetDetailFallback();
-                        Toast.makeText(DetailActivity.this, absXml.msg, Toast.LENGTH_SHORT).show();
+                        DeskToast.makeText(DetailActivity.this, absXml.msg, Toast.LENGTH_SHORT).show();
                         showEmpty();
                         return;
                     }
@@ -1060,7 +1061,7 @@ public class DetailActivity extends BaseActivity {
         if (shouldFinish || fromCollect) {
             resetDetailFallback();
             if (shouldFinish) {
-                Toast.makeText(this, data.msg, Toast.LENGTH_SHORT).show();
+                DeskToast.makeText(this, data.msg, Toast.LENGTH_SHORT).show();
             }
             finish();
             return;
@@ -1083,7 +1084,7 @@ public class DetailActivity extends BaseActivity {
 
     private void startDetailFallbackFromMenu() {
         if (!startDetailFallback(true)) {
-            Toast.makeText(this, "暂无可切换的片源", Toast.LENGTH_SHORT).show();
+            DeskToast.makeText(this, "暂无可切换的片源", Toast.LENGTH_SHORT).show();
         }
     }
 
