@@ -1,16 +1,16 @@
 {
-  "versionCode": 23,
-  "versionName": "1.1.12",
-  "notes": "双模式分包：standard（可设为默认桌面）和 guard（清单里没有 HOME，靠无障碍守护接管，用于装不上桌面应用的固件）。两个包同签名同包名，只能装一个，切换是覆盖安装、数据保留。另外内置了机型规则（照搬 aerial-tv），设置页会显示你这台机器的已知记录。",
-  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.12/TVDesk-1.1.12-universal.apk",
+  "versionCode": 24,
+  "versionName": "1.1.13",
+  "notes": "修「桌面守护关不掉」：通知监听每次被系统重新绑定都会把无障碍授权补回去，于是关了守护过一会儿自己又开。现在先看用户开关，关着就不补；停用也会撤掉一分钟一次的复活闹钟。仓库同时新增安装与维护工具（tools/tvdesk-setup.sh 与 .ps1），可探测、安装、激活、复核、还原和出脱敏诊断。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.13/TVDesk-1.1.13-universal.apk",
   "assets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.12/TVDesk-1.1.12-armeabi-v7a.apk",
-    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.12/TVDesk-1.1.12-arm64-v8a.apk",
-    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.12/TVDesk-1.1.12-universal.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.13/TVDesk-1.1.13-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.13/TVDesk-1.1.13-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.13/TVDesk-1.1.13-universal.apk"
   },
   "guardAssets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.12/TVDesk-1.1.12-guard-armeabi-v7a.apk",
-    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.12/TVDesk-1.1.12-guard-arm64-v8a.apk",
-    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.12/TVDesk-1.1.12-guard-universal.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.13/TVDesk-1.1.13-guard-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.13/TVDesk-1.1.13-guard-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.13/TVDesk-1.1.13-guard-universal.apk"
   }
 }

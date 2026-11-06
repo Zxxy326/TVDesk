@@ -391,6 +391,30 @@ final class GuardSetup {
         }
     }
 
+    /** 撤掉复活闹钟。关守护、还原授权时都要调，否则一分钟一次还在跑 */
+    static void cancelReviveAlarm(Context context) {
+        try {
+            android.app.AlarmManager am =
+                    (android.app.AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+            if (am == null) {
+                return;
+            }
+            Intent tick = new Intent(context, ReviveAlarmReceiver.class)
+                    .setAction(ReviveAlarmReceiver.ACTION_REVIVE);
+            android.app.PendingIntent pending = android.app.PendingIntent.getBroadcast(
+                    context, 0, tick,
+                    android.app.PendingIntent.FLAG_NO_CREATE
+                            | (android.os.Build.VERSION.SDK_INT >= 23
+                            ? android.app.PendingIntent.FLAG_IMMUTABLE : 0));
+            if (pending != null) {
+                am.cancel(pending);
+                pending.cancel();
+            }
+        } catch (Throwable th) {
+            Log.w(TAG, "取消复活闹钟失败：" + th.getMessage());
+        }
+    }
+
     /** 给设置页显示的一句话状态 */
     static String describe(Context context) {
         if (isGuardReady(context)) {

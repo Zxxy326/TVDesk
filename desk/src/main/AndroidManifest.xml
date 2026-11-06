@@ -60,6 +60,20 @@
             </intent-filter>
         </receiver>
 
+        <!-- 安装工具的「关掉守护」指令。exported=true 是必须的：工具从 adb shell
+             发广播，非导出接收器收不到。只认这一个 action，而且只能关不能开 ——
+             能开就等于绕过用户的知情同意。 -->
+        <receiver
+            android:name="com.tvdesk.desk.GuardCommandReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.tvdesk.app.action.DISABLE_GUARD" />
+                <action android:name="com.tvdesk.app.action.ENABLE_GUARD" />
+                <action android:name="com.tvdesk.app.action.GUARD_STATE" />
+            </intent-filter>
+        </receiver>
+
         <!-- 定时复活：系统闹钟不依赖进程，进程被清掉后仍会拉起它 -->
         <receiver
             android:name="com.tvdesk.desk.ReviveAlarmReceiver"

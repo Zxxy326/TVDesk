@@ -48,11 +48,17 @@ public class RevivalListener extends NotificationListenerService {
         super.onListenerConnected();
         Log.i(TAG, "通知监听已连接（系统已运行 " + (android.os.SystemClock.elapsedRealtime() / 1000)
                 + " 秒）");
-        // 被清理时无障碍绑定会一起被清掉：先补回去，之后 HOME 键和窗口事件才有得接管
-        try {
-            GuardSetup.ensureEnabled(this);
-        } catch (Throwable th) {
-            Log.w(TAG, "补无障碍绑定失败：" + th.getMessage());
+        // 被清理时无障碍绑定会一起被清掉：先补回去，之后 HOME 键和窗口事件才有得接管。
+        //
+        // 但这条**必须**先看用户的开关：系统重新绑定通知监听是很常见的（有通知就绑），
+        // 用户在应用里关掉守护之后，它一次次把无障碍授权又装回去 ——
+        // 表现就是「关了守护，过一会儿自己又开了」，连还原脚本都删不掉。
+        if (DeskPrefs.homeGuard(this)) {
+            try {
+                GuardSetup.ensureEnabled(this);
+            } catch (Throwable th) {
+                Log.w(TAG, "补无障碍绑定失败：" + th.getMessage());
+            }
         }
         GuardSetup.keepAdbIfWanted(this);
         if (!DeskPrefs.homeGuard(this)) {

@@ -576,8 +576,13 @@ public class SettingsActivity extends DeskAdaptActivity {
                         new android.content.DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(android.content.DialogInterface dialog, int which) {
-                                DeskPrefs.setHomeGuard(SettingsActivity.this,
-                                        !DeskPrefs.homeGuard(SettingsActivity.this));
+                                boolean next = !DeskPrefs.homeGuard(SettingsActivity.this);
+                                DeskPrefs.setHomeGuard(SettingsActivity.this, next);
+                                if (!next) {
+                                    // 停用就把复活闹钟也撤掉：它一分钟一次，
+                                    // 留着的话会继续把被清空的授权补回来，「停用」等于没停
+                                    GuardSetup.cancelReviveAlarm(SettingsActivity.this);
+                                }
                                 refreshValues();
                             }
                         })
