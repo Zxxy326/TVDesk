@@ -1,11 +1,11 @@
 {
-  "versionCode": 21,
-  "versionName": "1.1.10",
-  "notes": "修「开了背景声音还是没声音」：B 站的画面和声音是两条独立地址（DASH），之前只取了画面那条，所以 B 站的内容是哑的、抖音有声音——现在会把音轨一起取回来合并播放，静音时不取音轨不浪费流量。另外首页推荐位改成每次打开电视换一批（随机翻页 + 页内洗牌），不再是固定榜单。",
-  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.10/TVDesk-1.1.10-universal.apk",
+  "versionCode": 22,
+  "versionName": "1.1.11",
+  "notes": "桌面守护判定收口：不该抢的时候不再抢——原来三套判定各写各的，还会拿几分钟前的旧前台当证据，导致你在看视频/进设置时被拉回桌面。现在所有入口问同一个策略，复活闹钟只补绑定不抢前台，恢复加了熔断。顺带修了两个静默 bug：Android 5.x 上「保持 ADB」永远不生效、看状态会顺手把通知监听权限开掉。「保持 ADB」默认改为关闭。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.11/TVDesk-1.1.11-universal.apk",
   "assets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.10/TVDesk-1.1.10-armeabi-v7a.apk",
-    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.10/TVDesk-1.1.10-arm64-v8a.apk",
-    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.10/TVDesk-1.1.10-universal.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.11/TVDesk-1.1.11-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.11/TVDesk-1.1.11-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.11/TVDesk-1.1.11-universal.apk"
   }
 }

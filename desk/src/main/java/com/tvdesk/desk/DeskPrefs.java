@@ -140,7 +140,9 @@ final class DeskPrefs {
     private static final String KEY_KEEP_ADB = "keep_adb";
 
     static boolean keepAdb(Context context) {
-        return of(context).getBoolean(KEY_KEEP_ADB, true);
+        // 默认关闭：新装的用户没同意过「帮我把 ADB 一直开着」，
+        // 而且这会把设备的调试口长期暴露在局域网上
+        return of(context).getBoolean(KEY_KEEP_ADB, false);
     }
 
     static void setKeepAdb(Context context, boolean keep) {

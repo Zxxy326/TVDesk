@@ -47,35 +47,27 @@ public class ReviveAlarmReceiver extends BroadcastReceiver {
         // 主判据：守护是不是真的可用（列表里有名字 **且** 无障碍总开关开着）。
         // 只看列表会漏掉「系统把总开关关了、名字还留着」这种情况 ——
         // 那时按 HOME 会直接回固件桌面，而且没人再补，正是用户看到的「守护失效」。
+        // 这个闹钟只做一件事：把丢掉的无障碍绑定补回来。
+        //
+        // 以前它还兼任「刚唤醒就拉起 TVDesk」——那是错的：闹钟是周期性的，
+        // 屏幕一亮它就跑，根本不知道用户此刻是在看视频、进设置还是在 HDMI 里。
+        // 抢前台的判断交给无障碍服务的亮屏复查（它手上有实时前台证据 + 统一判定）。
         boolean lost = !GuardSetup.isGuardReady(context);
-        if (lost) {
-            Log.i(TAG, "无障碍绑定已丢失（系统清理过），补回来");
-            try {
-                GuardSetup.ensureEnabled(context);
-            } catch (Throwable th) {
-                Log.w(TAG, "恢复无障碍绑定失败：" + th.getMessage());
-            }
-        }
-
-        if (!interactive) {
+        if (!lost) {
+            GuardRuntimeState.endRecover();
             return;
         }
-        boolean justWoke = interactive && !wasInteractive;
-        if (!lost && !justWoke) {
-            // 绑定好好的、屏幕也一直亮着：用户在正常使用，不动
+        // 熔断：一轮最多补这么几次，补不回来就停手等用户操作，
+        // 否则每隔几分钟就写一次系统设置，既没用又是骚扰
+        if (!GuardRuntimeState.beginRecoverIfNeeded()) {
+            Log.i(TAG, "无障碍绑定仍缺失，但本轮恢复次数已用完，等用户处理");
             return;
         }
-        if (DeskPrefs.stockAllowed(context)) {
-            return;
-        }
-        Log.i(TAG, (lost ? "绑定丢失" : "刚唤醒") + "，拉起 TVDesk");
+        Log.i(TAG, "无障碍绑定丢失，补第 " + GuardRuntimeState.recoverAttempts() + " 次");
         try {
-            Intent desk = new Intent(context, DeskActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                            | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-            context.startActivity(desk);
+            GuardSetup.ensureEnabled(context);
         } catch (Throwable th) {
-            Log.w(TAG, "闹钟拉起桌面失败：" + th.getMessage());
+            Log.w(TAG, "恢复无障碍绑定失败：" + th.getMessage());
         }
     }
 

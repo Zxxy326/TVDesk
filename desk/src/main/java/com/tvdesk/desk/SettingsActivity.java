@@ -453,7 +453,13 @@ public class SettingsActivity extends DeskAdaptActivity {
                 // 只看列表会误报 —— 系统把总开关关掉之后名字还留着，
                 // 那时按 HOME 已经回固件桌面了。
                 if (GuardSetup.isGuardReady(this)) {
-                    return DeskPrefs.homeGuard(this) ? "已开启" : "已暂停";
+                    if (!DeskPrefs.homeGuard(this)) {
+                        return "已暂停";
+                    }
+                    // 配置层（名单 + 总开关）都对了，还要看本进程是不是真的连上了。
+                    // 以前这里只看配置，服务没绑上也显示「已开启」——用户看到的是
+                    // 「明明开着却按 HOME 不回来」
+                    return GuardRuntimeState.connected() ? "已开启" : "已授权 · 待连接";
                 }
                 if (GuardSetup.isServiceEnabled(this)) {
                     return "已掉线 · 按确定修复";

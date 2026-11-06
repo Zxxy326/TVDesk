@@ -185,16 +185,19 @@ public class HomeGuardService extends AccessibilityService {
     private final Runnable takeOverAfterScreenOn = new Runnable() {
         @Override
         public void run() {
-            if (DeskPrefs.stockAllowed(HomeGuardService.this)) {
-                return;
-            }
-            String foreground = lastForeground;
-            if (foreground == null || getPackageName().equals(foreground)) {
-                return;
-            }
-            if (isHomePackage(foreground)) {
+            // 不再用 lastForeground：那是「上一次窗口事件」留下的旧值，
+            // 亮屏这一刻它可能已经是几分钟前的了。重新读一次实时前台
+            String foreground = foregroundNow();
+            HomeTakeoverPolicy.Evidence ev = evidence(foreground);
+            HomeTakeoverPolicy.Decision decision =
+                    HomeTakeoverPolicy.decide(HomeGuardService.this, ev);
+            GuardRuntimeState.noteDecision(decision.reason);
+            if (decision.allowed()) {
                 Log.i(TAG, "亮屏后仍在原桌面（" + foreground + "），拉回 TVDesk");
                 bringDeskFront("亮屏");
+            } else if (decision.action == HomeTakeoverPolicy.RETRY) {
+                // 前台还没画出来：过一会儿再看，不立刻抢
+                scheduleRecheck();
             }
         }
     };
@@ -216,33 +219,24 @@ public class HomeGuardService extends AccessibilityService {
                 return;
             }
             String foreground = foregroundNow();
-            if (foreground != null && getPackageName().equals(foreground)) {
-                return;
+            HomeTakeoverPolicy.Evidence ev = evidence(foreground);
+            HomeTakeoverPolicy.Decision decision =
+                    HomeTakeoverPolicy.decide(HomeGuardService.this, ev);
+            GuardRuntimeState.noteDecision(decision.reason);
+            // 不再用「强停前在不在桌面」这种旧标记放宽：那是上一段时间的事实，
+            // 拿它给「前台未知」背书，等于把用户后来打开的应用一起判成该接管
+            if (decision.allowed()) {
+                Log.i(TAG, "连接后复查：前台=" + foreground + "，拉回 TVDesk");
+                bringDeskFront("开机/唤醒复查");
+            } else if (decision.action == HomeTakeoverPolicy.RETRY) {
+                scheduleRecheck();
             }
-            // 被杀之前用户最后看的是不是我们。待机强停时守护来不及判断就被杀，
-            // 唤醒后屏幕上先是过渡窗口（SystemUI 一类），只看「现在前台是谁」判断不出来。
-            boolean weWereHome = DeskPrefs.wasHome(HomeGuardService.this);
-            if (foreground != null && !isHomePackage(foreground) && !weWereHome) {
-                // 前台是别的 App，而且强停前用户也不在桌面 → 不打扰
-                return;
-            }
-            if (foreground == null && !weWereHome && !UsageFront.allowed(HomeGuardService.this)) {
-                // 前台为空、没有用量统计可兜底、又不知道强停前在哪儿：信息不足，宁可不抢。
-                // 这一枪放弃了还有后面几枪和窗口事件。
-                return;
-            }
-            // 走到这里都该接管：
-            //   1) 前台就是固件桌面（唤醒后它先画出来了）；
-            //   2) 前台为空 —— 屏幕刚亮，什么都还没画出来；
-            //   3) 前台是过渡窗口，但强停前用户就停在 TVDesk 上。
-            Log.i(TAG, "连接后复查：前台=" + (foreground == null ? "（空）" : foreground)
-                    + " 强停前在桌面=" + weWereHome + "，拉回 TVDesk");
-            bringDeskFront("开机/唤醒复查");
         }
     };
 
     @Override
     protected void onServiceConnected() {
+        GuardRuntimeState.noteConnected();
         super.onServiceConnected();
         try {
             registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
@@ -363,14 +357,10 @@ public class HomeGuardService extends AccessibilityService {
             // 结果唤醒后迟迟不接管。
             DeskPrefs.setWasHome(this, false);
         }
-        if (!DeskPrefs.homeGuard(this)) {
-            return;
-        }
-        if (DeskPrefs.stockAllowed(this)) {
-            // 放行期里用户就在原桌面/或在找东西，不抢
-            return;
-        }
-        if (!isHomePackage(pkg)) {
+        HomeTakeoverPolicy.Evidence ev = evidence(pkg);
+        HomeTakeoverPolicy.Decision decision = HomeTakeoverPolicy.decide(this, ev);
+        GuardRuntimeState.noteDecision(decision.reason);
+        if (!decision.allowed()) {
             return;
         }
         Log.i(TAG, "接管 HOME：从 " + pkg + " 回到桌面");
@@ -415,6 +405,21 @@ public class HomeGuardService extends AccessibilityService {
         }
         String usage = UsageFront.foreground(this);
         return usage != null ? usage : pkg;
+    }
+
+    /** 把当前证据打包给统一判定 */
+    private HomeTakeoverPolicy.Evidence evidence(String foreground) {
+        HomeTakeoverPolicy.Evidence ev = new HomeTakeoverPolicy.Evidence();
+        ev.guardOn = DeskPrefs.homeGuard(this);
+        ev.temporaryBypass = DeskPrefs.stockAllowed(this);
+        ev.screenInteractive = HomeTakeoverPolicy.screenInteractive(this);
+        ev.foreground = foreground;
+        ev.foregroundIsHome = foreground != null && isHomePackage(foreground);
+        ev.selfPackage = getPackageName();
+        ev.recoverAttempts = GuardRuntimeState.recoverAttempts();
+        ev.evidenceAt = System.currentTimeMillis();
+        ev.now = ev.evidenceAt;
+        return ev;
     }
 
     private void bringDeskFront(String why) {

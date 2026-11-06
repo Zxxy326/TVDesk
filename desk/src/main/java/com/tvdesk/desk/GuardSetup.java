@@ -100,9 +100,15 @@ final class GuardSetup {
         }
     }
 
-    /** 复活监听现在生效吗（设置页显示状态用） */
+    /**
+     * 复活监听现在生效吗（设置页显示状态用）。
+     *
+     * <p><b>只读</b>。以前这里是 {@code isEnabled() || ensureNotificationListener()}——
+     * 打开设置页看一眼状态，就顺手把通知监听权限给开了。状态查询不该有副作用，
+     * 激活必须由用户点确认后单独调用。
+     */
     static boolean notificationListenerReady(Context context) {
-        return RevivalListener.isEnabled(context) || ensureNotificationListener(context);
+        return RevivalListener.isEnabled(context);
     }
 
     // ---------------------------------------------------------------- 保持 ADB
@@ -145,8 +151,17 @@ final class GuardSetup {
     /** 有没有写系统设置的权限（adb 授权过一次就一直有，除非恢复出厂） */
     static boolean hasWriteSecureSettings(Context context) {
         try {
-            return context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
-                    == PackageManager.PERMISSION_GRANTED;
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                return context.checkSelfPermission(
+                        android.Manifest.permission.WRITE_SECURE_SETTINGS)
+                        == PackageManager.PERMISSION_GRANTED;
+            }
+            // API 21/22 没有 Context.checkSelfPermission（那是 23 才有的）。
+            // 直接调会抛 NoSuchMethod，被 catch 吃掉之后就变成「永远没授权」——
+            // 于是 5.x 设备上「保持 ADB」永远不生效，还查不出原因
+            return context.getPackageManager().checkPermission(
+                    android.Manifest.permission.WRITE_SECURE_SETTINGS,
+                    context.getPackageName()) == PackageManager.PERMISSION_GRANTED;
         } catch (Throwable th) {
             return false;
         }
