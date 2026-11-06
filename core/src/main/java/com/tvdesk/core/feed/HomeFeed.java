@@ -22,6 +22,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
+import java.util.Random;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -121,8 +123,24 @@ public final class HomeFeed {
             {"tv", "日本动画", "动漫"},
     };
 
-    /** 每档取多少条。四档交错合并后取前 30，够铺一行还能留点余量 */
-    private static final int PER_TAG = 10;
+    /** 每档请求多少条：多要一点才有得挑 */
+    private static final int PER_TAG_REQUEST = 20;
+    /** 每档最终留几条。四档交错合并后 32 条，够铺两屏 */
+    private static final int PER_TAG_PICK = 8;
+
+    /**
+     * 随机翻页的起点。
+     *
+     * <p>豆瓣这个接口支持 {@code page_start} 翻页，实测 0/20/40/60/80 都回不同内容。
+     * 每次启动随机挑一个起点，再在页内洗牌——「每次打开电视都是新的一批」靠的就是这个，
+     * 而不是把第一页那二十条反复洗。
+     */
+    private static final int[] PAGE_STARTS = {0, 20, 40, 60, 80};
+
+    private static final Random RANDOM = new Random();
+
+    /** 本次进程内已经拉到的首页：换批次只在「打开电视」时发生，切页签回来不该变 */
+    private static List<Movie.Video> session;
 
     /**
      * 加载首页推荐。回调在主线程。
@@ -131,6 +149,10 @@ public final class HomeFeed {
      * 单路失败不拖累别的——只回三档也比整页空着强。
      */
     public static void load(final Context context, final Callback callback) {
+        if (session != null && !session.isEmpty()) {
+            postResult(callback, session, true);
+            return;
+        }
         final List<List<Movie.Video>> buckets = new ArrayList<>();
         for (int i = 0; i < HOME_TAGS.length; i++) {
             buckets.add(java.util.Collections.synchronizedList(new ArrayList<Movie.Video>()));
@@ -142,7 +164,8 @@ public final class HomeFeed {
             final String tag = HOME_TAGS[i][1];
             final String label = HOME_TAGS[i][2];
             try {
-                OkGo.<String>get(searchUrl(type, tag))
+                OkGo.<String>get(searchUrl(type, tag,
+                        PAGE_STARTS[RANDOM.nextInt(PAGE_STARTS.length)]))
                         .headers("User-Agent", UA.randomOne())
                         .headers("Referer", "https://movie.douban.com/")
                         .execute(new AbsCallback<String>() {
@@ -171,6 +194,7 @@ public final class HomeFeed {
                                 if (items.isEmpty()) {
                                     postError(callback, new RuntimeException("home feed empty"));
                                 } else {
+                                    session = items;
                                     postResult(callback, items, false);
                                 }
                             }
@@ -183,7 +207,7 @@ public final class HomeFeed {
         }
     }
 
-    private static String searchUrl(String type, String tag) {
+    private static String searchUrl(String type, String tag, int pageStart) {
         String encoded = tag;
         try {
             encoded = java.net.URLEncoder.encode(tag, "UTF-8");
@@ -191,7 +215,8 @@ public final class HomeFeed {
         }
         return "https://movie.douban.com/j/search_subjects?type=" + type
                 + "&tag=" + encoded
-                + "&sort=recommend&page_limit=" + PER_TAG + "&page_start=0";
+                + "&sort=recommend&page_limit=" + PER_TAG_REQUEST
+                + "&page_start=" + pageStart;
     }
 
     /**
@@ -203,7 +228,11 @@ public final class HomeFeed {
     private static List<Movie.Video> merge(List<List<Movie.Video>> buckets) {
         Set<String> seen = new HashSet<>();
         List<Movie.Video> out = new ArrayList<>();
-        for (int round = 0; round < PER_TAG; round++) {
+        // 每档先自己洗一遍：同一页里的次序是豆瓣排的，不洗的话「随机」只体现在翻页上
+        for (List<Movie.Video> bucket : buckets) {
+            Collections.shuffle(bucket, RANDOM);
+        }
+        for (int round = 0; round < PER_TAG_PICK; round++) {
             for (List<Movie.Video> bucket : buckets) {
                 if (round >= bucket.size()) {
                     continue;
@@ -215,9 +244,6 @@ public final class HomeFeed {
                 String key = TextUtils.isEmpty(vod.id) ? vod.name : vod.id;
                 if (seen.add(key)) {
                     out.add(vod);
-                    if (out.size() >= 30) {
-                        return out;
-                    }
                 }
             }
         }
@@ -236,7 +262,7 @@ public final class HomeFeed {
             if (array == null) {
                 return result;
             }
-            int limit = Math.min(array.size(), PER_TAG);
+            int limit = Math.min(array.size(), PER_TAG_REQUEST);
             for (int i = 0; i < limit; i++) {
                 JsonElement ele = array.get(i);
                 if (!ele.isJsonObject()) {

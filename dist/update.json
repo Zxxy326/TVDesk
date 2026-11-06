@@ -1,11 +1,11 @@
 {
-  "versionCode": 20,
-  "versionName": "1.1.9",
-  "notes": "屏保模式：闲置 30 秒进屏保，只轮播 B 站热门和抖音（只放横屏），每条 10 秒、每条先露 2 秒标题再收起来。设置里可改停留时长（10/15/20/25/30 秒或播完再换），可开背景声音（第 6 档音量，默认静音）。首页恢复海报行，榜单改成电影/剧集/综艺/动漫混合，海内外都有。屏保态标题压在左下角；按确定退出并直接聚焦「开始播放」，再按一下才播。",
-  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.9/TVDesk-1.1.9-universal.apk",
+  "versionCode": 21,
+  "versionName": "1.1.10",
+  "notes": "修「开了背景声音还是没声音」：B 站的画面和声音是两条独立地址（DASH），之前只取了画面那条，所以 B 站的内容是哑的、抖音有声音——现在会把音轨一起取回来合并播放，静音时不取音轨不浪费流量。另外首页推荐位改成每次打开电视换一批（随机翻页 + 页内洗牌），不再是固定榜单。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.10/TVDesk-1.1.10-universal.apk",
   "assets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.9/TVDesk-1.1.9-armeabi-v7a.apk",
-    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.9/TVDesk-1.1.9-arm64-v8a.apk",
-    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.9/TVDesk-1.1.9-universal.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.10/TVDesk-1.1.10-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.10/TVDesk-1.1.10-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.10/TVDesk-1.1.10-universal.apk"
   }
 }

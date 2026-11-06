@@ -15,6 +15,7 @@ import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.ProgressiveMediaSource;
+import com.google.android.exoplayer2.source.MergingMediaSource;
 import com.google.android.exoplayer2.source.hls.HlsMediaSource;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DefaultDataSource;
@@ -154,6 +155,26 @@ public class BackgroundWall {
      * {@code sourceKey + id}，得先拉详情、必要时让爬虫解析。后者慢得多，
      * 拿不到就回静态图（见 {@link MovieBackdropStream}）。
      */
+    /**
+     * 一段背景画面：画面轨 + 可选的音轨。
+     *
+     * <p>为什么要成对：B 站的 DASH 把画面和声音拆成两条 base_url，只拿 {@code dashVideo}
+     * 播出来就是哑的。之前默认静音、听不出来，一开「背景声音」就露馅了。
+     */
+    private static final class Src {
+        final String video;
+        final String audio;
+
+        Src(String video, String audio) {
+            this.video = video;
+            this.audio = audio;
+        }
+
+        boolean hasVideo() {
+            return !TextUtils.isEmpty(video);
+        }
+    }
+
     public void play(final BackdropItem item) {
         if (!videoEnabled || item == null || activity.isFinishing()) {
             return;
@@ -180,7 +201,8 @@ public class BackgroundWall {
                 fallbackToImage();
                 return;
             }
-            startPlayer(item.playUrl, gen, FIRST_FRAME_TIMEOUT_MS);
+            // 抖音的 mp4 画面和声音在同一条里，没有单独的音频轨
+            startPlayer(new Src(item.playUrl, null), gen, FIRST_FRAME_TIMEOUT_MS);
         } else {
             resolveMovie(item, gen);
         }
@@ -194,14 +216,14 @@ public class BackgroundWall {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                String url = null;
+                Src src = null;
                 String failure = null;
                 try {
-                    url = resolve(item);
+                    src = resolve(item);
                 } catch (Throwable th) {
                     failure = th.getMessage();
                 }
-                final String target = url;
+                final Src target = src;
                 final String why = failure;
                 ui.post(new Runnable() {
                     @Override
@@ -210,7 +232,7 @@ public class BackgroundWall {
                             // 已经切到下一条了，这条的地址没人要了
                             return;
                         }
-                        if (TextUtils.isEmpty(target)) {
+                        if (target == null || !target.hasVideo()) {
                             Log.i(TAG, "取不到流，回静态图：" + item.title() + " " + why);
                             fallbackToImage();
                             return;
@@ -239,7 +261,8 @@ public class BackgroundWall {
                             return;
                         }
                         Log.i(TAG, "影视背景流 " + hostOf(url) + " " + item.title());
-                        startPlayer(url, gen, MOVIE_FIRST_FRAME_TIMEOUT_MS);
+                        // 影视源的 m3u8 里画面和声音在同一个清单里，音轨交给播放器自己选
+                        startPlayer(new Src(url, null), gen, MOVIE_FIRST_FRAME_TIMEOUT_MS);
                     }
                 });
             }
@@ -253,7 +276,7 @@ public class BackgroundWall {
      * 严格 4K 模式下 qn=120，拿回来的轨道如果不到 2160p 就放弃——
      * 请求档位和实际轨道不是一回事（方案第 1 节专门强调过）。
      */
-    private String resolve(BackdropItem item) throws Exception {
+    private Src resolve(BackdropItem item) throws Exception {
         BiliClient client = BiliClient.get(activity);
         long cid = item.cid;
         if (cid <= 0) {
@@ -272,8 +295,13 @@ public class BackgroundWall {
             return null;
         }
         String url;
+        String audio = null;
         if (stream.kind == BiliStream.DASH) {
             url = stream.dashVideo;
+            // DASH 的声音是独立一条。静音时不用取，省一半流量
+            if (soundEnabled) {
+                audio = stream.dashAudio;
+            }
         } else {
             url = stream.urls.isEmpty() ? null : stream.urls.get(0);
         }
@@ -282,14 +310,15 @@ public class BackgroundWall {
         }
         // 日志只记域名和档位：地址里带签名，不该落进日志
         Log.i(TAG, "背景流 " + item.bvid + " qn=" + stream.quality
-                + "/" + stream.requestedQn + " " + hostOf(url));
-        return url;
+                + "/" + stream.requestedQn + " audio=" + !TextUtils.isEmpty(audio)
+                + " " + hostOf(url));
+        return new Src(url, audio);
     }
 
-    private void startPlayer(String url, final int gen, long firstFrameTimeoutMs) {
+    private void startPlayer(Src src, final int gen, long firstFrameTimeoutMs) {
         try {
             SimpleExoPlayer value = ensurePlayer();
-            player.setMediaSource(buildSource(url));
+            player.setMediaSource(buildSource(src));
             player.setVolume(soundEnabled ? SOUND_VOLUME : 0f);
             player.prepare();
             player.setPlayWhenReady(true);
@@ -390,7 +419,8 @@ public class BackgroundWall {
                 + " codec=" + video.codecs + " fps=" + video.frameRate);
     }
 
-    private MediaSource buildSource(String url) {
+    private MediaSource buildSource(Src src) {
+        String url = src.video;
         // 请求头跟着来源走：抖音的 CDN 不认 B 站那套 referer/UA，反过来也一样
         Map<String, String> headers;
         String userAgent;
@@ -407,6 +437,14 @@ public class BackgroundWall {
                 // CDN 会在 https/http 之间跳，不让跳就取不到流
                 .setAllowCrossProtocolRedirects(true);
         DataSource.Factory factory = new DefaultDataSource.Factory(activity, http);
+        // 画面和声音分开的（B 站 DASH）：合并两条源，否则播出来是哑的
+        if (!TextUtils.isEmpty(src.audio) && soundEnabled) {
+            MediaSource videoSource = new ProgressiveMediaSource.Factory(factory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(src.video)));
+            MediaSource audioSource = new ProgressiveMediaSource.Factory(factory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(src.audio)));
+            return new MergingMediaSource(videoSource, audioSource);
+        }
         Uri uri = Uri.parse(url);
         if (url.contains(".m3u8")) {
             // 影视源里绝大多数是 HLS：ProgressiveMediaSource 播不了清单，会直接报解析错
