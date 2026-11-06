@@ -268,7 +268,8 @@ public class SettingsActivity extends DeskAdaptActivity {
                         }
                     });
             add("guard", "桌面守护",
-                    "按 HOME 键回到 TVDesk。装好后会自动开启，不用去系统设置里找。",
+                    "按 HOME 键回到 TVDesk。装好后会自动开启，不用去系统设置里找。"
+                            + deviceNote(),
                     new Runnable() {
                         @Override
                         public void run() {
@@ -276,10 +277,20 @@ public class SettingsActivity extends DeskAdaptActivity {
                         }
                     });
             add("home", "设为默认桌面",
-                    "让电视开机直接进 TVDesk。部分品牌的固件不支持，那就靠上面的桌面守护。",
+                    HomeRole.supported(this)
+                            ? "让电视开机直接进 TVDesk。部分品牌的固件不支持，那就靠上面的桌面守护。"
+                            : "当前装的是守护版，清单里没有桌面声明，装不了这个角色。"
+                            + "要当默认桌面请换标准版；守护版靠上面的「桌面守护」接管 HOME 键。",
                     new Runnable() {
                         @Override
                         public void run() {
+                            if (!HomeRole.supported(SettingsActivity.this)) {
+                                // 守护版没有 HOME 声明，点了也是白点，直接说清楚
+                                Toast.makeText(SettingsActivity.this,
+                                        "守护版不支持设为默认桌面，请用上面的「桌面守护」",
+                                        Toast.LENGTH_LONG).show();
+                                return;
+                            }
                             requestHome();
                         }
                     });
@@ -438,6 +449,14 @@ public class SettingsActivity extends DeskAdaptActivity {
         grid.notifyDataSetChanged();
     }
 
+    /** 机型规则的备注，追加在守护卡片说明后面；没有记录就返回空串 */
+    private String deviceNote() {
+        DeviceProfile.Entry entry = DeviceProfile.of(this);
+        return entry.matched && !entry.note.isEmpty()
+                ? "\n机型记录（上游报告，未复验）：" + entry.note
+                : "";
+    }
+
     private String valueOf(String key) {
         switch (key) {
             case "source": {
@@ -467,6 +486,9 @@ public class SettingsActivity extends DeskAdaptActivity {
                 return GuardSetup.hasWriteSecureSettings(this) ? "待开启" : "未开启";
             }
             case "home":
+                if (!HomeRole.supported(this)) {
+                    return "守护版不支持";
+                }
                 return HomeRole.isDefault(this) ? "已设为默认桌面" : "未设置";
             case "keepadb":
                 return DeskPrefs.keepAdb(this) ? "开" : "关";

@@ -98,16 +98,16 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/DeskTheme">
             <!--
-              HOME + DEFAULT 让 TVDesk 可以被选为电视桌面（参照 aerial-tv）：
-              用户第一次按「设为电视桌面」时，系统弹出选择框，选中 TVDesk 并确认后
-              HOME 键和开机都会回到这里。LAUNCHER 仍然保留，没设成桌面时照样能从应用列表打开。
+              LAUNCHER / LEANBACK_LAUNCHER：应用列表入口，两个模式都有。
+
+              HOME + DEFAULT **挪到了 app/src/standard/AndroidManifest.xml**：
+              guard 模式不能声明 HOME（部分固件会因此拒绝安装，或装上也不给设为默认桌面）。
+              这一份是公共入口，两个模式共用。
             -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-                <category android:name="android.intent.category.HOME" />
-                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  standard 模式：清单里带 HOME，用户可以把 TVDesk 设为电视桌面。
+
+  这条 HOME 声明**只在这个模式里**。guard 模式不带它 —— 有些固件/应用商店
+  会拒绝安装声明了 HOME 的应用，那时就用 guard。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <meta-data
+            android:name="tvdesk.home_mode"
+            android:value="standard" />
+
+        <activity
+            android:name="com.tvdesk.desk.DeskActivity"
+            tools:node="merge">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

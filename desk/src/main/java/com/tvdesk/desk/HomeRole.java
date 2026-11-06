@@ -25,8 +25,22 @@ public final class HomeRole {
     private HomeRole() {
     }
 
+    /**
+     * 这个安装包能不能当默认桌面。
+     *
+     * <p>guard 版清单里没有 HOME，系统永远不会把它列为候选——直接问
+     * {@link #isDefault} 会得到 false，UI 却仍会引导用户去系统设置里找一个
+     * 不存在的入口。所以能力判断要和「现在是不是已经设上了」分开。
+     */
+    public static boolean supported(Context context) {
+        return !HomeMode.isGuard(context);
+    }
+
     /** 现在按 HOME 会回到 TVDesk 吗 */
     public static boolean isDefault(Context context) {
+        if (!supported(context)) {
+            return false;
+        }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 RoleManager manager = (RoleManager) context.getSystemService(Context.ROLE_SERVICE);
@@ -53,6 +67,10 @@ public final class HomeRole {
      * @return true 表示已经打开了系统界面；false 表示这台电视没有可用入口
      */
     public static boolean request(Activity activity, int requestCode) {
+        if (!supported(activity)) {
+            // 守护版没有 HOME 声明，系统不会接受这个请求
+            return false;
+        }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 RoleManager manager =

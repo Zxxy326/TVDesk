@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  guard 模式：清单里**没有** HOME。
+
+  装上去就是一个普通应用，从应用列表打开，靠无障碍守护去接管 HOME 键。
+  用于「固件不允许安装桌面应用」或「装上了也不给设为默认桌面」的机器。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <meta-data
+            android:name="tvdesk.home_mode"
+            android:value="guard" />
+    </application>
+</manifest>

@@ -22,9 +22,11 @@ android {
     defaultConfig {
         applicationId 'com.tvdesk.app'
         targetSdkVersion 28
-        versionCode 22
-        versionName '1.1.11'
+        versionCode 23
+        versionName '1.1.12'
         multiDexEnabled true
+        // 两个模式各自在清单里写 tvdesk.home_mode，见 app/src/standard|guard/AndroidManifest.xml。
+        // desk 侧读 ApplicationInfo.metaData，不反向依赖 app 的 BuildConfig
         //设置room的Schema的位置
         javaCompileOptions {
             annotationProcessorOptions {
@@ -43,11 +45,28 @@ android {
         buildConfig true
     }
 
-    flavorDimensions "mode"
+    // 两个维度：先 home（这版应用能不能当桌面），后 mode（带哪些 ABI）。
+    // 维度顺序决定变体名，所以任务叫 assembleStandardJava32Release 这种。
+    //
+    // standard：清单里带 HOME，用户可以通过系统「设为默认桌面」直接接管，
+    //           能用这条路的时候不需要无障碍。
+    // guard：清单里**不**带 HOME，装上去就是普通应用，靠无障碍守护接管。
+    //        有些固件拒绝安装声明了 HOME 的应用（有的是应用商店策略，有的是固件白名单），
+    //        或者装上了也不给设为默认桌面，这时才用 guard。
+    //
+    // 两者同包名同签名，只能装一个；切换是覆盖安装，数据保留。
+    flavorDimensions "home", "mode"
     productFlavors {
+        standard {
+            dimension "home"
+            // 默认形态：老用户升级上来的本来就是这一版
+        }
+        guard {
+            dimension "home"
+        }
         java {
             dimension "mode"
-            minSdkVersion 19
+            minSdkVersion 21
             ndk {
                 //noinspection ChromeOsAbiSupport
                 abiFilters 'armeabi-v7a', 'arm64-v8a'
@@ -56,7 +75,8 @@ android {
         }
         java32 {
             dimension "mode"
-            minSdkVersion 19
+            // 最低统一 21：5.0 以下不在支持范围，也不再单独维护 Lite 版
+            minSdkVersion 21
             ndk {
                 //noinspection ChromeOsAbiSupport
                 abiFilters 'armeabi-v7a'

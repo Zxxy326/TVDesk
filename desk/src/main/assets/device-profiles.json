@@ -1,0 +1,162 @@
+{
+  "about": "机型规则。照搬 aerial-tv 的 devices.json（MIT），字段原样保留；TVDesk 追加 homeTakeover（桌面接管建议，unknown/supported/guard）和 bootStockMs（开机先让原厂桌面显示多久）。按 ro.product.model 匹配，第一条命中即用。这些是上游报告，未经本项目复验。",
+  "source": "aerial-tv app/src/main/assets/devices.json",
+  "profiles": [
+    {
+      "models": [
+        "MiTV_NSOP0",
+        "MiTV-NSOP0"
+      ],
+      "note": "Novatek, firmware 22.7.26.1365: real input sessions map 23/24/25 to HW6/5/4 (#563).",
+      "labels": {
+        "6": "HDMI 1",
+        "5": "HDMI 2",
+        "4": "HDMI 3",
+        "3": "TV",
+        "1": "DTMB",
+        "0": "AV"
+      },
+      "xiaomiSources": {
+        "6": 23,
+        "5": 24,
+        "4": 25
+      },
+      "homeTakeover": "unknown"
+    },
+    {
+      "models": [
+        "MiTV_MFTR0",
+        "MiTV-MFTR0"
+      ],
+      "note": "Registers a fourth HDMI input (HW8) with no connector behind it; tuners named by what they receive. Maintainer's TV.",
+      "hidden": [
+        8
+      ],
+      "labels": {
+        "0": "DTMB",
+        "1": "ATV",
+        "2": "AV",
+        "6": "HDMI 2 (eARC)"
+      },
+      "homeTakeover": "unknown"
+    },
+    {
+      "models": [
+        "MiTV_MFFU1",
+        "MiTV-MFFU1"
+      ],
+      "note": "Redmi monitor G Pro 27U registers its DP port (HW9) and USB-C port (HW10) both as DisplayPort; tvplayer sources 29 and 30 (#62, its MonitorUtils). It also registers two tuners (HW0, HW1, reported connected) and a composite input (HW2) that a monitor does not have (#815; the same on the owner's MFFU1, OS3.0.120). The 2025 model has no USB-C either, but it shares the model name with the 2026 one, so HW10 stays.",
+      "hidden": [
+        0,
+        1,
+        2
+      ],
+      "labels": {
+        "9": "DP",
+        "10": "USB-C"
+      },
+      "xiaomiSources": {
+        "9": 29,
+        "10": 30
+      },
+      "homeTakeover": "unknown"
+    },
+    {
+      "models": [
+        "MiTV_ANTL0",
+        "MiTV-ANTL0"
+      ],
+      "note": "L42R7-RA, Amlogic, Android 5.1: one HDMI input, HW6, labelled HDMI2, is the HDMI 1 port and source 23 (#64, reporter's logcat).",
+      "labels": {
+        "6": "HDMI 1"
+      },
+      "xiaomiSources": {
+        "6": 23
+      },
+      "homeTakeover": "unknown"
+    },
+    {
+      "models": [
+        "MiTV4-ANSM0",
+        "MiTV4_ANSM0",
+        "MiTV4A"
+      ],
+      "buildAtLeast": "22.8",
+      "note": "Mi TV 4, firmware 22.8 and later: the port droidlogic registers as Hdmi3InputService/HW7 is the one tvplayer calls HDMI 1, source 23 (22.8.15.3312 #592, 22.11.18.3386 #584, 22.11.28.3390 #514); 22.4.15 still follows hw + 18 (#375). HW6/HW5 as 24/25 is the same order turned round, not yet seen.",
+      "labels": {
+        "7": "HDMI 1",
+        "6": "HDMI 2",
+        "5": "HDMI 3"
+      },
+      "xiaomiSources": {
+        "7": 23,
+        "6": 24,
+        "5": 25
+      },
+      "homeTakeover": "unknown"
+    },
+    {
+      "models": [
+        "MiTV4-ANSM0",
+        "MiTV4_ANSM0",
+        "MiTV4A"
+      ],
+      "buildMajorBelow": 22,
+      "note": "Mi TV 4, Amlogic, Android 6.0.1, older firmwares: HW7 is source 23 on some boards (#191, #313) and 25 on others (#492), which hdmi3_order tells apart; 23 is the fallback. Firmware 22.x follows the general rule (#375).",
+      "xiaomiFallbackSources": {
+        "7": 23
+      },
+      "homeTakeover": "unknown"
+    },
+    {
+      "models": [
+        "MiTV_MFZP0",
+        "MiTV-MFZP0"
+      ],
+      "note": "77\" OLED, mt9950, Android 9: HW4-HW7 registered as HDMI 1-4, but three ports; HW7 has none, tvplayer numbers them hw + 19 (#311, reporter's local build).",
+      "hidden": [
+        7
+      ],
+      "xiaomiSources": {
+        "4": 23,
+        "5": 24,
+        "6": 25
+      },
+      "homeTakeover": "unknown"
+    },
+    {
+      "models": [
+        "MiTV-MFTP0",
+        "MiTV_MFTP0"
+      ],
+      "note": "Android 9: has picture_backlight, yet changing it leaves the panel as it was (#284, #335).",
+      "ignoresPictureBacklight": true,
+      "homeTakeover": "unknown"
+    },
+    {
+      "models": [
+        "MiTV-MTTP0"
+      ],
+      "note": "Android 9, m7332: the TV's menu writes picture_backlight (100 to 15), Aerial's write leaves the panel as it was; backLightForNormal is kept, so the mitv panel path is probed instead (#1014).",
+      "ignoresPictureBacklight": true,
+      "homeTakeover": "unknown"
+    },
+    {
+      "models": [
+        "5S09_A3",
+        "6S58_K6S"
+      ],
+      "note": "Coocaa (Tianci, MStar maserati, Android 6): screen_brightness moves mActualBacklight but not the panel; the backlight is in com.tianci.setting's picture page (#895, the owner watched the TV; 6S58_K6S, Android 6, the same, slider 5 -> 95 changed nothing).",
+      "ignoresScreenBrightness": true,
+      "homeTakeover": "unknown"
+    },
+    {
+      "models": [
+        "WTV43K1J"
+      ],
+      "note": "Whaley (Helios, Android 5.0.2): the power light breathes after a cold boot until the stock launcher has been on screen once (#902, the reporter's adb test).",
+      "bootStockMs": 1000,
+      "homeTakeover": "unknown"
+    }
+  ]
+}

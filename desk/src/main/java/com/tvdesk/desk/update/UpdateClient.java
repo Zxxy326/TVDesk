@@ -8,6 +8,8 @@ import android.os.Build;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.tvdesk.desk.HomeMode;
+
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -226,8 +228,23 @@ public final class UpdateClient {
                 info.url = json.optString("url", "");
                 info.notes = json.optString("notes", "");
                 // 清单里按 ABI 分了包就挑本机的那个：这台电视是 32 位就下 24MB 的，
-                // 不去下 38MB 的通用包
-                info.url = pickAsset(json.optJSONObject("assets"), info.url);
+                // 不去下 38MB 的通用包。
+                //
+                // guard 版走另一组映射 guardAssets：它和 standard 同包名但清单不同，
+                // 拿 standard 的包去覆盖安装，HOME 声明会回来 —— 在那些「装 HOME 应用
+                // 会被固件拦」的机器上，这次更新就会直接失败，甚至把能用的守护版搞成装不上。
+                if (HomeMode.isGuard(context)) {
+                    String guardUrl = pickAsset(json.optJSONObject("guardAssets"), "");
+                    if (TextUtils.isEmpty(guardUrl)) {
+                        // 没有 guard 包就明确说「这条不能更」，绝不回落到 standard：
+                        // 装上之后 HOME 声明回来，等于把用户从守护模式踢回装不上的状态
+                        lastError = "这个版本没有守护版安装包，请稍后或手动下载";
+                        return null;
+                    }
+                    info.url = guardUrl;
+                } else {
+                    info.url = pickAsset(json.optJSONObject("assets"), info.url);
+                }
             } else {
                 info.versionName = body.split("\\s+")[0];
                 info.url = guessApkUrl(manifestUrl);
