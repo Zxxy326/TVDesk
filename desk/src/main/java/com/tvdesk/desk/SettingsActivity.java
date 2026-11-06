@@ -58,6 +58,7 @@ public class SettingsActivity extends DeskAdaptActivity {
     private boolean showWeather;
     private boolean backdropVideo;
     private boolean backdropStrict4k;
+    private int backdropDwell;
 
     /**
      * 一张设置卡。
@@ -102,6 +103,7 @@ public class SettingsActivity extends DeskAdaptActivity {
         showWeather = DeskPrefs.showWeather(this);
         backdropVideo = DeskPrefs.backdropVideo(this);
         backdropStrict4k = DeskPrefs.backdropStrict4k(this);
+        backdropDwell = DeskPrefs.backdropDwellSec(this);
 
         buildTabs();
         setupGrid();
@@ -351,6 +353,31 @@ public class SettingsActivity extends DeskAdaptActivity {
                             refreshValues();
                         }
                     });
+            add("backdropdwell", "背景停留",
+                    "每条背景停多久再换下一条。有视频的按首帧之后的时长算，"
+                            + "视频比这短就播完即切。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            // 6 → 8 → 10 → 15 → 6 循环，四个档位够用
+                            switch (backdropDwell) {
+                                case 6:
+                                    backdropDwell = 8;
+                                    break;
+                                case 8:
+                                    backdropDwell = 10;
+                                    break;
+                                case 10:
+                                    backdropDwell = 15;
+                                    break;
+                                default:
+                                    backdropDwell = 6;
+                                    break;
+                            }
+                            DeskPrefs.setBackdropDwellSec(SettingsActivity.this, backdropDwell);
+                            refreshValues();
+                        }
+                    });
         } else {
             add("update", "检查更新",
                     "不用等后台自动查，这里立刻查一次；有新版会问你要不要下载安装。",
@@ -428,6 +455,8 @@ public class SettingsActivity extends DeskAdaptActivity {
                 return backdropVideo ? "开" : "关";
             case "backdrop4k":
                 return backdropStrict4k ? "仅 4K" : "允许降级";
+            case "backdropdwell":
+                return backdropDwell + " 秒";
             case "update":
                 return "当前 " + com.tvdesk.desk.update.UpdateClient.currentVersionName(this);
             case "manifest": {

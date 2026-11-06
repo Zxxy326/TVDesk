@@ -47,6 +47,8 @@ final class DeskPrefs {
     private static final String KEY_BACKDROP_VIDEO = "backdrop_video";
     /** 严格 4K：只接受 2160p 的轨道，给不出来就回静态图，不偷偷降档 */
     private static final String KEY_BACKDROP_STRICT_4K = "backdrop_strict_4k";
+    /** 背景每条停留多久（秒）。6 / 8 / 10 / 15，默认 8 */
+    private static final String KEY_BACKDROP_DWELL = "backdrop_dwell_sec";
 
     private DeskPrefs() {
     }
@@ -383,5 +385,22 @@ final class DeskPrefs {
 
     public static void setBackdropStrict4k(Context context, boolean on) {
         of(context).edit().putBoolean(KEY_BACKDROP_STRICT_4K, on).apply();
+    }
+
+    /**
+     * 背景每条停多久（秒）。
+     *
+     * <p>方案要求的档位是 6 / 8 / 10 / 15，默认 8。存进来的值不在档位里就退回 8，
+     * 免得旧版本残留的怪数字让轮播变成一条 0 秒或者 300 秒。
+     */
+    public static int backdropDwellSec(Context context) {
+        int sec = of(context).getInt(KEY_BACKDROP_DWELL, 8);
+        return (sec == 6 || sec == 8 || sec == 10 || sec == 15) ? sec : 8;
+    }
+
+    public static void setBackdropDwellSec(Context context, int sec) {
+        if (sec == 6 || sec == 8 || sec == 10 || sec == 15) {
+            of(context).edit().putInt(KEY_BACKDROP_DWELL, sec).apply();
+        }
     }
 }

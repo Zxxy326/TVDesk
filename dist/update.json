@@ -1,11 +1,11 @@
 {
-  "versionCode": 17,
-  "versionName": "1.1.6",
-  "notes": "桌面守护修复：按 HOME 键不再回固件桌面（系统关掉无障碍总开关后会自动补回，掉线每分钟自检）。详情页新增收藏按钮，与首页那颗 ♥ 共用一份清单。搜索改成问遍全部源（18 → 64），结果卡标出源名。搜索页键盘收窄、结果区多一列、进页面焦点直接落在片名框，最近搜索挪到键盘下方两列。底部所有提示条统一为圆角半透明磨砂。",
-  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.6/TVDesk-1.1.6-universal.apk",
+  "versionCode": 18,
+  "versionName": "1.1.7",
+  "notes": "背景墙改造：闲置进沉浸轮播后，影视剧照和 B 站热门混在一起轮播，有视频的那条静音播 8 秒再切下一条（设置里可改 6/8/10/15 秒）。视频准备期间一直是静态图、首帧到了才淡出，首帧 3 秒没到自动回图。轮到 B 站条目时标题/简介/角标都跟着换，按播放直接进 B 站详情页。进正片播放、退出沉浸、退到后台都会立刻释放背景解码器。Hero 背景改为按屏幕真实像素解码。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.7/TVDesk-1.1.7-universal.apk",
   "assets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.6/TVDesk-1.1.6-armeabi-v7a.apk",
-    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.6/TVDesk-1.1.6-arm64-v8a.apk",
-    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.6/TVDesk-1.1.6-universal.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.7/TVDesk-1.1.7-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.7/TVDesk-1.1.7-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.7/TVDesk-1.1.7-universal.apk"
   }
 }

@@ -254,6 +254,10 @@ public class DeskActivity extends DeskAdaptActivity {
     private static final long IDLE_IMMERSIVE_MS = 20000L;
 
     /** 沉浸态里每过这么久换下一条 */
+    /**
+     * 背景停留时长的默认值。实际用的值由设置决定（6 / 8 / 10 / 15 秒），
+     * 见 {@link #heroDwellMs()}；这里只是没设置过时的默认。
+     */
     private static final long HERO_ROTATE_MS = 8000L;
 
     /** 分页点最多画几颗，超出的条目用窗口表示，见 {@link #rebuildHeroDots} */
@@ -673,6 +677,15 @@ public class DeskActivity extends DeskAdaptActivity {
             }
             heroBg.animate().cancel();
             heroBg.animate().alpha(0f).setDuration(260L).start();
+            // 氛围光是自绘的不透明底，不藏起来就会把下面的视频整个盖住
+            // （只把静态图 alpha 设 0 是不够的，露出来的会是这层光而不是视频）
+            if (deskAmbient != null) {
+                deskAmbient.setVisibility(View.GONE);
+            }
+            // 8 秒从首帧之后算：取流和缓冲不该吞掉这段预览。
+            // 原来从「换条」开始计时，慢网络下准备 3 秒就只剩 5 秒画面
+            heroBlock.removeCallbacks(heroRotate);
+            heroBlock.postDelayed(heroRotate, heroDwellMs());
         }
 
         @Override
@@ -683,7 +696,7 @@ public class DeskActivity extends DeskAdaptActivity {
             // 片段比目标时长短，播完就切；先把原来的 8 秒表撤掉，否则到点还会再切一次
             heroBlock.removeCallbacks(heroRotate);
             if (rotateHero()) {
-                heroBlock.postDelayed(heroRotate, HERO_ROTATE_MS);
+                heroBlock.postDelayed(heroRotate, heroDwellMs());
             }
         }
     };
@@ -726,7 +739,7 @@ public class DeskActivity extends DeskAdaptActivity {
             if (!immersive || !rotateHero()) {
                 return;
             }
-            heroBlock.postDelayed(this, HERO_ROTATE_MS);
+            heroBlock.postDelayed(this, heroDwellMs());
         }
     };
 
@@ -2153,6 +2166,11 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         heroItem = item.video;
         heroIndex = -1;
+        // 每换一条打一行：排查「比例是不是 7:3」「是不是总在某类内容上出问题」时，
+        // 光看视频日志不够——影视条目根本不打日志
+        android.util.Log.i("DeskBackdrop", "背景 " + (backdropQueue.roundIndex() + 1)
+                + "/" + backdropQueue.roundSize() + " "
+                + (item.isBili() ? "B站" : "影视") + " " + item.title());
         renderHeroBlock(heroItem);
         rebuildQueueDots();
     }
@@ -2214,14 +2232,18 @@ public class DeskActivity extends DeskAdaptActivity {
 
     /** 前台要起视频了：先把背景解码器和视频层收掉 */
     private void backdropWallStopForForeground() {
+        // 同 exitImmersive：先让静态图盖住，再停解码器，避免一帧黑
+        if (heroBg != null) {
+            heroBg.setAlpha(heroBaseAlpha);
+        }
+        if (deskAmbient != null) {
+            deskAmbient.setVisibility(View.VISIBLE);
+        }
         if (backdropWall != null) {
             backdropWall.stop();
         }
         if (bgVideo != null) {
             bgVideo.setVisibility(View.INVISIBLE);
-        }
-        if (deskAmbient != null) {
-            deskAmbient.setVisibility(View.VISIBLE);
         }
     }
 
@@ -2349,6 +2371,11 @@ public class DeskActivity extends DeskAdaptActivity {
         return item;
     }
 
+    /** 背景停留时长，来自设置（6 / 8 / 10 / 15 秒），默认 8 秒 */
+    private long heroDwellMs() {
+        return DeskPrefs.backdropDwellSec(this) * 1000L;
+    }
+
     /** 把设置里的背景选项同步给播放器（用户改完设置回来会重走一遍） */
     private void applyBackdropPrefs() {
         if (backdropWall == null) {
@@ -2360,15 +2387,15 @@ public class DeskActivity extends DeskAdaptActivity {
         if (!video) {
             // 刚从设置里关掉：正在播的那条要立刻停，并把静态图还回来，
             // 否则视频层停住以后画面是一块黑
-            backdropWall.stop();
-            if (bgVideo != null) {
-                bgVideo.setVisibility(View.INVISIBLE);
+            if (heroItem != null) {
+                loadHeroBackdrop(heroItem.picSlide, heroItem.pic);
             }
             if (deskAmbient != null) {
                 deskAmbient.setVisibility(View.VISIBLE);
             }
-            if (heroItem != null) {
-                loadHeroBackdrop(heroItem.picSlide, heroItem.pic);
+            backdropWall.stop();
+            if (bgVideo != null) {
+                bgVideo.setVisibility(View.INVISIBLE);
             }
         }
     }
@@ -3994,7 +4021,7 @@ public class DeskActivity extends DeskAdaptActivity {
                 .setInterpolator(CubicBezierInterpolator.EASE_OUT_STRONG)
                 .start();
         heroBlock.removeCallbacks(heroRotate);
-        heroBlock.postDelayed(heroRotate, HERO_ROTATE_MS);
+        heroBlock.postDelayed(heroRotate, heroDwellMs());
         // 记住进沉浸前的下标没有意义了：退出时故意保留背景队列那一条（点击要一致），
         // 所以这里只把视频层准备好
         if (bgVideo != null) {
@@ -4020,6 +4047,13 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         immersive = false;
         heroBlock.removeCallbacks(heroRotate);
+        // 先把静态图和氛围光摆回「盖得住」的状态，再停视频和解码器——
+        // 顺序反了会看到一帧纯黑
+        heroBg.animate().cancel();
+        heroBg.setAlpha(heroBaseAlpha);
+        if (deskAmbient != null) {
+            deskAmbient.setVisibility(View.VISIBLE);
+        }
         // 视频必须在这里停：只把画面藏起来的话解码器还占着，
         // 用户一按播放就是「背景 4K + 正片 4K」两个硬解实例抢资源
         if (backdropWall != null) {
@@ -4028,10 +4062,6 @@ public class DeskActivity extends DeskAdaptActivity {
         if (bgVideo != null) {
             bgVideo.setVisibility(View.INVISIBLE);
         }
-        if (deskAmbient != null) {
-            deskAmbient.setVisibility(View.VISIBLE);
-        }
-        heroBg.animate().cancel();
         heroBlock.animate().cancel();
         heroBlock.setAlpha(1f);
         heroBlock.animate().translationY(0f)
@@ -4103,15 +4133,14 @@ public class DeskActivity extends DeskAdaptActivity {
         if (next == null) {
             return false;
         }
-        if (backdropWall != null) {
-            backdropWall.stop();
-        }
-        // 先把静态图恢复到不透明，再停视频：只停不盖的话，
-        // 这 160ms 的淡出过程里露出的是一块黑（视频层停住后是一块黑）
+        // 顺序很重要：先把静态图和氛围光恢复到「盖得住」的状态，再停视频。
+        // 反过来的话，stop 到恢复之间那一帧露出的是一块黑（视频停住后没有内容）。
         heroBg.setAlpha(heroBaseAlpha);
-        // 氛围光也放回来：视频层停住之后，底下需要有一层东西撑着，不能是纯黑
         if (deskAmbient != null) {
             deskAmbient.setVisibility(View.VISIBLE);
+        }
+        if (backdropWall != null) {
+            backdropWall.stop();
         }
         heroBg.animate().cancel();
         heroBlock.animate().cancel();
