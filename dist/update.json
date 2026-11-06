@@ -1,11 +1,11 @@
 {
-  "versionCode": 18,
-  "versionName": "1.1.7",
-  "notes": "背景墙改造：闲置进沉浸轮播后，影视剧照和 B 站热门混在一起轮播，有视频的那条静音播 8 秒再切下一条（设置里可改 6/8/10/15 秒）。视频准备期间一直是静态图、首帧到了才淡出，首帧 3 秒没到自动回图。轮到 B 站条目时标题/简介/角标都跟着换，按播放直接进 B 站详情页。进正片播放、退出沉浸、退到后台都会立刻释放背景解码器。Hero 背景改为按屏幕真实像素解码。",
-  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.7/TVDesk-1.1.7-universal.apk",
+  "versionCode": 20,
+  "versionName": "1.1.9",
+  "notes": "屏保模式：闲置 30 秒进屏保，只轮播 B 站热门和抖音（只放横屏），每条 10 秒、每条先露 2 秒标题再收起来。设置里可改停留时长（10/15/20/25/30 秒或播完再换），可开背景声音（第 6 档音量，默认静音）。首页恢复海报行，榜单改成电影/剧集/综艺/动漫混合，海内外都有。屏保态标题压在左下角；按确定退出并直接聚焦「开始播放」，再按一下才播。",
+  "url": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.9/TVDesk-1.1.9-universal.apk",
   "assets": {
-    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.7/TVDesk-1.1.7-armeabi-v7a.apk",
-    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.7/TVDesk-1.1.7-arm64-v8a.apk",
-    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.7/TVDesk-1.1.7-universal.apk"
+    "armeabi-v7a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.9/TVDesk-1.1.9-armeabi-v7a.apk",
+    "arm64-v8a": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.9/TVDesk-1.1.9-arm64-v8a.apk",
+    "universal": "https://github.com/Zxxy326/TVDesk/releases/download/v1.1.9/TVDesk-1.1.9-universal.apk"
   }
 }

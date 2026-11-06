@@ -58,6 +58,7 @@ public class SettingsActivity extends DeskAdaptActivity {
     private boolean showWeather;
     private boolean backdropVideo;
     private boolean backdropStrict4k;
+    private boolean backdropSound;
     private int backdropDwell;
 
     /**
@@ -103,6 +104,7 @@ public class SettingsActivity extends DeskAdaptActivity {
         showWeather = DeskPrefs.showWeather(this);
         backdropVideo = DeskPrefs.backdropVideo(this);
         backdropStrict4k = DeskPrefs.backdropStrict4k(this);
+        backdropSound = DeskPrefs.backdropSound(this);
         backdropDwell = DeskPrefs.backdropDwellSec(this);
 
         buildTabs();
@@ -332,8 +334,8 @@ public class SettingsActivity extends DeskAdaptActivity {
                         }
                     });
             add("backdrop", "动态背景",
-                    "闲置进沉浸轮播时，有视频的条目会静音播 8 秒再切下一条（B 站热门）。"
-                            + "关掉之后只轮播静态图，老盒子上更省功耗。",
+                    "闲置进屏保时轮播 B 站热门和抖音（只放横屏），有视频的条目播到「背景停留」"
+                            + "的时长再切下一条。关掉之后只轮播静态图，老盒子上更省功耗。",
                     new Runnable() {
                         @Override
                         public void run() {
@@ -354,27 +356,44 @@ public class SettingsActivity extends DeskAdaptActivity {
                         }
                     });
             add("backdropdwell", "背景停留",
-                    "每条背景停多久再换下一条。有视频的按首帧之后的时长算，"
-                            + "视频比这短就播完即切。",
+                    "每条背景停多久再换下一条。10 / 15 / 20 / 25 / 30 秒，或者"
+                            + "「播放结束」——这条播完再换。有视频的按首帧之后算起。",
                     new Runnable() {
                         @Override
                         public void run() {
-                            // 6 → 8 → 10 → 15 → 6 循环，四个档位够用
+                            // 10 → 15 → 20 → 25 → 30 → 播放结束 → 10
                             switch (backdropDwell) {
-                                case 6:
-                                    backdropDwell = 8;
-                                    break;
-                                case 8:
-                                    backdropDwell = 10;
-                                    break;
                                 case 10:
                                     backdropDwell = 15;
                                     break;
+                                case 15:
+                                    backdropDwell = 20;
+                                    break;
+                                case 20:
+                                    backdropDwell = 25;
+                                    break;
+                                case 25:
+                                    backdropDwell = 30;
+                                    break;
+                                case 30:
+                                    backdropDwell = DeskPrefs.DWELL_UNTIL_END;
+                                    break;
                                 default:
-                                    backdropDwell = 6;
+                                    backdropDwell = 10;
                                     break;
                             }
                             DeskPrefs.setBackdropDwellSec(SettingsActivity.this, backdropDwell);
+                            refreshValues();
+                        }
+                    });
+            add("backdropsound", "背景声音",
+                    "屏保时放出声音，音量按媒体音量的第 6 档。默认静音——屏保在客厅里"
+                            + "突然响起来不太好。关掉后立刻静音，不用等下一段。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            backdropSound = !backdropSound;
+                            DeskPrefs.setBackdropSound(SettingsActivity.this, backdropSound);
                             refreshValues();
                         }
                     });
@@ -456,7 +475,10 @@ public class SettingsActivity extends DeskAdaptActivity {
             case "backdrop4k":
                 return backdropStrict4k ? "仅 4K" : "允许降级";
             case "backdropdwell":
-                return backdropDwell + " 秒";
+                return backdropDwell == DeskPrefs.DWELL_UNTIL_END
+                        ? "播放结束" : backdropDwell + " 秒";
+            case "backdropsound":
+                return backdropSound ? "有声" : "静音";
             case "update":
                 return "当前 " + com.tvdesk.desk.update.UpdateClient.currentVersionName(this);
             case "manifest": {

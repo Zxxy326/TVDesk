@@ -2,6 +2,7 @@ package com.tvdesk.core.bg;
 
 import android.content.Context;
 import android.text.TextUtils;
+import android.util.Log;
 
 import com.github.tvbox.osc.bean.Movie;
 import com.tvdesk.core.bili.BiliClient;
@@ -20,8 +21,10 @@ import java.util.List;
  */
 public class BiliBackdropSource {
 
+    private static final String TAG = "BiliBackdrop";
+
     private static final long TTL_MS = 45 * 60 * 1000L;
-    /** 一次取多少条。热门列表本身有去重，20 条足够一轮 14 条的池子 */
+    /** 一次取多少条。热门一页 20 条，拉两页凑 40，池子够大才谈得上「随机不重复」 */
     private static final int WANT = 20;
 
     private static List<BackdropItem> cache;
@@ -44,7 +47,14 @@ public class BiliBackdropSource {
      * 网络或风控导致的空列表不当成「拉到了空」：那样会把已经混进队列的 B 站条目清掉。
      */
     public static synchronized List<BackdropItem> refresh(Context context) throws IOException {
-        List<BiliCard> cards = BiliClient.get(context).popular(1, WANT);
+        BiliClient client = BiliClient.get(context);
+        List<BiliCard> cards = new ArrayList<>(client.popular(1, WANT));
+        try {
+            // 第二页失败不算错：少一半池子也比没有强
+            cards.addAll(client.popular(2, WANT));
+        } catch (Throwable th) {
+            Log.i(TAG, "热门第二页没拉到：" + th.getMessage());
+        }
         List<BackdropItem> items = new ArrayList<>();
         if (cards != null) {
             for (BiliCard card : cards) {

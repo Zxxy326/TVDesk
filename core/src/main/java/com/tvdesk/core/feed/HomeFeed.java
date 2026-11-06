@@ -22,6 +22,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 首页推荐流。
@@ -102,54 +105,165 @@ public final class HomeFeed {
      *
      * <p>先看当天缓存，命中就直接返回；没有才走网络。
      */
-    public static void load(final Context context, final Callback callback) {
-        final String today = todayKey();
+    /**
+     * 首页榜单要拉哪几档。
+     *
+     * <p>以前只拉「今年上映」那一档——接口在 movie 域下，回来的基本都是剧集和电影，
+     * 动画和综艺永远进不来。现在按豆瓣自己的分类各取一档热门，海内外都在这四档里：
+     * 电影「热门」里本来就是中外混排，剧集同「热门」，综艺和日漫各一档。
+     *
+     * <p>数组第三项是给人看的中文标签，写进 {@code vod.type}，Hero 的角标用它。
+     */
+    private static final String[][] HOME_TAGS = {
+            {"movie", "热门", "电影"},
+            {"tv", "热门", "剧集"},
+            {"tv", "综艺", "综艺"},
+            {"tv", "日本动画", "动漫"},
+    };
 
-        String cachedDay = Hawk.get(CACHE_DAY, "");
-        if (today.equals(cachedDay)) {
-            String json = Hawk.get(CACHE_JSON, "");
-            if (!TextUtils.isEmpty(json)) {
-                List<Movie.Video> items = parse(json);
-                if (!items.isEmpty()) {
-                    postResult(callback, items, true);
-                    return;
+    /** 每档取多少条。四档交错合并后取前 30，够铺一行还能留点余量 */
+    private static final int PER_TAG = 10;
+
+    /**
+     * 加载首页推荐。回调在主线程。
+     *
+     * <p>四个分类并发拉，谁先回谁先填；四路都结束（成功或失败）才回调。
+     * 单路失败不拖累别的——只回三档也比整页空着强。
+     */
+    public static void load(final Context context, final Callback callback) {
+        final List<List<Movie.Video>> buckets = new ArrayList<>();
+        for (int i = 0; i < HOME_TAGS.length; i++) {
+            buckets.add(java.util.Collections.synchronizedList(new ArrayList<Movie.Video>()));
+        }
+        final AtomicInteger pending = new AtomicInteger(HOME_TAGS.length);
+        for (int i = 0; i < HOME_TAGS.length; i++) {
+            final List<Movie.Video> bucket = buckets.get(i);
+            final String type = HOME_TAGS[i][0];
+            final String tag = HOME_TAGS[i][1];
+            final String label = HOME_TAGS[i][2];
+            try {
+                OkGo.<String>get(searchUrl(type, tag))
+                        .headers("User-Agent", UA.randomOne())
+                        .headers("Referer", "https://movie.douban.com/")
+                        .execute(new AbsCallback<String>() {
+                            @Override
+                            public void onSuccess(Response<String> response) {
+                                bucket.addAll(parseSearch(response.body(), label));
+                                done();
+                            }
+
+                            @Override
+                            public void onError(Response<String> response) {
+                                super.onError(response);
+                                done();
+                            }
+
+                            @Override
+                            public String convertResponse(okhttp3.Response response) throws Throwable {
+                                return response.body() == null ? "" : response.body().string();
+                            }
+
+                            private void done() {
+                                if (pending.decrementAndGet() > 0) {
+                                    return;
+                                }
+                                List<Movie.Video> items = merge(buckets);
+                                if (items.isEmpty()) {
+                                    postError(callback, new RuntimeException("home feed empty"));
+                                } else {
+                                    postResult(callback, items, false);
+                                }
+                            }
+                        });
+            } catch (Throwable th) {
+                if (pending.decrementAndGet() == 0) {
+                    postError(callback, th);
                 }
             }
         }
-
-        try {
-            OkGo.<String>get(doubanUrl())
-                    .headers("User-Agent", UA.randomOne())
-                    .execute(new AbsCallback<String>() {
-                        @Override
-                        public void onSuccess(Response<String> response) {
-                            String body = response.body();
-                            Hawk.put(CACHE_DAY, today);
-                            Hawk.put(CACHE_JSON, body);
-                            postResult(callback, parse(body), false);
-                        }
-
-                        @Override
-                        public void onError(Response<String> response) {
-                            super.onError(response);
-                            Throwable th = response.getException();
-                            postError(callback, th != null ? th : new RuntimeException("home feed failed"));
-                        }
-
-                        @Override
-                        public String convertResponse(okhttp3.Response response) throws Throwable {
-                            return response.body() == null ? "" : response.body().string();
-                        }
-                    });
-        } catch (Throwable th) {
-            postError(callback, th);
-        }
     }
 
-    private static String doubanUrl() {
-        int year = Calendar.getInstance().get(Calendar.YEAR);
-        return "https://movie.douban.com/j/new_search_subjects"
-                + "?sort=U&range=0,10&tags=&playable=1&start=0&year_range=" + year + "," + year;
+    private static String searchUrl(String type, String tag) {
+        String encoded = tag;
+        try {
+            encoded = java.net.URLEncoder.encode(tag, "UTF-8");
+        } catch (Throwable ignored) {
+        }
+        return "https://movie.douban.com/j/search_subjects?type=" + type
+                + "&tag=" + encoded
+                + "&sort=recommend&page_limit=" + PER_TAG + "&page_start=0";
+    }
+
+    /**
+     * 四档交错合并：电影、剧集、综艺、动漫轮着来。
+     *
+     * <p>不按分类整段拼：那样前十条全是电影，海报行第一屏看不到综艺和动漫，
+     * 等于还是「只有一种内容」。
+     */
+    private static List<Movie.Video> merge(List<List<Movie.Video>> buckets) {
+        Set<String> seen = new HashSet<>();
+        List<Movie.Video> out = new ArrayList<>();
+        for (int round = 0; round < PER_TAG; round++) {
+            for (List<Movie.Video> bucket : buckets) {
+                if (round >= bucket.size()) {
+                    continue;
+                }
+                Movie.Video vod = bucket.get(round);
+                if (vod == null || TextUtils.isEmpty(vod.name)) {
+                    continue;
+                }
+                String key = TextUtils.isEmpty(vod.id) ? vod.name : vod.id;
+                if (seen.add(key)) {
+                    out.add(vod);
+                    if (out.size() >= 30) {
+                        return out;
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 解析 {@code j/search_subjects}：{@code {"subjects":[{title,id,rate,cover}]}} */
+    private static List<Movie.Video> parseSearch(String json, String label) {
+        List<Movie.Video> result = new ArrayList<>();
+        if (TextUtils.isEmpty(json)) {
+            return result;
+        }
+        try {
+            JsonObject root = new Gson().fromJson(json, JsonObject.class);
+            JsonArray array = root == null ? null : root.getAsJsonArray("subjects");
+            if (array == null) {
+                return result;
+            }
+            int limit = Math.min(array.size(), PER_TAG);
+            for (int i = 0; i < limit; i++) {
+                JsonElement ele = array.get(i);
+                if (!ele.isJsonObject()) {
+                    continue;
+                }
+                JsonObject obj = ele.getAsJsonObject();
+                Movie.Video vod = new Movie.Video();
+                vod.name = optString(obj, "title");
+                String subjectId = optString(obj, "id");
+                if (!TextUtils.isEmpty(subjectId)) {
+                    vod.id = ID_PREFIX + subjectId;
+                }
+                String rate = optString(obj, "rate");
+                vod.note = TextUtils.isEmpty(rate) ? "" : rate + " 分";
+                vod.type = label;
+                String agent = "@User-Agent=" + UA.randomOne() + "@Referer=https://www.douban.com/";
+                String cover = optString(obj, "cover");
+                vod.pic = variant(cover, "m") + agent;
+                vod.picSlide = variant(cover, "l") + agent;
+                if (!TextUtils.isEmpty(vod.name)) {
+                    result.add(vod);
+                }
+            }
+        } catch (Throwable ignored) {
+            // 解析失败返回已解析到的部分
+        }
+        return result;
     }
 
     private static String todayKey() {

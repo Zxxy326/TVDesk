@@ -5,6 +5,7 @@
   分区：顶部浮动胶囊 / Hero 主视觉 / 底部海报行
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/desk_bg"
@@ -17,12 +18,23 @@
          不存在「窗口打洞失败 → 画面看不见」这种按机型才复现的问题，也能跟着 alpha 做淡入。
          等能实测 4K 直通时再切 SurfaceView。
 
+         外面套 AspectRatioFrameLayout（zoom）：B 站与影视源的画面不全是 16:9，
+         4:3 的直接铺满会横向拉伸，人像全变形。zoom 按视频比例放大填满、裁掉多出来的一圈，
+         宁可裁也不变形。
+
          静态图（hero_bg）盖在它上面，首帧到达后才淡出。 -->
-    <TextureView
-        android:id="@+id/bg_video"
+    <com.google.android.exoplayer2.ui.AspectRatioFrameLayout
+        android:id="@+id/bg_video_box"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:visibility="invisible" />
+        app:resize_mode="zoom">
+
+        <TextureView
+            android:id="@+id/bg_video"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="invisible" />
+    </com.google.android.exoplayer2.ui.AspectRatioFrameLayout>
 
     <!-- 氛围背景：自绘三层光，接真实数据后由 Hero 海报覆盖 -->
     <com.tvdesk.desk.widget.BackdropView
@@ -52,10 +64,7 @@
 
     <!-- ============ Hero 主视觉 ============ -->
     <!-- clipChildren=false：焦点放大会让卡片边界超出容器，默认裁剪会把放大的那一圈切掉 -->
-    <!-- marginTop 112dp：简介真正填满三行后，整块比原来量出来的高 40dp 左右；
-         152dp 那版三颗按钮的下沿会压到 hero_dots（372dp）上，白底胶囊把圆点盖没。
-         往上挪 40dp，按钮底停在 363dp，圆点下面还留 9dp。沉浸态的 IMMERSIVE_LIFT
-         同步加了 40dp，轮播时信息块仍落在同一高度。 -->
+    <!-- 信息块：常态在上方（下面 404dp 起是海报行），沉浸/屏保态才看得到整屏画面 -->
     <LinearLayout
         android:id="@+id/hero_block"
         android:layout_width="wrap_content"
@@ -212,7 +221,8 @@
     </LinearLayout>
 
     <!-- ============ 分页点 ============ -->
-    <!-- 挂在信息块下面、左对齐（参考图如此）。居中的话沉浸态一眼看去像另一组控件 -->
+    <!-- 分页点保留节点但不再显示：首页现在是「一条一条换」的背景墙，
+         一排十几个点既占地方又说明不了「这是随机轮播」 -->
     <LinearLayout
         android:id="@+id/hero_dots"
         android:layout_width="wrap_content"
@@ -221,7 +231,8 @@
         android:layout_marginStart="@dimen/screen_pad"
         android:layout_marginTop="372dp"
         android:gravity="center_vertical"
-        android:orientation="horizontal" />
+        android:orientation="horizontal"
+        android:visibility="gone" />
 
     <!-- ============ 底部海报行 ============ -->
     <!-- clipChildren=false：海报焦点放大 1.08 倍，上下各超出 HSV 边界十几个像素，

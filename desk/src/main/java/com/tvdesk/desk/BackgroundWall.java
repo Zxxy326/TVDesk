@@ -15,10 +15,14 @@ import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.source.MediaSource;
 import com.google.android.exoplayer2.source.ProgressiveMediaSource;
+import com.google.android.exoplayer2.source.hls.HlsMediaSource;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.google.android.exoplayer2.upstream.DefaultDataSource;
+import com.google.android.exoplayer2.ui.AspectRatioFrameLayout;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
 import com.tvdesk.core.bg.BackdropItem;
+import com.tvdesk.core.bg.MovieBackdropStream;
+import com.tvdesk.core.douyin.DouyinClient;
 import com.tvdesk.core.bili.BiliClient;
 import com.tvdesk.core.bili.model.BiliDetail;
 import com.tvdesk.core.bili.model.BiliStream;
@@ -44,8 +48,22 @@ public class BackgroundWall {
 
     private static final String TAG = "DeskBackdrop";
 
+    /**
+     * 屏保出声时的音量。
+     *
+     * <p>电视的媒体音量一般是 15 档，这里对应第 6 档（0.4）。不动系统音量：
+     * 改系统音量会影响其他应用，退出屏保还得记着还原；播放器自己的音量就够了。
+     */
+    private static final float SOUND_VOLUME = 6f / 15f;
+
     /** 首帧等这么久还没来就回静态图。方案给的初值是 3 秒，可调 */
     private static final long FIRST_FRAME_TIMEOUT_MS = 3000L;
+
+    /**
+     * 影视走 HLS（m3u8），起播比 B 站的 MP4 分片慢得多：要下清单、再下若干个分片。
+     * 实测 3 秒不够，放宽到 6 秒；出不了帧就回静态图，这条当「只有图」。
+     */
+    private static final long MOVIE_FIRST_FRAME_TIMEOUT_MS = 6000L;
 
     /** 默认要 1080P；严格 4K 模式要 4K 档 */
     private static final int QN_FULL_HD = 80;
@@ -55,12 +73,25 @@ public class BackgroundWall {
         /** 首帧真的画出来了：现在可以撤掉上面那张静态图 */
         void onBackdropFirstFrame();
 
+        /**
+         * 这一条「有结论了」：首帧到了，或者确定播不了（取不到流 / 超时 / 竖屏 / 出错）。
+         *
+         * <p>宿主收到后开始计停留时长。之所以不用「换条的时刻」计时：影视那条链路
+         * 要先搜源、拉详情、解析地址，好几秒起步——从换条开始算的话，等画面出来
+         * 时间已经用完了（实测 8 秒里有一半耗在准备上）。
+         */
+        void onBackdropReady();
+
         /** 这一条播完了（比目标时长短），或者画面已经不可用：该切下一条 */
         void onBackdropEnded();
     }
 
     private final Activity activity;
     private final TextureView surface;
+    /** 按视频比例放大裁剪的容器：4:3 的素材直接铺满会横向拉伸 */
+    private final AspectRatioFrameLayout ratioBox;
+    /** 屏保是否出声。默认静音：背景音是屏保，不该在用户没要求时突然出声 */
+    private boolean soundEnabled;
     private final Host host;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -82,13 +113,23 @@ public class BackgroundWall {
         }
     };
 
-    public BackgroundWall(Activity activity, TextureView surface, Host host) {
+    public BackgroundWall(Activity activity, TextureView surface, AspectRatioFrameLayout ratioBox,
+                          Host host) {
         this.activity = activity;
         this.surface = surface;
+        this.ratioBox = ratioBox;
         this.host = host;
     }
 
     /** 用户设置：关掉动态背景时整条链路都不启动，连取流都不发 */
+    /** 开关屏保声音。改完立刻生效，不用等下一段 */
+    public void setSoundEnabled(boolean enabled) {
+        soundEnabled = enabled;
+        if (player != null) {
+            player.setVolume(enabled ? SOUND_VOLUME : 0f);
+        }
+    }
+
     public void setVideoEnabled(boolean enabled) {
         videoEnabled = enabled;
     }
@@ -108,12 +149,22 @@ public class BackgroundWall {
      *
      * <p>调用前宿主已经把这条的静态图铺好了：视频没准备好、或者干脆没有视频，
      * 用户看到的也是这张图，不会出现黑屏空档。
+     *
+     * <p>两条来源分开走：B 站有现成的 bvid，一次 playurl 就有流；影视条目只有
+     * {@code sourceKey + id}，得先拉详情、必要时让爬虫解析。后者慢得多，
+     * 拿不到就回静态图（见 {@link MovieBackdropStream}）。
      */
     public void play(final BackdropItem item) {
-        if (!videoEnabled || item == null || !item.hasVideo()) {
+        if (!videoEnabled || item == null || activity.isFinishing()) {
             return;
         }
-        if (activity.isFinishing()) {
+        if (item.isBili() && !item.hasVideo()) {
+            return;
+        }
+        if (item.isDouyin() && TextUtils.isEmpty(item.playUrl)) {
+            return;
+        }
+        if (!item.isBili() && !item.isDouyin() && item.video == null) {
             return;
         }
         final int gen = ++generation;
@@ -121,6 +172,24 @@ public class BackgroundWall {
         firstFrameShown = false;
         ui.removeCallbacks(firstFrameTimeout);
 
+        if (item.isBili()) {
+            resolveBili(item, gen);
+        } else if (item.isDouyin()) {
+            // 抖音推荐流每条都带现成地址，不用解析，直接起
+            if (TextUtils.isEmpty(item.playUrl)) {
+                fallbackToImage();
+                return;
+            }
+            startPlayer(item.playUrl, gen, FIRST_FRAME_TIMEOUT_MS);
+        } else {
+            resolveMovie(item, gen);
+        }
+        // 首帧的计时在 startPlayer 里才开始：影视那边「详情 + 解析」可能就要好几秒，
+        // 从 play() 起算的话还没等播放器准备好就超时了
+    }
+
+    /** B 站：一次 playurl 拿 DASH 视频轨 */
+    private void resolveBili(final BackdropItem item, final int gen) {
         // 取流是网络活，不能压在主线程上；8 秒一条，这里慢一点就直接赶不上了
         new Thread(new Runnable() {
             @Override
@@ -146,13 +215,35 @@ public class BackgroundWall {
                             fallbackToImage();
                             return;
                         }
-                        startPlayer(target, gen);
+                        startPlayer(target, gen, FIRST_FRAME_TIMEOUT_MS);
                     }
                 });
             }
         }, "backdrop-stream").start();
+    }
 
-        ui.postDelayed(firstFrameTimeout, FIRST_FRAME_TIMEOUT_MS);
+    /** 影视：详情 → 剧集 → 必要时解析。整条链路都可能拿不到地址，失败即回图 */
+    private void resolveMovie(final BackdropItem item, final int gen) {
+        MovieBackdropStream.resolve(activity, item.video, new MovieBackdropStream.Callback() {
+            @Override
+            public void onUrl(final String url) {
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (gen != generation || current != item) {
+                            return;
+                        }
+                        if (TextUtils.isEmpty(url)) {
+                            Log.i(TAG, "影视取不到流，只看静态图：" + item.title());
+                            fallbackToImage();
+                            return;
+                        }
+                        Log.i(TAG, "影视背景流 " + hostOf(url) + " " + item.title());
+                        startPlayer(url, gen, MOVIE_FIRST_FRAME_TIMEOUT_MS);
+                    }
+                });
+            }
+        });
     }
 
     /**
@@ -195,13 +286,16 @@ public class BackgroundWall {
         return url;
     }
 
-    private void startPlayer(String url, final int gen) {
+    private void startPlayer(String url, final int gen, long firstFrameTimeoutMs) {
         try {
             SimpleExoPlayer value = ensurePlayer();
             player.setMediaSource(buildSource(url));
-            player.setVolume(0f);
+            player.setVolume(soundEnabled ? SOUND_VOLUME : 0f);
             player.prepare();
             player.setPlayWhenReady(true);
+            // 首帧超时从「真的开始准备」算起，取流/解析的时间不算在预算里
+            ui.removeCallbacks(firstFrameTimeout);
+            ui.postDelayed(firstFrameTimeout, firstFrameTimeoutMs);
             Log.i(TAG, "开始准备背景视频：" + (current == null ? "" : current.title()));
         } catch (Throwable th) {
             Log.w(TAG, "背景播放器起不来：" + th.getMessage());
@@ -221,10 +315,38 @@ public class BackgroundWall {
                 if (current == null) {
                     return;
                 }
+                // 竖屏素材不铺桌面：两边会被裁掉一大半，中间只剩一条人像
+                com.google.android.exoplayer2.Format format = player == null
+                        ? null : player.getVideoFormat();
+                if (format != null && format.height > format.width) {
+                    Log.i(TAG, "竖屏视频不播：" + format.width + "x" + format.height);
+                    fallbackToImage();
+                    return;
+                }
                 firstFrameShown = true;
                 ui.removeCallbacks(firstFrameTimeout);
                 recordVideoFormat();
                 host.onBackdropFirstFrame();
+                host.onBackdropReady();
+            }
+
+            @Override
+            public void onVideoSizeChanged(com.google.android.exoplayer2.video.VideoSize videoSize) {
+                // 首帧还没到就先看出是竖的，省得白渲染一帧再撤
+                if (current == null || videoSize == null) {
+                    return;
+                }
+                if (videoSize.height > videoSize.width) {
+                    Log.i(TAG, "竖屏视频不播：" + videoSize.width + "x" + videoSize.height
+                            + " " + current.title());
+                    fallbackToImage();
+                    return;
+                }
+                // 告诉容器这条视频的真实比例，zoom 模式据此放大裁剪
+                if (ratioBox != null && videoSize.height > 0) {
+                    ratioBox.setAspectRatio(
+                            videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height);
+                }
             }
 
             @Override
@@ -238,6 +360,11 @@ public class BackgroundWall {
             @Override
             public void onPlayerError(PlaybackException error) {
                 Log.i(TAG, "背景视频出错，回静态图：" + error.getErrorCodeName());
+                if (current != null && !current.isBili()) {
+                    // 影视源解析成功但播放被拒（网盘源的 403 最常见），记一笔，
+                    // 连续几次之后这个源就不试了
+                    MovieBackdropStream.markFailed(current.video);
+                }
                 fallbackToImage();
             }
         });
@@ -264,15 +391,29 @@ public class BackgroundWall {
     }
 
     private MediaSource buildSource(String url) {
-        Map<String, String> headers = BiliClient.get(activity).playHeaders();
+        // 请求头跟着来源走：抖音的 CDN 不认 B 站那套 referer/UA，反过来也一样
+        Map<String, String> headers;
+        String userAgent;
+        if (current != null && current.isDouyin()) {
+            headers = DouyinClient.get(activity).playHeaders();
+            userAgent = DouyinClient.userAgent();
+        } else {
+            headers = BiliClient.get(activity).playHeaders();
+            userAgent = BiliClient.userAgent();
+        }
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-                .setUserAgent(BiliClient.userAgent())
+                .setUserAgent(userAgent)
                 .setDefaultRequestProperties(headers)
-                // B 站 CDN 会在 https/http 之间跳，不让跳就取不到流
+                // CDN 会在 https/http 之间跳，不让跳就取不到流
                 .setAllowCrossProtocolRedirects(true);
         DataSource.Factory factory = new DefaultDataSource.Factory(activity, http);
+        Uri uri = Uri.parse(url);
+        if (url.contains(".m3u8")) {
+            // 影视源里绝大多数是 HLS：ProgressiveMediaSource 播不了清单，会直接报解析错
+            return new HlsMediaSource.Factory(factory).createMediaSource(MediaItem.fromUri(uri));
+        }
         return new ProgressiveMediaSource.Factory(factory)
-                .createMediaSource(MediaItem.fromUri(Uri.parse(url)));
+                .createMediaSource(MediaItem.fromUri(uri));
     }
 
     /** 回到静态图：停掉解码，但保留播放器实例（同一次沉浸里还会再播下一条） */
@@ -280,6 +421,8 @@ public class BackgroundWall {
         ui.removeCallbacks(firstFrameTimeout);
         firstFrameShown = false;
         generation++;
+        // 清掉 current：停掉之后迟到的首帧回调不该再撤静态图（那会露出黑）
+        current = null;
         if (player != null) {
             try {
                 player.stop();
@@ -287,6 +430,9 @@ public class BackgroundWall {
             } catch (Throwable ignored) {
             }
         }
+        // 播不了也是一种「有结论」：宿主该开始计这条的停留时间了，
+        // 否则它会一直挂在「等首帧」上不切
+        host.onBackdropReady();
     }
 
     /**

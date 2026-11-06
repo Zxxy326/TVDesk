@@ -47,8 +47,13 @@ final class DeskPrefs {
     private static final String KEY_BACKDROP_VIDEO = "backdrop_video";
     /** 严格 4K：只接受 2160p 的轨道，给不出来就回静态图，不偷偷降档 */
     private static final String KEY_BACKDROP_STRICT_4K = "backdrop_strict_4k";
-    /** 背景每条停留多久（秒）。6 / 8 / 10 / 15，默认 8 */
+    /** 背景每条停留多久（秒）。10 / 15 / 20 / 25 / 30，或者 DWELL_UNTIL_END */
     private static final String KEY_BACKDROP_DWELL = "backdrop_dwell_sec";
+    /** 屏保时要不要出声 */
+    private static final String KEY_BACKDROP_SOUND = "backdrop_sound";
+
+    /** 停留时长取这个值表示「这条播完再换」 */
+    public static final int DWELL_UNTIL_END = 0;
 
     private DeskPrefs() {
     }
@@ -390,17 +395,32 @@ final class DeskPrefs {
     /**
      * 背景每条停多久（秒）。
      *
-     * <p>方案要求的档位是 6 / 8 / 10 / 15，默认 8。存进来的值不在档位里就退回 8，
-     * 免得旧版本残留的怪数字让轮播变成一条 0 秒或者 300 秒。
+     * <p>档位是 10 / 15 / 20 / 25 / 30，以及 {@link #DWELL_UNTIL_END}（这条播完再换）。
+     * 默认 10。存进来的值不在档位里就退回 10，免得旧版本残留的怪数字让轮播变成
+     * 一条 0 秒或者 300 秒。
      */
     public static int backdropDwellSec(Context context) {
-        int sec = of(context).getInt(KEY_BACKDROP_DWELL, 8);
-        return (sec == 6 || sec == 8 || sec == 10 || sec == 15) ? sec : 8;
+        int sec = of(context).getInt(KEY_BACKDROP_DWELL, 10);
+        return isDwellOption(sec) ? sec : 10;
     }
 
     public static void setBackdropDwellSec(Context context, int sec) {
-        if (sec == 6 || sec == 8 || sec == 10 || sec == 15) {
+        if (isDwellOption(sec)) {
             of(context).edit().putInt(KEY_BACKDROP_DWELL, sec).apply();
         }
+    }
+
+    public static boolean isDwellOption(int sec) {
+        return sec == 10 || sec == 15 || sec == 20 || sec == 25 || sec == 30
+                || sec == DWELL_UNTIL_END;
+    }
+
+    /** 背景声音：开着的话屏保时放声，音量按 {@code 6/15} 给 */
+    public static boolean backdropSound(Context context) {
+        return of(context).getBoolean(KEY_BACKDROP_SOUND, false);
+    }
+
+    public static void setBackdropSound(Context context, boolean on) {
+        of(context).edit().putBoolean(KEY_BACKDROP_SOUND, on).apply();
     }
 }

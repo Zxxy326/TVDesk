@@ -19,9 +19,13 @@ public class BackdropItem {
     public static final int KIND_MOVIE = 1;
     /** B 站热门投稿 */
     public static final int KIND_BILI = 2;
+    /** 抖音推荐流 */
+    public static final int KIND_DOUYIN = 3;
 
     /** B 站条目的 {@code sourceKey} 标记。影视源的 key 来自配置，不会等于这个值 */
     public static final String BILI_SOURCE_KEY = "bili";
+    /** 抖音条目的 {@code sourceKey} 标记 */
+    public static final String DOUYIN_SOURCE_KEY = "douyin";
 
     public int kind = KIND_MOVIE;
 
@@ -43,6 +47,14 @@ public class BackdropItem {
     /** B 站：时长（秒） */
     public long durationSec;
 
+    /**
+     * 抖音：已经解析好的播放地址。
+     *
+     * <p>和 B 站、影视都不一样——{@code DouyinClient} 的推荐流里每条都带着现成的 URL，
+     * 不用再拉详情、解析，拿到就能播。地址有时效，所以只在内存里放几十分钟。
+     */
+    public String playUrl = "";
+
     /** 原图实际像素。加载时回填，用来判断「够不够当 4K 背景」 */
     public int srcWidth;
     public int srcHeight;
@@ -52,6 +64,10 @@ public class BackdropItem {
         return kind == KIND_BILI;
     }
 
+    public boolean isDouyin() {
+        return kind == KIND_DOUYIN;
+    }
+
     /** 展示标题：影视用片名，B 站用投稿标题 */
     public String title() {
         return video == null || video.name == null ? "" : video.name;
@@ -59,6 +75,9 @@ public class BackdropItem {
 
     /** 这条有没有可播的视频身份 */
     public boolean hasVideo() {
+        if (isDouyin()) {
+            return !playUrl.isEmpty();
+        }
         return isBili() && bvid != null && !bvid.isEmpty();
     }
 
