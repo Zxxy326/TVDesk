@@ -43,6 +43,11 @@ final class DeskPrefs {
     private static final String KEY_BILI_DANMAKU_SPEED = "bili_danmaku_speed";
     private static final String KEY_BILI_DANMAKU_ALPHA = "bili_danmaku_alpha";
 
+    /** 沉浸态动态背景：关掉就只轮播静态图（老盒子 / 不想跑流量） */
+    private static final String KEY_BACKDROP_VIDEO = "backdrop_video";
+    /** 严格 4K：只接受 2160p 的轨道，给不出来就回静态图，不偷偷降档 */
+    private static final String KEY_BACKDROP_STRICT_4K = "backdrop_strict_4k";
+
     private DeskPrefs() {
     }
 
@@ -351,5 +356,32 @@ final class DeskPrefs {
         if (alpha >= 0.3f && alpha <= 1f) {
             of(context).edit().putFloat(KEY_BILI_DANMAKU_ALPHA, alpha).apply();
         }
+    }
+
+    /**
+     * 沉浸态要不要放动态背景（B 站热门短视频）。
+     *
+     * <p>默认开着；关掉之后连热门列表都不拉，只剩静态图轮播。
+     */
+    public static boolean backdropVideo(Context context) {
+        return of(context).getBoolean(KEY_BACKDROP_VIDEO, true);
+    }
+
+    public static void setBackdropVideo(Context context, boolean on) {
+        of(context).edit().putBoolean(KEY_BACKDROP_VIDEO, on).apply();
+    }
+
+    /**
+     * 严格 4K：只播放 2160p 轨道。
+     *
+     * <p>关掉（默认）时按 1080P 请求，服务端给什么档就用什么档；
+     * 打开后 4K 拿不到就回静态图，不拿 1080p 顶上去冒充——这是方案第 3.4 节的规矩。
+     */
+    public static boolean backdropStrict4k(Context context) {
+        return of(context).getBoolean(KEY_BACKDROP_STRICT_4K, false);
+    }
+
+    public static void setBackdropStrict4k(Context context, boolean on) {
+        of(context).edit().putBoolean(KEY_BACKDROP_STRICT_4K, on).apply();
     }
 }

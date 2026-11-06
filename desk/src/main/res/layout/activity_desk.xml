@@ -10,6 +10,20 @@
     android:background="@color/desk_bg"
     android:clipChildren="false">
 
+    <!-- 沉浸态的动态背景。
+
+         方案建议用 SurfaceView（部分 4K 电视只有 SurfaceView 才能输出全分辨率），
+         这一版先用 TextureView：首期目标是 1080p，TextureView 参与正常 View 合成，
+         不存在「窗口打洞失败 → 画面看不见」这种按机型才复现的问题，也能跟着 alpha 做淡入。
+         等能实测 4K 直通时再切 SurfaceView。
+
+         静态图（hero_bg）盖在它上面，首帧到达后才淡出。 -->
+    <TextureView
+        android:id="@+id/bg_video"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="invisible" />
+
     <!-- 氛围背景：自绘三层光，接真实数据后由 Hero 海报覆盖 -->
     <com.tvdesk.desk.widget.BackdropView
         android:id="@+id/desk_ambient"

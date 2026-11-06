@@ -15,6 +15,7 @@ import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
@@ -40,6 +41,9 @@ import com.github.tvbox.osc.bean.MovieSort;
 import com.github.tvbox.osc.bean.SourceBean;
 import com.github.tvbox.osc.bean.VodInfo;
 import com.github.tvbox.osc.util.ImgUtil;
+import com.tvdesk.core.bg.BackdropItem;
+import com.tvdesk.core.bg.BackdropQueue;
+import com.tvdesk.core.bg.BiliBackdropSource;
 import com.tvdesk.core.bili.model.BiliCard;
 import com.tvdesk.core.bili.model.BiliDetail;
 import com.tvdesk.core.bili.model.BiliEpisode;
@@ -636,6 +640,53 @@ public class DeskActivity extends DeskAdaptActivity {
     /** 当前页签的条目，Hero 与按钮都指向 {@link #heroItem} */
     private final List<Movie.Video> items = new ArrayList<>();
     private Movie.Video heroItem;
+
+    /**
+     * 背景墙队列：影视 + B 站热门混排。
+     *
+     * <p>独立于 {@link #items}（那个被 {@code ROW_LIMIT} 截断过，而且装不下 B 站条目）。
+     * 见 {@link BackdropQueue} 里的 7:3 与洗牌规则。
+     */
+    private final BackdropQueue backdropQueue = new BackdropQueue();
+
+    /** 沉浸态的动态背景；只在沉浸态起，退出/离页立刻停 */
+    private BackgroundWall backdropWall;
+    private TextureView bgVideo;
+    /** 氛围光层（自绘）。视频可见时要藏起来，否则它会盖住底下的视频层 */
+    private View deskAmbient;
+    /** 上一次拉 B 站热门的时间 */
+    private long biliBackdropAt;
+    /** 当前这条静态图该有的不透明度（含沉浸态的那一档压暗）。切条时先恢复它再停视频 */
+    private float heroBaseAlpha = 0.8f;
+
+    /**
+     * 动态背景的回调。
+     *
+     * <p>首帧到了才撤静态图：视频在取流 + 准备这段时间里画面是黑的，
+     * 直接让视频层露出来就是一次黑屏空档（方案第 5 节「准备期间没有黑色空档」）。
+     */
+    private final BackgroundWall.Host backdropHost = new BackgroundWall.Host() {
+        @Override
+        public void onBackdropFirstFrame() {
+            if (heroBg == null) {
+                return;
+            }
+            heroBg.animate().cancel();
+            heroBg.animate().alpha(0f).setDuration(260L).start();
+        }
+
+        @Override
+        public void onBackdropEnded() {
+            if (!immersive) {
+                return;
+            }
+            // 片段比目标时长短，播完就切；先把原来的 8 秒表撤掉，否则到点还会再切一次
+            heroBlock.removeCallbacks(heroRotate);
+            if (rotateHero()) {
+                heroBlock.postDelayed(heroRotate, HERO_ROTATE_MS);
+            }
+        }
+    };
     /** Hero 停在 {@link #items} 的第几条：沉浸轮播就是推着这个下标往前走 */
     private int heroIndex = -1;
     /** 条目自己没有 type 时徽章上的文案（首页那批豆瓣是「电视剧」） */
@@ -1168,6 +1219,13 @@ public class DeskActivity extends DeskAdaptActivity {
         deskWeather = findViewById(R.id.desk_weather);
         deskWeatherBox = findViewById(R.id.desk_weather_box);
         deskWeatherIcon = findViewById(R.id.desk_weather_icon);
+
+        // 动态背景：视频层在最底层，静态图盖在它上面；
+        // 视频首帧到达后才把静态图淡掉（见 backdropHost）
+        bgVideo = findViewById(R.id.bg_video);
+        deskAmbient = findViewById(R.id.desk_ambient);
+        backdropWall = new BackgroundWall(this, bgVideo, backdropHost);
+        applyBackdropPrefs();
     }
 
     /**
@@ -1282,7 +1340,21 @@ public class DeskActivity extends DeskAdaptActivity {
      * 走到两头时贴边收口，所以中间那段每按一次点就整体挪一格。
      */
     private void rebuildHeroDots() {
-        int total = items.size();
+        renderDots(items.size(), heroIndex);
+    }
+
+    /** 沉浸态：点跟着背景队列走，数量是这一轮的条数（超过上限就只显示一段窗口） */
+    private void rebuildQueueDots() {
+        renderDots(backdropQueue.roundSize(), backdropQueue.roundIndex());
+    }
+
+    /**
+     * 一排圆点。
+     *
+     * @param total  这一轮一共几条（≤1 时不显示——一颗点等于噪音）
+     * @param active 当前停在第几条
+     */
+    private void renderDots(int total, int active) {
         heroDots.removeAllViews();
         if (total <= 1) {
             // 只有一条时没有「轮播」可言，一颗点等于噪音
@@ -1292,18 +1364,18 @@ public class DeskActivity extends DeskAdaptActivity {
         heroDots.setVisibility(View.VISIBLE);
         int count = Math.min(total, HERO_DOT_MAX);
         // 窗口左端：当前条尽量落在中间，走到两头就贴边
-        int start = Math.max(0, Math.min(heroIndex - count / 2, total - count));
+        int start = Math.max(0, Math.min(active - count / 2, total - count));
         for (int i = 0; i < count; i++) {
             int position = start + i;
-            boolean active = position == heroIndex;
+            boolean on = position == active;
             View dot = new View(this);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    dp(active ? 8 : 6), dp(active ? 8 : 6));
+                    dp(on ? 8 : 6), dp(on ? 8 : 6));
             lp.rightMargin = dp(6);
             // 竖向差 2dp，不加居中的话亮的那颗会往下坠一颗像素的距离
             lp.gravity = android.view.Gravity.CENTER_VERTICAL;
             dot.setLayoutParams(lp);
-            dot.setBackgroundResource(active ? R.drawable.dot_active : R.drawable.dot_normal);
+            dot.setBackgroundResource(on ? R.drawable.dot_active : R.drawable.dot_normal);
             heroDots.addView(dot);
         }
     }
@@ -2012,6 +2084,10 @@ public class DeskActivity extends DeskAdaptActivity {
                 }
             }
         }
+        // 背景池吃**截断前**的完整列表：海报行只铺前 ROW_LIMIT 条，
+        // 背景没这个限制，否则后面那一大半适合铺满整屏的图就白扔了
+        backdropQueue.setMovies(list);
+        loadBiliBackdropIfNeeded();
         if (items.isEmpty()) {
             applyPlaceholders();
             return;
@@ -2058,42 +2134,100 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         heroIndex = index;
         heroItem = items.get(index);
+        renderHeroBlock(heroItem);
+        rebuildHeroDots();
+        prefetchNextHeroIntro();
+        return true;
+    }
+
+    /**
+     * 沉浸态：Hero 落到背景队列的这一条。
+     *
+     * <p>和 {@link #showHero(int)} 共用同一套渲染，区别只在「下标」：队列里的位置不映射到
+     * 海报行，所以 {@code heroIndex} 记 -1，圆点另算（见 {@link #rebuildQueueDots()}）。
+     * 退出沉浸时会用 {@link #backdropReturnHeroIndex} 回到影视内容。
+     */
+    private void showBackdropHero(BackdropItem item) {
+        if (item == null || item.video == null || isFinishing() || isDestroyed()) {
+            return;
+        }
+        heroItem = item.video;
+        heroIndex = -1;
+        renderHeroBlock(heroItem);
+        rebuildQueueDots();
+    }
+
+    /**
+     * 把 Hero 信息块落到这一条。
+     *
+     * <p>影视条目和 B 站条目都走这里：B 站条目进来时，片名就是投稿标题、徽章是「B站热门」、
+     * 简介是「UP 主 · 时长」，那三颗按钮由 {@link #isBiliItem} 分流（收藏对 B 站条目没有意义，
+     * 本机收藏清单只存影视）。
+     */
+    private void renderHeroBlock(final Movie.Video vod) {
         // 补拉横图回来时要判断「还是不是同一屏」
         final int seq = contentSeq;
 
-        heroTitle.setText(safe(heroItem.name));
-        heroTag.setText(firstNonEmpty(heroItem.type, heroFallbackTag));
+        heroTitle.setText(safe(vod.name));
+        heroTag.setText(firstNonEmpty(vod.type, heroFallbackTag));
         heroTag.setVisibility(TextUtils.isEmpty(heroTag.getText()) ? View.GONE : View.VISIBLE);
 
         // 元信息拼成一行：年份 · 地区 · 语言。源里缺哪项就少哪项，不留孤立的点，
         // 全缺时整段收起来——空 TextView 也占 10dp 的行距
-        String meta = buildHeroMeta(heroItem);
+        String meta = buildHeroMeta(vod);
         heroMeta.setText(meta);
         heroMeta.setVisibility(meta.isEmpty() ? View.GONE : View.VISIBLE);
 
         // 只有「8.7 分」这种才是评分；「已收藏」「更新至第10集」不是
-        String rate = ratingOf(heroItem.note);
+        String rate = ratingOf(vod.note);
         heroRate.setText(rate.isEmpty() ? "" : "\u2605 " + rate);
         heroRate.setVisibility(rate.isEmpty() ? View.GONE : View.VISIBLE);
 
         // 简介给三行。豆瓣榜单的列表接口不给 des，但条目带 subject id，可以按 id
         // 单独回查（HomeFeed.loadIntro）；源站条目列表里没 des 的仍按原来的说明走。
         heroDesc.setMinLines(0);
-        String desc = TextUtils.isEmpty(heroItem.des) ? "" : stripHtml(heroItem.des);
+        String desc = TextUtils.isEmpty(vod.des) ? "" : stripHtml(vod.des);
         if (!desc.isEmpty()) {
             heroDesc.setText(desc);
-        } else if (HomeFeed.subjectIdOf(heroItem).isEmpty()) {
+        } else if (isBiliItem(vod)) {
+            // B 站条目的简介是本地拼的，永远有值；走到这里说明真没标题可给
+            heroDesc.setText("B 站热门");
+        } else if (HomeFeed.subjectIdOf(vod).isEmpty()) {
             heroDesc.setText("这条没有简介 · 按 ⓘ 看详情");
         } else {
-            loadHeroIntro(heroItem);
+            loadHeroIntro(vod);
         }
 
         renderLikeState();
-        loadHeroBackdrop(heroItem.picSlide, heroItem.pic);
-        requestHeroSlide(heroItem, seq);
-        rebuildHeroDots();
-        prefetchNextHeroIntro();
-        return true;
+        // B 站条目没有本机收藏（那是影视清单），这颗心收起来
+        View like = findViewById(R.id.btn_like);
+        if (like != null) {
+            like.setVisibility(isBiliItem(vod) ? View.GONE : View.VISIBLE);
+        }
+        loadHeroBackdrop(vod.picSlide, vod.pic);
+        if (!isBiliItem(vod)) {
+            // 补拉横图是问影视源要 vod_pic_slide；B 站条目已经有封面了，问了也是白问，
+            // 而且会把 B 站封面覆盖成源站随便给的一张图
+            requestHeroSlide(vod, seq);
+        }
+    }
+
+    /** 前台要起视频了：先把背景解码器和视频层收掉 */
+    private void backdropWallStopForForeground() {
+        if (backdropWall != null) {
+            backdropWall.stop();
+        }
+        if (bgVideo != null) {
+            bgVideo.setVisibility(View.INVISIBLE);
+        }
+        if (deskAmbient != null) {
+            deskAmbient.setVisibility(View.VISIBLE);
+        }
+    }
+
+    /** 这条是不是「B 站热门」合成出来的展示条目 */
+    private boolean isBiliItem(Movie.Video vod) {
+        return vod != null && BackdropItem.BILI_SOURCE_KEY.equals(vod.sourceKey);
     }
 
     /**
@@ -2134,7 +2268,9 @@ public class DeskActivity extends DeskAdaptActivity {
 
     /** 沉浸轮播 8 秒一条，提前把下一条的简介取回来，切过去就不用等 */
     private void prefetchNextHeroIntro() {
-        if (!immersive || items.size() < 2) {
+        if (!immersive || items.size() < 2 || heroIndex < 0) {
+            // heroIndex < 0 说明 Hero 停在背景队列上（可能是 B 站条目），
+            // 预取影视简介对下一条没用，还多打一次接口
             return;
         }
         int next = nextHeroIndex();
@@ -2190,6 +2326,93 @@ public class DeskActivity extends DeskAdaptActivity {
             return -1;
         }
         return (heroIndex + 1) % items.size();
+    }
+
+    /**
+     * 背景队列的下一条。
+     *
+     * <p>队列刚好轮回到「和当前这条一样」时跳过一次：沉浸态里连播两张一模一样的图，
+     * 用户会以为轮播卡住了。只在还有别的条目时才跳。
+     */
+    private BackdropItem nextBackdropItem() {
+        if (backdropQueue.isEmpty()) {
+            return null;
+        }
+        BackdropItem item = backdropQueue.next();
+        if (item != null && heroItem != null && item.video == heroItem
+                && backdropQueue.size() > 1) {
+            BackdropItem again = backdropQueue.next();
+            if (again != null) {
+                item = again;
+            }
+        }
+        return item;
+    }
+
+    /** 把设置里的背景选项同步给播放器（用户改完设置回来会重走一遍） */
+    private void applyBackdropPrefs() {
+        if (backdropWall == null) {
+            return;
+        }
+        boolean video = DeskPrefs.backdropVideo(this);
+        backdropWall.setVideoEnabled(video);
+        backdropWall.setStrict4k(DeskPrefs.backdropStrict4k(this));
+        if (!video) {
+            // 刚从设置里关掉：正在播的那条要立刻停，并把静态图还回来，
+            // 否则视频层停住以后画面是一块黑
+            backdropWall.stop();
+            if (bgVideo != null) {
+                bgVideo.setVisibility(View.INVISIBLE);
+            }
+            if (deskAmbient != null) {
+                deskAmbient.setVisibility(View.VISIBLE);
+            }
+            if (heroItem != null) {
+                loadHeroBackdrop(heroItem.picSlide, heroItem.pic);
+            }
+        }
+    }
+
+    /**
+     * B 站热门：有缓存直接用，过期了后台补一次。
+     *
+     * <p>失败不搞重试风暴：拉过一次（不管成败）至少隔 5 分钟才再问。
+     * 拉不到时队列保留上一次的结果，断网也能照常轮播影视那一部分。
+     */
+    private void loadBiliBackdropIfNeeded() {
+        if (!DeskPrefs.backdropVideo(this)) {
+            // 静态图模式：连热门列表都不用拉，省一次请求
+            return;
+        }
+        if (BiliBackdropSource.fresh()) {
+            backdropQueue.setBili(BiliBackdropSource.cached());
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (biliBackdropAt > 0 && now - biliBackdropAt < 5 * 60 * 1000L) {
+            return;
+        }
+        biliBackdropAt = now;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final List<BackdropItem> loaded =
+                            BiliBackdropSource.refresh(DeskActivity.this);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (isFinishing() || isDestroyed()) {
+                                return;
+                            }
+                            backdropQueue.setBili(loaded);
+                        }
+                    });
+                } catch (Throwable th) {
+                    android.util.Log.i("DeskActivity", "B 站热门背景拉取失败：" + th.getMessage());
+                }
+            }
+        }, "bili-backdrop").start();
     }
 
     /**
@@ -2505,8 +2728,22 @@ public class DeskActivity extends DeskAdaptActivity {
             if (isFinishing() || isDestroyed()) {
                 return;
             }
+            // 采样的是「静态图 + 氛围光」，不是视频帧：View 快照抓不到视频层
+            // （SurfaceView/TextureView）的内容，逐帧去模糊视频也不现实（方案第 5 节）。
+            // 视频在播时这两层一个是 alpha=0、一个是 GONE，所以临时把它们摆回原样再拍；
+            // View.draw 是同步的，改完立刻改回来，屏幕上不会闪。
+            float alpha = heroBg.getAlpha();
+            int ambientVisibility = deskAmbient == null ? View.VISIBLE : deskAmbient.getVisibility();
+            heroBg.setAlpha(heroBaseAlpha);
+            if (deskAmbient != null) {
+                deskAmbient.setVisibility(View.VISIBLE);
+            }
             com.tvdesk.desk.widget.FrostedBackdrop.capture(
                     findViewById(R.id.desk_ambient), heroBg);
+            heroBg.setAlpha(alpha);
+            if (deskAmbient != null) {
+                deskAmbient.setVisibility(ambientVisibility);
+            }
             // 玻璃 Drawable 只在 draw 时取样，重拍后让它们重画一帧
             android.view.View switcher = findViewById(R.id.module_switcher);
             if (switcher != null) {
@@ -3098,6 +3335,15 @@ public class DeskActivity extends DeskAdaptActivity {
         if (vod == null || TextUtils.isEmpty(vod.name)) {
             return;
         }
+        if (isBiliItem(vod)) {
+            // B 站热门没有影视源的 id：拿它去 openVideo 的常规分支会拿着 bvid
+            // 去影视源里搜一部不存在的片子。直接进 B 站详情，播不播让详情页决定
+            backdropWallStopForForeground();
+            openBiliDetail(vod.id);
+            return;
+        }
+        // 前台要起视频了，背景解码器先放掉（方案第 5 节「资源互斥」）
+        backdropWallStopForForeground();
         // 配置条目（「网页版配置中心」「网盘线路排序」这类）不是片子：它们的备注栏就是
         // 一个本机网址。以前照普通条目去要详情，爬虫发现没有可解析的视频，会自己把
         // 应用重启一次，用户看到的是「点一下退回电视首页」。这里直接开网页。
@@ -3749,6 +3995,16 @@ public class DeskActivity extends DeskAdaptActivity {
                 .start();
         heroBlock.removeCallbacks(heroRotate);
         heroBlock.postDelayed(heroRotate, HERO_ROTATE_MS);
+        // 记住进沉浸前的下标没有意义了：退出时故意保留背景队列那一条（点击要一致），
+        // 所以这里只把视频层准备好
+        if (bgVideo != null) {
+            // 提前设成可见（被静态图完整盖住）：播放器在 surface 就绪前会一直等，
+            // 等到首帧超时就白跑一次取流
+            bgVideo.setVisibility(View.VISIBLE);
+        }
+        if (deskAmbient != null) {
+            deskAmbient.setVisibility(View.VISIBLE);
+        }
         prefetchNextHeroIntro();
     }
 
@@ -3764,6 +4020,18 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         immersive = false;
         heroBlock.removeCallbacks(heroRotate);
+        // 视频必须在这里停：只把画面藏起来的话解码器还占着，
+        // 用户一按播放就是「背景 4K + 正片 4K」两个硬解实例抢资源
+        if (backdropWall != null) {
+            backdropWall.stop();
+        }
+        if (bgVideo != null) {
+            bgVideo.setVisibility(View.INVISIBLE);
+        }
+        if (deskAmbient != null) {
+            deskAmbient.setVisibility(View.VISIBLE);
+        }
+        heroBg.animate().cancel();
         heroBlock.animate().cancel();
         heroBlock.setAlpha(1f);
         heroBlock.animate().translationY(0f)
@@ -3782,6 +4050,16 @@ public class DeskActivity extends DeskAdaptActivity {
         // Hero / 圆点 / 海报行归位交给 applyContentMode：它按当前内容模式摆，
         // 正在看海报墙的情况不能一律铺回 Hero
         applyContentMode();
+        // 沉浸态可能停在了背景队列的某一条（B 站热门）。这里**不**强行换回影视：
+        // 用户看到的画面就是那一条，一退出就把标题换掉，刚才那个「开播放」按下去
+        // 打开的是另一部片子（方案第 4.9 条要求「点击与当前背景一致」）。
+        // 圆点先收起来——海报行还是影视的，两套条数对不上；
+        // 用户一按方向键进海报行，onPosterFocused 会把 Hero 换回影视内容。
+        if (heroIndex < 0) {
+            heroDots.setVisibility(View.GONE);
+        } else {
+            rebuildHeroDots();
+        }
         if (heroItem != null) {
             fadeActionButtons(true);
             // 把沉浸态乘上去的那一档压暗退回来。同一个 URL，Glide 走内存缓存，不会重新下载
@@ -3815,19 +4093,27 @@ public class DeskActivity extends DeskAdaptActivity {
     /**
      * 换下一条：信息块先淡出，落新内容后再淡回来。
      *
-     * <p>整屏背景不由这里管——它由 Glide 的 crossFade 处理（见 {@link #loadHeroBackdrop}）：
-     * 图片到位的时机不确定，视图上再排一段 alpha 只会切在半路。
+     * <p>顺序是「先停视频、露出静态图，再换内容、再准备下一条的视频」：
+     * 反过来的话，静态图淡出的那一刻会先露出上一条视频的最后一帧，看着像卡了一下。
      *
-     * @return 真的换了；只剩一条或内容被顶掉时返回 false，轮播就此停下不再空转
+     * @return 真的换了；队列为空时返回 false，轮播就此停下不再空转
      */
     private boolean rotateHero() {
-        if (items.size() < 2) {
+        final BackdropItem next = nextBackdropItem();
+        if (next == null) {
             return false;
         }
-        final int next = nextHeroIndex();
-        if (next == heroIndex) {
-            return false;
+        if (backdropWall != null) {
+            backdropWall.stop();
         }
+        // 先把静态图恢复到不透明，再停视频：只停不盖的话，
+        // 这 160ms 的淡出过程里露出的是一块黑（视频层停住后是一块黑）
+        heroBg.setAlpha(heroBaseAlpha);
+        // 氛围光也放回来：视频层停住之后，底下需要有一层东西撑着，不能是纯黑
+        if (deskAmbient != null) {
+            deskAmbient.setVisibility(View.VISIBLE);
+        }
+        heroBg.animate().cancel();
         heroBlock.animate().cancel();
         heroBlock.animate().alpha(0f)
                 .setDuration(160L)
@@ -3840,7 +4126,11 @@ public class DeskActivity extends DeskAdaptActivity {
                             heroBlock.setAlpha(1f);
                             return;
                         }
-                        showHero(next);
+                        showBackdropHero(next);
+                        // 静态图已经铺上了，这里只是「悄悄准备」；首帧到了才撤静态图
+                        if (backdropWall != null) {
+                            backdropWall.play(next);
+                        }
                         heroBlock.setAlpha(0f);
                         heroBlock.animate().alpha(1f)
                                 .setDuration(260L)
@@ -4418,6 +4708,8 @@ public class DeskActivity extends DeskAdaptActivity {
         super.onResume();
         // 用户可能刚在设置里关了时间/天气，回来必须立刻反映（不然要等重启）
         applyClockWeatherPrefs();
+        // 同一个道理：动态背景/严格 4K 改完，回到桌面立刻生效
+        applyBackdropPrefs();
         syncSourceIfChanged();
         // 去设置页、系统卸载页、或按 HOME 退到后台再回来：开着的那页要自己决定
         // 是接着放还是重来，跟 onLeave 配成一对。
@@ -4448,6 +4740,10 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         heroBlock.removeCallbacks(idleToImmersive);
         heroBlock.removeCallbacks(heroRotate);
+        // 背景视频跟着窗口一起停：压在后台继续解码，等于替用户开着电视不放
+        if (backdropWall != null) {
+            backdropWall.stop();
+        }
         // 长按计时器不能比窗口活得久：一响就会去开一个没人看着的弹窗
         okHandler.removeCallbacks(okLongPress);
         okDown = false;
@@ -4595,6 +4891,11 @@ public class DeskActivity extends DeskAdaptActivity {
     protected void onDestroy() {
         okHandler.removeCallbacks(guardWatchdog);
         releasePlayer();
+        if (backdropWall != null) {
+            // 连 ExoPlayer 实例一起放掉：离开桌面就没有「等会儿还要播」这一说
+            backdropWall.release();
+            backdropWall = null;
+        }
         // 页面栈里一次性的详情/搜索随宿主销毁；缓存的模块页在下面单独释放
         for (ModulePage page : pageStack) {
             if (!isCachedPage(page)) {
@@ -4712,6 +5013,9 @@ public class DeskActivity extends DeskAdaptActivity {
         if (immersive) {
             base *= IMMERSIVE_BG_DIM;
         }
+        // 记下来：切下一条时先把静态图恢复到这个不透明度，再停视频，
+        // 否则那 160ms 里露出的是停住的最后一帧（或者黑）
+        heroBaseAlpha = base;
         heroBg.setAlpha(base);
         try {
             Object model = ImgUtil.getImageModel(url);
@@ -4721,7 +5025,10 @@ public class DeskActivity extends DeskAdaptActivity {
             }
             Glide.with(this)
                     .load(model)
-                    .override(HERO_MAX_W, HERO_MAX_H)
+                    // 按这块屏的真实像素解码：1920×1080 的 UI 解 1920×1080，
+                    // 4K UI 才跟着涨到 3840×2160。写死 1080p 在 4K 屏上会糊，
+                    // 而无条件按原图解码，一张 8K 剧照就能吃掉几十兆内存
+                    .override(heroTargetWidth(), heroTargetHeight())
                     .centerCrop()
                     // 沉浸轮播每 8 秒换一次整屏背景，硬切的话眼角余光里像闪了一下。
                     // 交给 Glide 做新旧图交叉淡入：图片到位的时机本来就不确定，
@@ -4734,6 +5041,17 @@ public class DeskActivity extends DeskAdaptActivity {
         } catch (Throwable th) {
             android.util.Log.w("DeskActivity", "load hero failed: " + url, th);
         }
+    }
+
+    /** 这张屏该按多大的图解码：跟随真实像素，但不低于 1080p */
+    private int heroTargetWidth() {
+        int width = getResources().getDisplayMetrics().widthPixels;
+        return width > 0 ? width : HERO_MAX_W;
+    }
+
+    private int heroTargetHeight() {
+        int height = getResources().getDisplayMetrics().heightPixels;
+        return height > 0 ? height : HERO_MAX_H;
     }
 
     /**

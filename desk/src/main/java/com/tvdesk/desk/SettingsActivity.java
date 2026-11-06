@@ -56,6 +56,8 @@ public class SettingsActivity extends DeskAdaptActivity {
     private boolean keepPlaying;
     private boolean showClock;
     private boolean showWeather;
+    private boolean backdropVideo;
+    private boolean backdropStrict4k;
 
     /**
      * 一张设置卡。
@@ -98,6 +100,8 @@ public class SettingsActivity extends DeskAdaptActivity {
         keepPlaying = DeskPrefs.keepPlayingOnLeave(this);
         showClock = DeskPrefs.showClock(this);
         showWeather = DeskPrefs.showWeather(this);
+        backdropVideo = DeskPrefs.backdropVideo(this);
+        backdropStrict4k = DeskPrefs.backdropStrict4k(this);
 
         buildTabs();
         setupGrid();
@@ -325,6 +329,28 @@ public class SettingsActivity extends DeskAdaptActivity {
                             refreshValues();
                         }
                     });
+            add("backdrop", "动态背景",
+                    "闲置进沉浸轮播时，有视频的条目会静音播 8 秒再切下一条（B 站热门）。"
+                            + "关掉之后只轮播静态图，老盒子上更省功耗。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            backdropVideo = !backdropVideo;
+                            DeskPrefs.setBackdropVideo(SettingsActivity.this, backdropVideo);
+                            refreshValues();
+                        }
+                    });
+            add("backdrop4k", "背景只要 4K",
+                    "打开后背景视频只接受 2160p 轨道，拿不到就回静态图，不拿 1080p 顶上去。"
+                            + "需要设备硬解和账户权限都到位，多数情况下画面会更少。",
+                    new Runnable() {
+                        @Override
+                        public void run() {
+                            backdropStrict4k = !backdropStrict4k;
+                            DeskPrefs.setBackdropStrict4k(SettingsActivity.this, backdropStrict4k);
+                            refreshValues();
+                        }
+                    });
         } else {
             add("update", "检查更新",
                     "不用等后台自动查，这里立刻查一次；有新版会问你要不要下载安装。",
@@ -398,6 +424,10 @@ public class SettingsActivity extends DeskAdaptActivity {
                 return showClock ? "显示" : "隐藏";
             case "weather":
                 return showWeather ? "显示" : "隐藏";
+            case "backdrop":
+                return backdropVideo ? "开" : "关";
+            case "backdrop4k":
+                return backdropStrict4k ? "仅 4K" : "允许降级";
             case "update":
                 return "当前 " + com.tvdesk.desk.update.UpdateClient.currentVersionName(this);
             case "manifest": {
