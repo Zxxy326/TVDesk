@@ -234,7 +234,9 @@ public class OkGoHelper {
             }
             else {
                 Dns dns = dnsOverHttps != null ? dnsOverHttps : Dns.SYSTEM;
-                return  dns.lookup(hostname);
+                // 一律优先 IPv4：这台电视有全局 IPv6 地址但上游不通，
+                // 交给 OkHttp 挨个试的话每条请求都要先等一次 8 秒超时
+                return com.tvdesk.core.net.PreferIpv4Dns.preferV4(dns.lookup(hostname));
             }
         }
 

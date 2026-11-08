@@ -217,6 +217,8 @@ public class DouyinClient {
                 .connectTimeout(8, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
                 .followRedirects(true)
+                .eventListenerFactory(com.tvdesk.core.net.NetTiming.factory("Douyin"))
+                .dns(com.tvdesk.core.net.PreferIpv4Dns.INSTANCE)
                 .build();
         restore();
     }

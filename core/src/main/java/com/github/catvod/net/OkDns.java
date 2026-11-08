@@ -42,6 +42,7 @@ public class OkDns implements Dns {
     @Override
     public List<InetAddress> lookup(@NonNull String hostname) throws UnknownHostException {
         Dns dns = OkGoHelper.dnsOverHttps != null ? OkGoHelper.dnsOverHttps : Dns.SYSTEM;
-        return dns.lookup(get(hostname));
+        // 同 CustomDns：IPv6 在这类电视上常常是黑洞，优先 IPv4
+        return com.tvdesk.core.net.PreferIpv4Dns.preferV4(dns.lookup(get(hostname)));
     }
 }

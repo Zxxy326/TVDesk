@@ -166,6 +166,8 @@ public class BiliClient {
                 .connectTimeout(8, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
                 .followRedirects(true)
+                .eventListenerFactory(com.tvdesk.core.net.NetTiming.factory("Bili"))
+                .dns(com.tvdesk.core.net.PreferIpv4Dns.INSTANCE)
                 // 自己管 cookie（要落盘、要只留白名单里的几项），不用 CookieJar 的默认实现
                 .build();
         loadCookie();

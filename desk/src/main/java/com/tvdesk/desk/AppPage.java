@@ -575,6 +575,9 @@ public class AppPage extends FrameLayout implements ModulePage {
                             return;
                         }
                         catalogLoading = false;
+                        // 只有「首屏目录」才顺手把焦点送进内容。重扫（返回页面、装/卸应用后刷新）
+                        // 时用户可能正停在页签上按左右，这时候抢焦点就是「按一下右键，焦点跳进网格」
+                        boolean firstCatalog = catalog == null;
                         if (result != null) {
                             catalog = result;
                             catalogError = null;
@@ -584,7 +587,7 @@ public class AppPage extends FrameLayout implements ModulePage {
                         if (!released) {
                             rebuild();
                             // 首屏目录到达时焦点还停在页签上，就把它送进内容
-                            if (!rows.isEmpty() && navItems.findFocus() != null) {
+                            if (firstCatalog && !rows.isEmpty() && navItems.findFocus() != null) {
                                 focusGrid(0, 2);
                             }
                         }
@@ -1186,6 +1189,13 @@ public class AppPage extends FrameLayout implements ModulePage {
             }
         }
         if (event.getAction() == KeyEvent.ACTION_DOWN
+                && moveNavChip(event.getKeyCode())) {
+            // 页签左右自己算：一格一格走，不交给几何寻焦。
+            // 交给它的话，从窄的搜索图标往右、或者页签还在布局中按下去，
+            // 落点会按「谁离得近」去挑，出现「按一下跳过中间那颗」的观感
+            return true;
+        }
+        if (event.getAction() == KeyEvent.ACTION_DOWN
                 && grid.getVisibility() == View.VISIBLE) {
             // 上下走位和左右到边都由 TileWall 里的 FocusNav 算了：
             // 网格里没有「下一排还没挂载」这回事（全量挂载），也没有几何寻焦猜错的可能。
@@ -1195,6 +1205,43 @@ public class AppPage extends FrameLayout implements ModulePage {
             }
         }
         return super.dispatchKeyEvent(event);
+    }
+
+    /**
+     * 页签（含子页签）左右一格一格走。
+     *
+     * @return true 表示这一下已经处理（焦点在页签上且是左右键）
+     */
+    private boolean moveNavChip(int keyCode) {
+        if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) {
+            return false;
+        }
+        View focused = findFocus();
+        if (focused == null) {
+            return false;
+        }
+        ViewGroup row = null;
+        if (navItems != null && isDescendantOfView(focused, navItems)) {
+            row = navItems;
+        } else if (subNav != null && subScroll != null
+                && subScroll.getVisibility() == View.VISIBLE
+                && isDescendantOfView(focused, subNav)) {
+            row = subNav;
+        }
+        if (row == null) {
+            return false;
+        }
+        int index = row.indexOfChild(focused);
+        if (index < 0) {
+            return false;
+        }
+        int next = keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? index + 1 : index - 1;
+        if (next < 0 || next >= row.getChildCount()) {
+            // 到头了就停在原地：这一下算消费掉，别让几何寻焦跑去别处找落点
+            return true;
+        }
+        row.getChildAt(next).requestFocus();
+        return true;
     }
 
     /** 顶栏页签这一层到边：最左/最右一颗别再往外跑 */

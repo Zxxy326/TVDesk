@@ -156,6 +156,8 @@ public class NeteaseClient {
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(20, TimeUnit.SECONDS)
                 .followRedirects(true)
+                .eventListenerFactory(com.tvdesk.core.net.NetTiming.factory("Netease"))
+                .dns(com.tvdesk.core.net.PreferIpv4Dns.INSTANCE)
                 .build();
         loadCookie();
     }

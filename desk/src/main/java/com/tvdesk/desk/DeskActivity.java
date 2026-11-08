@@ -4731,7 +4731,12 @@ public class DeskActivity extends DeskAdaptActivity {
         // 收藏双栏：某一栏是空的时，往空栏方向的左右键就地吃掉。
         // 几何寻焦在空栏里找不到落点，会一路蹿到顶栏页签上 ——
         // 用户只是想在两栏之间挪，焦点却飞到天上去了
-        if (favoritesMode && !moduleOpen
+        // 只认 ACTION_DOWN：这一整段按「当下的落点」判断要不要跨栏，
+        // 放到 ACTION_UP 上会拿「刚刚移过去的新落点」再判一次 ——
+        // 左栏第 0 张按右键，DOWN 时移到最后一张（不是边），UP 时它已经是最后一张（是边），
+        // 于是同一次按键跨到了历史栏。用户看到的就是「按一下右键，焦点跳过第二张直接飞过去」。
+        if (event.getAction() == KeyEvent.ACTION_DOWN
+                && favoritesMode && !moduleOpen
                 && (event.getKeyCode() == KeyEvent.KEYCODE_DPAD_LEFT
                 || event.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT)) {
             View focused = getCurrentFocus();
