@@ -27,6 +27,8 @@ final class DeskPrefs {
     private static final String KEY_LIVE_CHANNEL = "live_channel";
     /** 台名（归一化）→ 上次播成功的地址，JSON 存一条 */
     private static final String KEY_LIVE_PICKS = "live_picks";
+    /** 收藏的频道（归一化台名数组） */
+    private static final String KEY_LIVE_FAVORITES = "live_favorites";
 
     /** 音乐播放模式：0 顺序 / 1 随机 / 2 单首循环 */
     private static final String KEY_MUSIC_MODE = "music_play_mode";
@@ -225,6 +227,54 @@ final class DeskPrefs {
         } catch (Throwable th) {
             return "";
         }
+    }
+
+    /**
+     * 收藏的频道（存归一化台名）。
+     *
+     * <p>用台名而不是下标：源每 6 小时重扫，台的位置天天变；名字虽然也会改，
+     * 但比位置稳得多。改名的台顶多从收藏里消失，不会串到别的台。
+     */
+    public static java.util.Set<String> liveFavorites(Context context) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        try {
+            org.json.JSONArray array = new org.json.JSONArray(
+                    of(context).getString(KEY_LIVE_FAVORITES, "[]"));
+            for (int i = 0; i < array.length(); i++) {
+                String key = array.optString(i, "");
+                if (key.length() > 0) {
+                    out.add(key);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    public static boolean isLiveFavorite(Context context, String channelKey) {
+        return channelKey != null && liveFavorites(context).contains(channelKey);
+    }
+
+    /** 切换收藏，返回切换后的状态（true 表示现在是收藏） */
+    public static boolean toggleLiveFavorite(Context context, String channelKey) {
+        if (channelKey == null || channelKey.length() == 0) {
+            return false;
+        }
+        java.util.Set<String> favorites = liveFavorites(context);
+        boolean now;
+        if (favorites.contains(channelKey)) {
+            favorites.remove(channelKey);
+            now = false;
+        } else {
+            favorites.add(channelKey);
+            now = true;
+        }
+        org.json.JSONArray array = new org.json.JSONArray();
+        for (String key : favorites) {
+            array.put(key);
+        }
+        of(context).edit().putString(KEY_LIVE_FAVORITES, array.toString()).apply();
+        return now;
     }
 
     public static void setLivePick(Context context, String channelKey, String url) {

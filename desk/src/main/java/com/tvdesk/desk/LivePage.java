@@ -67,6 +67,8 @@ public class LivePage extends FrameLayout implements ModulePage {
 
     /** 「全部频道」这个假分类的键：真实分组名不会叫这个 */
     private static final String ALL = "全部频道";
+    /** 「收藏」这个假分类。带星号是为了在左列一眼认出来 */
+    private static final String FAV = "★ 收藏";
     /** 信息条停留多久自动收起 */
     private static final long OSD_HIDE_MS = 4000L;
     /** 一个台全线路失败后，最多自动往后跳几个台 */
@@ -426,7 +428,8 @@ public class LivePage extends FrameLayout implements ModulePage {
         tile.setSelected(current);
 
         TextView name = new TextView(getContext());
-        name.setText(channel.name);
+        // 收藏的台前面加星，扫一眼就知道哪些是自己收的
+        name.setText(isFavorite(channel) ? "★ " + channel.name : channel.name);
         name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         name.setTextColor(AppCompatResources.getColorStateList(getContext(), R.color.nav_item_text));
         name.setSingleLine(true);
@@ -451,6 +454,24 @@ public class LivePage extends FrameLayout implements ModulePage {
             public void onClick(View v) {
                 playChannel(channel);
                 closePanel();
+            }
+        });
+        // 长按确定 = 收藏/取消收藏。用 OnLongClickListener 而不是自己算按键时长：
+        // 遥控器的「按住确定」在 View 层就是 long click，系统已经帮我们判好了
+        tile.setOnLongClickListener(new OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                boolean now = DeskPrefs.toggleLiveFavorite(getContext(), channel.key());
+                DeskToast.show(getContext(), now ? "已收藏 " + channel.name
+                        : "已取消收藏 " + channel.name);
+                // 正在看收藏分类时取消收藏，这张卡要立刻消失
+                if (FAV.equals(category)) {
+                    showCategory(FAV);
+                    focusChannel();
+                } else {
+                    channelWall.notifyDataSetChanged();
+                }
+                return true;
             }
         });
         tile.setOnFocusChangeListener(new OnFocusChangeListener() {
@@ -982,6 +1003,10 @@ public class LivePage extends FrameLayout implements ModulePage {
         return schedule == null ? null : schedule.now(at);
     }
 
+    private boolean isFavorite(LiveChannel channel) {
+        return channel != null && DeskPrefs.isLiveFavorite(getContext(), channel.key());
+    }
+
     private String nowProgramTitle(LiveChannel channel) {
         EpgSchedule.Program now = nowProgram(channel);
         return now == null ? "" : now.title;
@@ -1040,6 +1065,7 @@ public class LivePage extends FrameLayout implements ModulePage {
     private void buildCategories() {
         categories.clear();
         categories.add(ALL);
+        categories.add(FAV);
         if (catalog != null) {
             categories.addAll(catalog.rankedGroupNames());
         }
@@ -1051,13 +1077,21 @@ public class LivePage extends FrameLayout implements ModulePage {
 
     private void showCategory(String name) {
         category = name;
-        if (catalog != null && !ALL.equals(name)) {
+        if (FAV.equals(name)) {
+            panelList = favorites();
+        } else if (catalog != null && !ALL.equals(name)) {
             panelList = catalog.group(name);
         } else {
             panelList = playlist;
         }
         catWall.notifyDataSetChanged();
         channelWall.notifyDataSetChanged();
+        if (FAV.equals(name)) {
+            panelTitle.setText(panelList.isEmpty()
+                    ? "还没有收藏 · 在频道上长按「确定」即可收藏" : "收藏 " + panelList.size() + " 台");
+        } else {
+            panelTitle.setText("共 " + playlist.size() + " 台");
+        }
         // 落点优先给「正在播的那台」
         int target = 0;
         if (playIndex >= 0 && playIndex < playlist.size()) {
@@ -1070,6 +1104,21 @@ public class LivePage extends FrameLayout implements ModulePage {
             }
         }
         chIndex = Math.max(0, Math.min(target, Math.max(0, panelList.size() - 1)));
+    }
+
+    /** 收藏的频道，按「全部频道」里的顺序挑出来 */
+    private List<LiveChannel> favorites() {
+        java.util.Set<String> keys = DeskPrefs.liveFavorites(getContext());
+        List<LiveChannel> out = new ArrayList<>();
+        if (keys.isEmpty()) {
+            return out;
+        }
+        for (LiveChannel channel : playlist) {
+            if (keys.contains(channel.key())) {
+                out.add(channel);
+            }
+        }
+        return out;
     }
 
     /** 从分类列跳到频道列，落在当前台上 */
