@@ -59,7 +59,9 @@ public final class EpgRepository {
             "http://epg.51zmt.top:8000/e2.xml",
             "http://epg.51zmt.top:8000/e.xml",
             "http://e.erw.cc/e.xml.gz",
-            // 本地文件也认（file:///sdcard/... ），便于自己准备一份离线节目单
+            // 自备节目单：把 XMLTV 放到电视的「下载」目录（epg.xml），
+            // 不用等我们找源——很多人家里的宽带/软件自带 EPG 导出
+            "file:///sdcard/Download/epg.xml",
     };
 
     private static final long FETCH_TIMEOUT_MS = 15000L;

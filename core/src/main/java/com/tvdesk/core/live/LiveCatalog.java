@@ -180,7 +180,7 @@ public final class LiveCatalog {
         List<String> drop = new ArrayList<>();
         for (Map.Entry<String, List<LiveChannel>> entry : groups.entrySet()) {
             String name = entry.getKey();
-            if (isPlaceholderGroup(name)) {
+            if (isPlaceholderGroup(name) || isForeignGroup(name)) {
                 drop.add(name);
                 continue;
             }
@@ -400,6 +400,40 @@ public final class LiveCatalog {
         return 1000;
     }
 
+    /** 分组名是不是纯英文（iptv-org 的 News/General/Religious…） */
+    private static boolean isForeignGroup(String name) {
+        if (name == null || name.length() == 0) {
+            return false;
+        }
+        for (int i = 0; i < name.length(); i++) {
+            if (name.charAt(i) > 127) {
+                return false;
+            }
+        }
+        // 纯数字/符号的分组（比如「4K」）不算
+        return name.matches(".*[A-Za-z].*");
+    }
+
+    /** 名称里有汉字吗 */
+    private static boolean hasChinese(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            if (text.charAt(i) >= 0x4E00 && text.charAt(i) <= 0x9FFF) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 没有汉字但属于中国的对外频道：CCTV / CGTN 系列。
+     *
+     * <p>它们是央视办的英文频道，用户在「央视」里能看到，不该按「外文频道」删掉。
+     */
+    private static boolean isChineseBroadcaster(String name) {
+        String key = LiveChannel.normalize(name);
+        return key.startsWith("CCTV") || key.startsWith("CGTN") || key.startsWith("CHINAGLOBAL");
+    }
+
     private static boolean isPlaceholderGroup(String name) {
         if (name == null) {
             return true;
@@ -414,8 +448,41 @@ public final class LiveCatalog {
                 || name.contains("备用") || name.contains("测试");
     }
 
+    /** 广告、带货、购物台：内容不是节目，是推销 */
+    private static final String[] AD_WORDS = {
+            "广告", "带货", "购物", "商城", "好物", "优惠", "促销", "秒杀", "抢购",
+            "甩卖", "直购", "特卖", "福利", "下单", "直播间"
+    };
+
+    /**
+     * 境外/敏感中文台：用户明确要求屏蔽。
+     *
+     * <p>这些台名在中文里看不出问题（都是四个字），只能按名单挡。
+     */
+    private static final String[] OVERSEAS_WORDS = {
+            "新唐人", "大纪元", "希望之声", "美国之音", "自由亚洲", "阿波罗",
+            "明慧", "神韵", "看中国", "博讯", "法轮"
+    };
+
     private static boolean isPlaceholderChannel(String name) {
-        if (name != null && name.toUpperCase().contains("GEO-BLOCKED")) {
+        if (name == null) {
+            return true;
+        }
+        if (name.toUpperCase().contains("GEO-BLOCKED")) {
+            return true;
+        }
+        for (String word : AD_WORDS) {
+            if (name.contains(word)) {
+                return true;
+            }
+        }
+        for (String word : OVERSEAS_WORDS) {
+            if (name.contains(word)) {
+                return true;
+            }
+        }
+        // 外文频道：整串没有一个汉字，且不是央视/CGTN 这类中国对外频道
+        if (!hasChinese(name) && !isChineseBroadcaster(name)) {
             return true;
         }
         String n = name == null ? "" : name.trim();
