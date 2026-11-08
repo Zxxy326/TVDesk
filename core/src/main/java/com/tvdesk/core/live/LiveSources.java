@@ -108,12 +108,13 @@ public final class LiveSources {
     public static Source[] ordered(boolean ipv6Available) {
         // 顺序 = 合并时地址的优先级。
         //
-        // 这里把「能放」排在「标着高清」前面，是实测换来的：公开的高清清单
-        // 基本都是地区内网源（fanmingming 是北京移动、suxuang 是广东电信），
-        // 跨运营商/跨省时整份 502。把死链排在前面，结果是每个台先白等一次失败。
-        // 所以先上真正通的（iptv-org 有 1080p、vbskycn 台最全），
-        // 地区源放后面当附加线路——它哪天真通了，同名台会自动多一条更清的地址。
-        return new Source[]{IPTV_ORG, IPV4, SUXUANG6, SUXUANG4K, FM_IPV6, YANG, IPV6, FALLBACK};
+        // 现状（2026-11 实测）：公开的「高清」清单几乎都是地区内网源——fanmingming
+        // 是北京移动 IPv6、suxuang 是广东电信、YanG 是移动咪咕，跨运营商/跨省
+        // 整份 502。把它们并进来只会让每个台先试一条死链，反而更卡。
+        // 所以默认只用这两份真正通得过的：vbskycn（台全、画质一般）、
+        // iptv-org（少数 1080p，国内部分地址 geo 失效），兜底 Guovin。
+        // 地区源留在类里，等有对应的宽带账号/组播源再接回来。
+        return new Source[]{IPV4, IPTV_ORG, FALLBACK};
     }
 
     /**

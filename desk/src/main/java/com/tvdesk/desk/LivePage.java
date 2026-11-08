@@ -77,7 +77,7 @@ public class LivePage extends FrameLayout implements ModulePage {
      * <p>有的源给同一个台挂 8 条线路，全挂的时候一条条试下来要一分多钟，
      * 用户看到的就是「卡住不动」。试到 3 条还不通，基本可以认定这个台不行了。
      */
-    private static final int MAX_URL_TRIES = 3;
+    private static final int MAX_URL_TRIES = 5;
     /** 面板占屏宽的比例。原来 46% 太占画面，砍到一半左右 */
     private static final float PANEL_WIDTH_RATIO = 0.24f;
 
@@ -130,6 +130,18 @@ public class LivePage extends FrameLayout implements ModulePage {
      * 可能就好了，下次开应用重新试。
      */
     private final java.util.Set<String> deadUrls = new java.util.LinkedHashSet<>();
+    /**
+     * 本次会话里「连挂三次」的主机。
+     *
+     * <p>源里同一台 CDN 常常同时服务几十个台，某台 CDN 挂了之后，如果只按地址记，
+     * 每个台都要各自挂一次才学会。按主机记能一次性跳过整批。
+     */
+    private final java.util.Set<String> badHosts = new java.util.LinkedHashSet<>();
+    private final java.util.Map<String, Integer> hostFails = new java.util.HashMap<>();
+    /** 当前台的尝试顺序（下标列表，第一条是上次成功的那条） */
+    private final List<Integer> urlOrder = new ArrayList<>();
+    /** 当前台试到第几次 */
+    private int attempt;
 
     private final Runnable hideOsd = new Runnable() {
         @Override
@@ -244,7 +256,7 @@ public class LivePage extends FrameLayout implements ModulePage {
         bg.setColor(0x99101014);
         bg.setCornerRadius(dp(16));
         panel.setBackground(bg);
-        panel.setPadding(dp(10), dp(14), dp(8), dp(12));
+        panel.setPadding(dp(9), dp(12), dp(7), dp(16));
         int width = (int) (getResources().getDisplayMetrics().widthPixels * PANEL_WIDTH_RATIO);
         FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
                 width, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -300,7 +312,7 @@ public class LivePage extends FrameLayout implements ModulePage {
             }
         });
         LinearLayout.LayoutParams catParams = new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.MATCH_PARENT, 0.38f);
+                ViewGroup.LayoutParams.MATCH_PARENT, 0.34f);
         columns.addView(catWall, catParams);
 
         channelWall = new TileWall(getContext());
@@ -333,8 +345,8 @@ public class LivePage extends FrameLayout implements ModulePage {
             }
         });
         LinearLayout.LayoutParams chParams = new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.MATCH_PARENT, 0.62f);
-        chParams.leftMargin = dp(6);
+                ViewGroup.LayoutParams.MATCH_PARENT, 0.66f);
+        chParams.leftMargin = dp(4);
         columns.addView(channelWall, chParams);
     }
 
@@ -344,7 +356,7 @@ public class LivePage extends FrameLayout implements ModulePage {
         TextView chip = new TextView(getContext());
         chip.setId(View.generateViewId());
         chip.setText(name);
-        chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
         chip.setTextColor(AppCompatResources.getColorStateList(getContext(), R.color.nav_item_text));
         chip.setBackgroundResource(R.drawable.bg_nav_item);
         chip.setGravity(Gravity.CENTER_VERTICAL);
@@ -353,7 +365,7 @@ public class LivePage extends FrameLayout implements ModulePage {
         chip.setFocusable(true);
         chip.setClickable(true);
         chip.setFocusableInTouchMode(true);
-        chip.setPadding(dp(10), 0, dp(6), 0);
+        chip.setPadding(dp(8), 0, dp(4), 0);
         chip.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(36)));
         chip.setSelected(name.equals(category));
@@ -648,6 +660,14 @@ public class LivePage extends FrameLayout implements ModulePage {
                 } else if (state == Player.STATE_READY) {
                     // 真的出画面了才算这个台可用
                     failStreak = 0;
+                    // 记住这条线路：下次换到这台直接从它开始，不再从第 1 条试
+                    if (playIndex >= 0 && playIndex < playlist.size()) {
+                        LiveChannel channel = playlist.get(playIndex);
+                        if (urlTry >= 0 && urlTry < channel.urls.size()) {
+                            DeskPrefs.setLivePick(getContext(), channel.key(),
+                                    channel.urls.get(urlTry));
+                        }
+                    }
                     // 按台查节目单放在这里：跳台失败时不必为每个失败的台各打一次接口
                     loadEpgApiIfNeeded();
                 }
@@ -688,17 +708,41 @@ public class LivePage extends FrameLayout implements ModulePage {
             DeskToast.show(getContext(), channel.name + " 没有可用地址");
             return;
         }
-        // 跳过本次会话里已经确认播不动的地址，直接落到下一条
-        int index = tryIndex;
-        while (index < channel.urls.size() && deadUrls.contains(channel.urls.get(index))) {
-            index++;
+        // 第 0 次尝试时排一次顺序：上次播成功的那条放最前，
+        // 其余按源里的原顺序，本次会话已确认播不动的直接跳过
+        if (tryIndex == 0) {
+            urlOrder.clear();
+            String pick = DeskPrefs.livePick(getContext(), channel.key());
+            if (pick.length() > 0) {
+                int found = channel.urls.indexOf(pick);
+                if (found >= 0 && !deadUrls.contains(pick)) {
+                    urlOrder.add(found);
+                }
+            }
+            for (int i = 0; i < channel.urls.size(); i++) {
+                String url = channel.urls.get(i);
+                if (urlOrder.contains(i) || deadUrls.contains(url)
+                        || badHosts.contains(hostOf(url))) {
+                    continue;
+                }
+                urlOrder.add(i);
+            }
+            if (urlOrder.isEmpty()) {
+                // 全是坏主机：清一次名单，总得试一条，不然这个台永远播不了
+                badHosts.clear();
+                hostFails.clear();
+                for (int i = 0; i < channel.urls.size(); i++) {
+                    urlOrder.add(i);
+                }
+            }
         }
-        if (index >= channel.urls.size() || index >= MAX_URL_TRIES) {
+        attempt = tryIndex;
+        if (tryIndex >= urlOrder.size() || tryIndex >= MAX_URL_TRIES) {
             // 这个台在这个网络上没得试了：交给上层自动换台
             onChannelExhausted(channel);
             return;
         }
-        tryIndex = index;
+        tryIndex = urlOrder.get(tryIndex);
         urlTry = tryIndex;
         playing = true;
         hint(null);
@@ -755,7 +799,9 @@ public class LivePage extends FrameLayout implements ModulePage {
             return;
         }
         android.util.Log.i(TAG, "播放失败 " + playlist.get(playIndex).name
-                + " 第 " + (urlTry + 1) + " 条：" + error.getErrorCodeName());
+                + " 第 " + (urlTry + 1) + "/" + playlist.get(playIndex).urls.size()
+                + " 条 " + hostOf(playlist.get(playIndex).urls.get(urlTry))
+                + "：" + error.getErrorCodeName());
         rememberDead(playlist.get(playIndex), urlTry);
         advanceAfterFailure();
     }
@@ -771,11 +817,30 @@ public class LivePage extends FrameLayout implements ModulePage {
         advanceAfterFailure();
     }
 
+    /** 日志里只留主机名：地址常带签名，打全了没意义 */
+    private static String hostOf(String url) {
+        try {
+            java.net.URL parsed = new java.net.URL(url);
+            return parsed.getHost();
+        } catch (Throwable th) {
+            return "?";
+        }
+    }
+
     private void rememberDead(LiveChannel channel, int index) {
         if (channel == null || index < 0 || index >= channel.urls.size()) {
             return;
         }
-        deadUrls.add(channel.urls.get(index));
+        String url = channel.urls.get(index);
+        deadUrls.add(url);
+        String host = hostOf(url);
+        Integer fails = hostFails.get(host);
+        int count = (fails == null ? 0 : fails) + 1;
+        hostFails.put(host, count);
+        if (count >= 3) {
+            badHosts.add(host);
+            android.util.Log.i(TAG, "主机连续失败 " + count + " 次，本次会话内跳过：" + host);
+        }
         // 上限兜一下：一次会话记住几百条足够，别无限涨
         while (deadUrls.size() > 400) {
             java.util.Iterator<String> it = deadUrls.iterator();
@@ -811,7 +876,7 @@ public class LivePage extends FrameLayout implements ModulePage {
             return;
         }
         final LiveChannel channel = playlist.get(playIndex);
-        final int next = urlTry + 1;
+        final int next = attempt + 1;
         ui.post(new Runnable() {
             @Override
             public void run() {

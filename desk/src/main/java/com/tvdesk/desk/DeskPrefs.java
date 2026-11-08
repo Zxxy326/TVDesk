@@ -3,6 +3,8 @@ package com.tvdesk.desk;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import org.json.JSONObject;
+
 /**
  * 桌面自己的设置。
  *
@@ -23,6 +25,8 @@ final class DeskPrefs {
     /** 直播页上次的分组名与频道名（归一化后） */
     private static final String KEY_LIVE_GROUP = "live_group";
     private static final String KEY_LIVE_CHANNEL = "live_channel";
+    /** 台名（归一化）→ 上次播成功的地址，JSON 存一条 */
+    private static final String KEY_LIVE_PICKS = "live_picks";
 
     /** 音乐播放模式：0 顺序 / 1 随机 / 2 单首循环 */
     private static final String KEY_MUSIC_MODE = "music_play_mode";
@@ -202,6 +206,51 @@ final class DeskPrefs {
 
     public static void setLiveChannel(Context context, String key) {
         of(context).edit().putString(KEY_LIVE_CHANNEL, key == null ? "" : key).apply();
+    }
+
+    /**
+     * 每个台「上次播成功的那条地址」。
+     *
+     * <p>源里一个台常挂好几条线路，第一条经常是死的（地区源、过期 CDN）。
+     * 记住成功过的那条，下次换台直接命中，不用再一条条试——这是换台快不快的
+     * 关键。存地址本身而不是下标：源更新后同一个台的下标会变，地址不会。
+     */
+    public static String livePick(Context context, String channelKey) {
+        if (channelKey == null || channelKey.length() == 0) {
+            return "";
+        }
+        try {
+            JSONObject map = new JSONObject(of(context).getString(KEY_LIVE_PICKS, "{}"));
+            return map.optString(channelKey, "");
+        } catch (Throwable th) {
+            return "";
+        }
+    }
+
+    public static void setLivePick(Context context, String channelKey, String url) {
+        if (channelKey == null || channelKey.length() == 0 || url == null || url.length() == 0) {
+            return;
+        }
+        try {
+            JSONObject map = new JSONObject(of(context).getString(KEY_LIVE_PICKS, "{}"));
+            if (url.equals(map.optString(channelKey, ""))) {
+                return;
+            }
+            map.put(channelKey, url);
+            // 上限 200 条：再多也没人看，别让 prefs 无限涨
+            if (map.length() > 200) {
+                java.util.Iterator<String> keys = map.keys();
+                while (keys.hasNext() && map.length() > 200) {
+                    String key = keys.next();
+                    if (!key.equals(channelKey)) {
+                        keys.remove();
+                        break;
+                    }
+                }
+            }
+            of(context).edit().putString(KEY_LIVE_PICKS, map.toString()).apply();
+        } catch (Throwable ignored) {
+        }
     }
 
     /**

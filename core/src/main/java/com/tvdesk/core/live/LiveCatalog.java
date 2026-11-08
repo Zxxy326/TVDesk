@@ -105,6 +105,18 @@ public final class LiveCatalog {
 
     private static int rank(String group) {
         String name = group == null ? "" : group;
+        // 英文分组（来自 iptv-org）排在中文分组之后：用户看的是央视/卫视，
+        // 一进面板看到一排 News/General 会以为源乱了
+        boolean ascii = true;
+        for (int i = 0; i < name.length(); i++) {
+            if (name.charAt(i) > 127) {
+                ascii = false;
+                break;
+            }
+        }
+        if (ascii && name.length() > 0) {
+            return 80;
+        }
         if (name.contains("备用") || name.contains("测试") || name.contains("其他")
                 || name.contains("其它")) {
             return 90;
@@ -179,6 +191,10 @@ public final class LiveCatalog {
 
     private static boolean isPlaceholderGroup(String name) {
         if (name == null) {
+            return true;
+        }
+        // iptv-org 那份清单里有一组 group-title="Undefined"，不是分类
+        if ("undefined".equalsIgnoreCase(name.trim())) {
             return true;
         }
         // 「备用频道」这类是给主线路挂掉时用的备份，实测九成是死链或者回放，
