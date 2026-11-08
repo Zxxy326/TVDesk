@@ -31,6 +31,13 @@ public final class LiveChannel {
     public String epgId;
     /** 播放地址，按优先级排；至少一条 */
     public final List<String> urls = new ArrayList<>();
+    /**
+     * 这个台是不是来自用户自己添加的源。
+     *
+     * <p>用来把「用户自己那份清单里的分组」排到分类列最前面——他特意添的源，
+     * 分组就该在前面，而不是混在一堆省台中间（名字又猜不出来该排哪）。
+     */
+    public boolean custom;
 
     public LiveChannel(String name, String group) {
         this.name = name == null ? "" : name.trim();

@@ -24,22 +24,43 @@ public final class LiveCatalog {
     public long updatedAt;
     /** 目录来自哪些源，给设置页显示用 */
     public String sources = "";
+    /**
+     * 生成这份目录时「自定义源」的指纹（见 {@link CustomSources#stamp}）。
+     *
+     * <p>只用于缓存校验：用户增删了自定义源，缓存里那份目录就不作数了，
+     * 得重新合并。不写进界面。
+     */
+    public String customStamp = "";
 
     private final Map<String, LiveChannel> index = new LinkedHashMap<>();
 
     /** 把一个频道并进目录；同名已有就合并地址 */
     public void add(LiveChannel channel) {
+        add(channel, false);
+    }
+
+    /**
+     * @param trust true 表示这条来自用户自己添加的源。
+     *
+     * <p>区别只有一个：内置源里那些「挂着央视名字的广告农场」要拉黑，但用户自己
+     * 添的源不该被我们的黑名单拦——他自己知道那是什么。其余（去重、去画质标注、
+     * 分组归一）一视同仁。
+     */
+    public void add(LiveChannel channel, boolean trust) {
         if (channel == null || channel.name.length() == 0) {
             return;
         }
+        channel.custom = trust;
         String key = channel.key();
         // 源里的台名常带画质与状态标注：「CCTV-1 (720p)」「CCTV-1 HD (1080p)」
         // 「CCTV-6 [Geo-blocked]」。不清理的话同一个台会被当成好几个，
         // 列表里就是一串 CCTV-1 / CCTV-1 HD / CCTV-1 (720p)。
         // 先把广告农场的地址剔掉；剔完没有地址的台直接不要
-        for (int i = channel.urls.size() - 1; i >= 0; i--) {
-            if (isBadHost(channel.urls.get(i))) {
-                channel.urls.remove(i);
+        if (!trust) {
+            for (int i = channel.urls.size() - 1; i >= 0; i--) {
+                if (isBadHost(channel.urls.get(i))) {
+                    channel.urls.remove(i);
+                }
             }
         }
         if (channel.urls.isEmpty()) {
@@ -54,6 +75,9 @@ public final class LiveCatalog {
         key = channel.key();
 
         LiveChannel exist = index.get(key);
+        if (exist != null && trust) {
+            exist.custom = true;
+        }
         if (exist == null) {
             String group = channel.group.length() == 0 ? "其他" : channel.group;
             // 不同源的分组命名完全不统一：iptv-org 把 CCTV-1 归到 "General"，
@@ -123,8 +147,8 @@ public final class LiveCatalog {
         java.util.Collections.sort(names, new java.util.Comparator<String>() {
             @Override
             public int compare(String a, String b) {
-                int ra = rank(a);
-                int rb = rank(b);
+                int ra = rankOf(a);
+                int rb = rankOf(b);
                 if (ra != rb) {
                     return ra - rb;
                 }
@@ -132,6 +156,19 @@ public final class LiveCatalog {
             }
         });
         return names;
+    }
+
+    /** 组内有用户自定义源的台，就把整组提到最前 */
+    private int rankOf(String group) {
+        List<LiveChannel> list = groups.get(group);
+        if (list != null) {
+            for (LiveChannel channel : list) {
+                if (channel.custom) {
+                    return -10;
+                }
+            }
+        }
+        return rank(group);
     }
 
     private static int rank(String group) {

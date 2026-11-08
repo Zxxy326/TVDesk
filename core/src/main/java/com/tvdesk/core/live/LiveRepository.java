@@ -54,7 +54,7 @@ public final class LiveRepository {
      * 缓存格式版本。源清单/合并规则变了就 +1：老目录里没有新源的高清地址，
      * 留着只会让人以为「加了源还是糊」。
      */
-    private static final int CACHE_VERSION = 17;
+    private static final int CACHE_VERSION = 18;
     /** 单份源整体上限：主地址 10 秒拿不到就换镜像 */
     private static final long FETCH_TIMEOUT_MS = 8000L;
     /** 一次同步最多等多久（几份源加镜像，串行最坏情况） */
@@ -94,8 +94,27 @@ public final class LiveRepository {
      */
     public static LiveCatalog cached(Context context) {
         synchronized (LOCK) {
-            return readCache(cacheFile(context));
+            return readCache(context, cacheFile(context));
         }
+    }
+
+    /**
+     * 读缓存并按当前「自定义源」校验一次。
+     *
+     * <p>比对不上时不丢缓存（丢了界面要空等一轮下载），只把 updatedAt 抹成 0 ——
+     * {@link #fresh} 于是判为过期，界面先用旧目录显示，后台立刻重拉。
+     */
+    private static LiveCatalog readCache(Context context, File file) {
+        LiveCatalog catalog = readCache(file);
+        if (catalog == null) {
+            return null;
+        }
+        String stamp = CustomSources.stamp(context);
+        if (!stamp.equals(catalog.customStamp)) {
+            Log.i(TAG, "自定义源有变化，缓存标记为过期");
+            catalog.updatedAt = 0;
+        }
+        return catalog;
     }
 
     public static boolean fresh(LiveCatalog catalog) {
@@ -113,7 +132,7 @@ public final class LiveRepository {
         synchronized (LOCK) {
             long started = System.currentTimeMillis();
             File file = cacheFile(context);
-            LiveCatalog cached = readCache(file);
+            LiveCatalog cached = readCache(context, file);
             if (!force && fresh(cached)) {
                 return cached;
             }
@@ -122,6 +141,31 @@ public final class LiveRepository {
             // 有 IPv6 就先抓高清的 IPv6 单播源；没有就完全跳过它们，
             // 否则每个台都要先等一次连接超时才轮到 IPv4 那一路
             boolean ipv6 = Ipv6.available();
+
+            // 自定义源排在最前面合并：合并时「先来的地址占第 1 位」，
+            // 换台就先试它。用户特意添加的源理应优先于我们挑的公开清单
+            List<CustomSources.Entry> customs = CustomSources.all(context);
+            for (int i = 0; i < customs.size(); i++) {
+                long left = SYNC_TIMEOUT_MS - (System.currentTimeMillis() - started);
+                if (left < 3000L) {
+                    Log.i(TAG, "时间不够了，剩下的自定义源下次再拉");
+                    break;
+                }
+                CustomSources.Entry entry = customs.get(i);
+                LiveSources.Source source = new LiveSources.Source(
+                        "custom" + i, "自定义·" + entry.title, true, false, false, entry.url);
+                int before = merged.channelCount();
+                if (fetchInto(merged, source, Math.min(left, FETCH_TIMEOUT_MS * 2), true)) {
+                    int got = merged.channelCount() - before;
+                    if (got > 0) {
+                        if (names.length() > 0) {
+                            names.append(" + ");
+                        }
+                        names.append(source.title).append('(').append(got).append(')');
+                    }
+                }
+            }
+
             for (LiveSources.Source source : LiveSources.ordered(ipv6)) {
                 if (!source.primary && merged.channelCount() >= LiveSources.MIN_CHANNELS) {
                     // 主源已经够用，兜底源就不打了——省一次跨网下载
@@ -153,6 +197,7 @@ public final class LiveRepository {
             merged.sortChannels();
             merged.updatedAt = System.currentTimeMillis();
             merged.sources = names.toString();
+            merged.customStamp = CustomSources.stamp(context);
             writeCache(file, merged);
             Log.i(TAG, "同步完成：" + merged.channelCount() + " 个频道（" + merged.sources
                     + "）ipv6=" + ipv6);
@@ -162,6 +207,15 @@ public final class LiveRepository {
 
     /** 拉一份源并进目录；主地址失败自动换镜像。@return 是否至少成功取到一次 */
     private static boolean fetchInto(LiveCatalog into, LiveSources.Source source, long timeoutMs) {
+        return fetchInto(into, source, timeoutMs, false);
+    }
+
+    /**
+     * @param trust true 表示这是用户自己加的源：不做抽检（他大概已经知道能不能播）、
+     *              不受广告农场黑名单影响
+     */
+    private static boolean fetchInto(LiveCatalog into, LiveSources.Source source, long timeoutMs,
+                                     boolean trust) {
         for (String url : source.urls) {
             String body = get(url, timeoutMs);
             if (TextUtils.isEmpty(body)) {
@@ -182,7 +236,7 @@ public final class LiveRepository {
             // 抽检必须在合并之前：解析得出来不等于播得动。咪咕这类源在非移动线路上
             // 整份 404，但台名和公网源重名，先合并进来就会成为每个台的「第 1 条地址」，
             // 于是每个台都要先白试一次失败才回落
-            if (source.verify && !reachable(parsed)) {
+            if (source.verify && !trust && !reachable(parsed)) {
                 Log.i(TAG, source.id + " 抽检不通过（地址播不动），跳过这份源");
                 return false;
             }
@@ -191,7 +245,7 @@ public final class LiveRepository {
             }
             for (String group : parsed.groupNames()) {
                 for (LiveChannel channel : parsed.group(group)) {
-                    into.add(channel);
+                    into.add(channel, trust);
                 }
             }
             Log.i(TAG, source.id + " 取到 " + parsed.channelCount() + " 个频道：" + url);
@@ -261,6 +315,11 @@ public final class LiveRepository {
     }
 
     private static String get(String url, long timeoutMs) {
+        // 本地文件也认：用户可以把 m3u 拷进电视（U 盘/文件管理器/下载目录）当源用。
+        // 这是最省事的一条路——电视上用遥控器敲 URL 太痛苦了
+        if (url.startsWith("file:")) {
+            return readLocal(url);
+        }
         Request request = new Request.Builder()
                 .url(url)
                 .header("User-Agent", "Mozilla/5.0 (Linux; Android 9) AppleWebKit/537.36")
@@ -282,6 +341,36 @@ public final class LiveRepository {
         }
     }
 
+    /** 读本地文件为字符串（file:///sdcard/Download/x.m3u） */
+    private static String readLocal(String url) {
+        String path = url.substring("file:".length());
+        if (path.startsWith("//")) {
+            path = path.substring(2);
+        }
+        try {
+            File file = new File(path);
+            if (!file.exists() || file.length() == 0) {
+                Log.i(TAG, url + " 文件不存在或为空");
+                return null;
+            }
+            FileInputStream in = new FileInputStream(file);
+            try {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = in.read(buffer)) > 0) {
+                    out.write(buffer, 0, read);
+                }
+                return new String(out.toByteArray(), "UTF-8");
+            } finally {
+                in.close();
+            }
+        } catch (Throwable th) {
+            Log.i(TAG, url + " 读取失败：" + th.getClass().getSimpleName());
+            return null;
+        }
+    }
+
     // ---------------------------------------------------------------- 缓存读写
 
     private static LiveCatalog readCache(File file) {
@@ -297,6 +386,7 @@ public final class LiveRepository {
             catalog.updatedAt = root.optLong("updatedAt");
             catalog.epgUrl = root.optString("epg", "");
             catalog.sources = root.optString("sources", "");
+            catalog.customStamp = root.optString("custom", "");
             JSONArray groups = root.optJSONArray("groups");
             if (groups != null) {
                 for (int i = 0; i < groups.length(); i++) {
@@ -317,6 +407,7 @@ public final class LiveRepository {
                         LiveChannel channel = new LiveChannel(item.optString("name"), name);
                         channel.logo = item.optString("logo", "");
                         channel.epgId = item.optString("epgId", "");
+                        channel.custom = item.optBoolean("custom", false);
                         JSONArray urls = item.optJSONArray("urls");
                         if (urls != null) {
                             for (int k = 0; k < urls.length(); k++) {
@@ -353,6 +444,7 @@ public final class LiveRepository {
             root.put("updatedAt", catalog.updatedAt);
             root.put("epg", catalog.epgUrl);
             root.put("sources", catalog.sources);
+            root.put("custom", catalog.customStamp == null ? "" : catalog.customStamp);
             JSONArray groups = new JSONArray();
             for (String name : catalog.groupNames()) {
                 JSONObject group = new JSONObject();
@@ -363,6 +455,7 @@ public final class LiveRepository {
                     item.put("name", channel.name);
                     item.put("logo", channel.logo == null ? "" : channel.logo);
                     item.put("epgId", channel.epgId == null ? "" : channel.epgId);
+                    item.put("custom", channel.custom);
                     JSONArray urls = new JSONArray();
                     for (String url : channel.urls) {
                         urls.put(url);
