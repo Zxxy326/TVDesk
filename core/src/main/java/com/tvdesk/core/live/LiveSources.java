@@ -96,7 +96,7 @@ public final class LiveSources {
             "https://iptv-org.github.io/iptv/countries/cn.m3u");
 
     /** 最后兜底 */
-    public static final Source FALLBACK = new Source("guovin", "Guovin iptv-api", false, false, false,
+    public static final Source FALLBACK = new Source("guovin", "Guovin iptv-api", true, false, false,
             "https://guovin.github.io/iptv-api/result.m3u",
             "https://raw.githubusercontent.com/Guovin/iptv-api/gd1/output/result.m3u");
 
@@ -114,7 +114,7 @@ public final class LiveSources {
         // 所以默认只用这两份真正通得过的：vbskycn（台全、画质一般）、
         // iptv-org（少数 1080p，国内部分地址 geo 失效），兜底 Guovin。
         // 地区源留在类里，等有对应的宽带账号/组播源再接回来。
-        return new Source[]{IPV4, IPTV_ORG, FALLBACK};
+        return new Source[]{IPV4, FALLBACK, IPTV_ORG};
     }
 
     /**

@@ -36,6 +36,15 @@ public final class LiveCatalog {
         // 源里的台名常带画质与状态标注：「CCTV-1 (720p)」「CCTV-1 HD (1080p)」
         // 「CCTV-6 [Geo-blocked]」。不清理的话同一个台会被当成好几个，
         // 列表里就是一串 CCTV-1 / CCTV-1 HD / CCTV-1 (720p)。
+        // 先把广告农场的地址剔掉；剔完没有地址的台直接不要
+        for (int i = channel.urls.size() - 1; i >= 0; i--) {
+            if (isBadHost(channel.urls.get(i))) {
+                channel.urls.remove(i);
+            }
+        }
+        if (channel.urls.isEmpty()) {
+            return;
+        }
         String rawName = channel.name;
         boolean hd = looksHd(rawName);
         channel.rename(cleanName(rawName));
@@ -398,6 +407,47 @@ public final class LiveCatalog {
             }
         }
         return 1000;
+    }
+
+    /**
+     * 已知的「假央视」主机。
+     *
+     * <p>这批海外 VPS 挂着央视的台名，实际放的是循环的卖药/推销广告（画面上直接打
+     * 400 电话和二维码），很多公开源都在转它们的流。实测 74.91.26.218 还会 302
+     * 跳到别的域名再返回 404——连"能播"都是假的。
+     *
+     * <p>拉黑的后果是这些台上没有地址、整条消失：宁可少一个台，也不要让用户点进去看广告。
+     */
+    private static final String[] BAD_HOSTS = {
+            "74.91.26.218", "69.30.245.50", "204.12.221.218", "173.208.212.130",
+            "38.75.136.137", "107.150.60.122", "63.141.230.178", "47.97.252.137"
+    };
+
+    /** 这条地址是不是来自已知的广告农场 */
+    private static boolean isBadHost(String url) {
+        if (url == null) {
+            return true;
+        }
+        int start = url.indexOf("://");
+        if (start < 0) {
+            return false;
+        }
+        String rest = url.substring(start + 3);
+        int end = rest.length();
+        for (int i = 0; i < rest.length(); i++) {
+            char c = rest.charAt(i);
+            if (c == '/' || c == ':' || c == '?') {
+                end = i;
+                break;
+            }
+        }
+        String host = rest.substring(0, end);
+        for (String bad : BAD_HOSTS) {
+            if (bad.equals(host)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 分组名是不是纯英文（iptv-org 的 News/General/Religious…） */

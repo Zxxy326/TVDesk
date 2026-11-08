@@ -810,6 +810,28 @@ public class LivePage extends FrameLayout implements ModulePage {
 
 
 
+    /** 在同一个台的多条线路间循环切换 */
+    private void switchLine(LiveChannel channel, int delta) {
+        int size = channel.urls.size();
+        if (size <= 1) {
+            return;
+        }
+        int next = (urlTry + delta) % size;
+        if (next < 0) {
+            next += size;
+        }
+        attempt = 0;
+        urlOrder.clear();
+        urlTry = next;
+        playing = true;
+        playNow(channel.urls.get(next));
+        updateOsd(channel, next);
+        showOsd();
+        DeskToast.show(getContext(), "线路 " + (next + 1) + "/" + size);
+        // 手动选过就记住这条，下次换到这台先用它
+        DeskPrefs.setLivePick(getContext(), channel.key(), channel.urls.get(next));
+    }
+
     private void stepChannel(int delta) {
         if (playlist.isEmpty()) {
             return;
@@ -1157,6 +1179,16 @@ public class LivePage extends FrameLayout implements ModulePage {
         if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
             stepChannel(1);
             return true;
+        }
+        // 左右键换线路：同一个台往往挂了好几条地址，其中可能有一条在放广告/
+        // 或者画质更差。留一条手动切换的路，比让用户回面板重选强
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            LiveChannel channel = playIndex >= 0 && playIndex < playlist.size()
+                    ? playlist.get(playIndex) : null;
+            if (channel != null && channel.urls.size() > 1) {
+                switchLine(channel, keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
+                return true;
+            }
         }
         if (keyCode == KeyEvent.KEYCODE_INFO) {
             if (osdBox.getVisibility() == View.VISIBLE) {

@@ -54,7 +54,7 @@ public final class LiveRepository {
      * 缓存格式版本。源清单/合并规则变了就 +1：老目录里没有新源的高清地址，
      * 留着只会让人以为「加了源还是糊」。
      */
-    private static final int CACHE_VERSION = 16;
+    private static final int CACHE_VERSION = 17;
     /** 单份源整体上限：主地址 10 秒拿不到就换镜像 */
     private static final long FETCH_TIMEOUT_MS = 8000L;
     /** 一次同步最多等多久（几份源加镜像，串行最坏情况） */
