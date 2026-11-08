@@ -12,14 +12,11 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.appcompat.content.res.AppCompatResources;
 
-import com.bumptech.glide.Glide;
-import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import com.google.android.exoplayer2.ExoPlayer;
 import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.PlaybackException;
@@ -29,6 +26,9 @@ import com.google.android.exoplayer2.ui.AspectRatioFrameLayout;
 import com.google.android.exoplayer2.ui.PlayerView;
 import com.google.android.exoplayer2.upstream.DefaultDataSource;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
+import com.tvdesk.core.live.Epg;
+import com.tvdesk.core.live.EpgRepository;
+import com.tvdesk.core.live.EpgSchedule;
 import com.tvdesk.core.live.LiveCatalog;
 import com.tvdesk.core.live.LiveChannel;
 import com.tvdesk.core.live.LiveRepository;
@@ -42,32 +42,35 @@ import java.util.List;
 /**
  * 直播（IPTV）模块页。
  *
- * <h3>两态一页</h3>
- * 列表态（分组顶栏 + 频道墙）和播放态（全屏画面 + 台标信息条）在同一个页里切换，
- * 不压二级页：换台要快，一跳 Activity 就是几百毫秒的黑屏，而且回来焦点还要重建。
+ * <h3>一进来就播</h3>
+ * 直播的心智是「一打开就在放」，不是「先看列表再挑」。所以进页面直接起播上次退出的那个台
+ * （没有记录就播第一台），选台退居成一个<b>按菜单键调出来的左侧面板</b>——
+ * 和影视播放页的「选集」是同一个交互，只是面板放在左边，右边留给画面。
  *
- * <h3>数据从哪来</h3>
- * 见 {@link LiveRepository}：主源 vbskycn（IPv4/IPv6 两份清单）、兜底 Guovin。
- * 进页面先显示磁盘缓存（有过就是秒开），缓存过了 6 小时在后台静默刷新，
- * 顶栏右侧那颗「同步」可以随时强制拉一次。上游仓库更新不需要我们适配——
- * 拉到的就是最新一份，格式仍是 m3u。
+ * <h3>三个层次，各管一段</h3>
+ * <ul>
+ *   <li>播放态：上下键换台（全频道顺序，跨分组不打断），菜单/确定调面板，
+ *       左右键不动（直播没有进度可拖）；</li>
+ *   <li>面板态：顶部一行分类（默认「全部频道」，可横移切换），下面是该分类的频道，
+ *       选中即换台并收起面板；</li>
+ *   <li>返回：面板收起 → 再按一次退出模块（宿主接管）。</li>
+ * </ul>
  *
- * <h3>换台与换线</h3>
- * 上下键换台（同一分组内循环），左键回上一组；一个台挂多条地址时
- * 播放失败自动试下一条（{@link LiveChannel#urls}），全失败才提示。
- *
- * <h3>返回键</h3>
- * 播放态 → 回列表（停在刚才那个台）；列表态 → 交给宿主关模块页。
- * 严格一层一层退，和 {@link ModulePage} 里那张表一致。
+ * <h3>换线与失败</h3>
+ * 一个台常挂多条地址（不同 CDN），播放失败按顺序试下一条，全失败才提示。
  */
 public class LivePage extends FrameLayout implements ModulePage {
 
     private static final String TAG = "LivePage";
 
-    /** 频道墙列数。台标格子小，一屏放得下更多；7 列在 1080p 上每格约 140dp */
-    private static final int COLUMNS = 7;
+    /** 「全部频道」这个假分类的键：真实分组名不会叫这个 */
+    private static final String ALL = "全部频道";
+    /** 面板里的频道列数：面板占屏宽 46%，3 列刚好放得下「CCTV第一剧场」这种长名 */
+    private static final int PANEL_COLUMNS = 3;
     /** 信息条停留多久自动收起 */
     private static final long OSD_HIDE_MS = 4000L;
+    /** 一个台全线路失败后，最多自动往后跳几个台 */
+    private static final int MAX_AUTO_SKIP = 5;
 
     private static final String UA =
             "Mozilla/5.0 (Linux; Android 9; TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0 Safari/537.36";
@@ -75,35 +78,42 @@ public class LivePage extends FrameLayout implements ModulePage {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Runnable onExit;
 
-    // ---- 列表态
-    private LinearLayout listLayer;
-    private LinearLayout groupsRow;
-    private HorizontalScrollView groupsScroll;
-    private TileWall wall;
-    private TextView statusView;
-    private TextView emptyView;
-    /** 顶栏那颗「同步」 */
-    private TextView syncChip;
-    private LinearLayout headerRow;
-
-    // ---- 播放态
+    // ---- 播放层
     private FrameLayout playerLayer;
     private PlayerView playerView;
+    private LinearLayout osdBox;
     private TextView osdTitle;
     private TextView osdSub;
-    private LinearLayout osdBox;
+    private TextView osdProgram;
+    private TextView hintView;
     private ExoPlayer player;
 
+    // ---- 频道面板（菜单键）
+    private FrameLayout panelLayer;
+    private LinearLayout catRow;
+    private HorizontalScrollView catScroll;
+    private TileWall panelWall;
+    private TextView panelTitle;
+
+    // ---- 数据
     private LiveCatalog catalog;
-    private String group = "";
-    private List<LiveChannel> channels = new ArrayList<>();
-    private int wallIndex;
-    private boolean playing;
+    /** 节目单；拿不到就是 null，界面上少一行字，不影响播放 */
+    private Epg epg;
+    /** 全频道顺序，上下键换台走这一份 */
+    private List<LiveChannel> playlist = new ArrayList<>();
+    /** 面板当前分类下的频道 */
+    private List<LiveChannel> panelList = new ArrayList<>();
+    private String category = ALL;
     private int playIndex = -1;
-    /** 当前台正在试第几条地址 */
+    private int panelIndex;
     private int urlTry;
+    private boolean playing;
     private boolean loading;
     private boolean released;
+    private boolean panelOpen;
+    /** 连续「所有地址都播不了」的台数：用来决定「自动换台」还要不要继续 */
+    private int failStreak;
+
     private final Runnable hideOsd = new Runnable() {
         @Override
         public void run() {
@@ -114,131 +124,21 @@ public class LivePage extends FrameLayout implements ModulePage {
     public LivePage(Context context, Runnable onExit) {
         super(context);
         this.onExit = onExit;
-        setBackgroundColor(Color.parseColor("#0B0B0C"));
+        setBackgroundColor(Color.BLACK);
         setFocusable(false);
-        buildListLayer();
         buildPlayerLayer();
-        showList();
+        buildPanelLayer();
     }
 
-    // ---------------------------------------------------------------- 界面搭建
+    // ---------------------------------------------------------------- 界面
 
     private int dp(float value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private void buildListLayer() {
-        listLayer = new LinearLayout(getContext());
-        listLayer.setOrientation(LinearLayout.VERTICAL);
-        listLayer.setBackgroundColor(Color.parseColor("#0B0B0C"));
-        addView(listLayer, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
-
-        // 顶栏：左边「直播 ▾」当回桌面的出口，中间分组，右边同步状态
-        headerRow = new LinearLayout(getContext());
-        headerRow.setOrientation(LinearLayout.HORIZONTAL);
-        headerRow.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = dp(48);
-        headerRow.setPadding(pad, dp(18), pad, dp(6));
-
-        TextView exit = chip("直播 ▾", false);
-        exit.setContentDescription("返回桌面");
-        exit.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                stopPlayback();
-                if (onExit != null) {
-                    onExit.run();
-                }
-            }
-        });
-        headerRow.addView(exit);
-
-        groupsScroll = new HorizontalScrollView(getContext());
-        groupsScroll.setHorizontalScrollBarEnabled(false);
-        groupsScroll.setOverScrollMode(OVER_SCROLL_NEVER);
-        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        scrollParams.leftMargin = dp(14);
-        groupsScroll.setLayoutParams(scrollParams);
-        groupsRow = new LinearLayout(getContext());
-        groupsRow.setOrientation(LinearLayout.HORIZONTAL);
-        groupsRow.setGravity(Gravity.CENTER_VERTICAL);
-        groupsScroll.addView(groupsRow, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        headerRow.addView(groupsScroll);
-
-        statusView = new TextView(getContext());
-        statusView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        statusView.setTextColor(0xFF8A8A90);
-        statusView.setSingleLine(true);
-        statusView.setPadding(dp(12), 0, dp(6), 0);
-        headerRow.addView(statusView);
-
-        syncChip = chip("⟳ 同步", false);
-        syncChip.setContentDescription("立即同步直播源");
-        syncChip.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                refresh(true);
-            }
-        });
-        headerRow.addView(syncChip);
-
-        listLayer.addView(headerRow, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        // 频道墙
-        wall = new TileWall(getContext());
-        wall.setNumColumns(COLUMNS);
-        wall.setSpacingDp(8f, 8f);
-        wall.setAdapter(new TileWall.Adapter() {
-            @Override
-            public int getCount() {
-                return channels.size();
-            }
-
-            @Override
-            public View getView(int index, View convertView, ViewGroup parent) {
-                return channelTile(index);
-            }
-
-            @Override
-            public String keyAt(int index) {
-                return index >= 0 && index < channels.size() ? channels.get(index).key() : "";
-            }
-        });
-        wall.setEdgeListener(new TileWall.OnEdgeListener() {
-            @Override
-            public boolean onEdge(int keyCode, int index) {
-                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                    // 上到顶就交给分组顶栏，落点守在「当前分组」那颗上
-                    focusGroupChip(group);
-                    return true;
-                }
-                return false;
-            }
-        });
-        LinearLayout.LayoutParams wallParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
-        wallParams.topMargin = dp(10);
-        wallParams.leftMargin = pad;
-        wallParams.rightMargin = pad;
-        wallParams.bottomMargin = dp(24);
-        listLayer.addView(wall, wallParams);
-
-        emptyView = new TextView(getContext());
-        emptyView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        emptyView.setTextColor(0xFFBDBDC4);
-        emptyView.setGravity(Gravity.CENTER);
-        emptyView.setVisibility(View.GONE);
-        listLayer.addView(emptyView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-    }
-
     private void buildPlayerLayer() {
         playerLayer = new FrameLayout(getContext());
         playerLayer.setBackgroundColor(Color.BLACK);
-        playerLayer.setVisibility(View.GONE);
         addView(playerLayer, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
 
         playerView = new PlayerView(getContext());
@@ -247,13 +147,11 @@ public class LivePage extends FrameLayout implements ModulePage {
         playerLayer.addView(playerView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // 信息条：台号 + 台名 + 分组，压在左下角，4 秒后自己收起来
         osdBox = new LinearLayout(getContext());
         osdBox.setOrientation(LinearLayout.VERTICAL);
         osdBox.setBackgroundColor(0xCC101014);
         osdBox.setPadding(dp(22), dp(14), dp(22), dp(14));
-        // 次行可能只有分组名，先给一个最小宽度，免得「2  CCTV5+」这种宽度算早了被截
-        osdBox.setMinimumWidth(dp(260));
+        osdBox.setMinimumWidth(dp(300));
         FrameLayout.LayoutParams osdParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         osdParams.gravity = Gravity.BOTTOM | Gravity.START;
@@ -275,16 +173,128 @@ public class LivePage extends FrameLayout implements ModulePage {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         subParams.topMargin = dp(4);
         osdBox.addView(osdSub, subParams);
+
+        osdProgram = new TextView(getContext());
+        osdProgram.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        osdProgram.setTextColor(0xFFD8D8DE);
+        osdProgram.setSingleLine(true);
+        LinearLayout.LayoutParams progParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        progParams.topMargin = dp(3);
+        osdBox.addView(osdProgram, progParams);
+        osdProgram.setVisibility(View.GONE);
         osdBox.setVisibility(View.GONE);
         playerLayer.addView(osdBox);
+
+        // 没画面时的话术（正在同步 / 取不到源）：压在正中，起播后自动消失
+        hintView = new TextView(getContext());
+        hintView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        hintView.setTextColor(0xFFBDBDC4);
+        hintView.setGravity(Gravity.CENTER);
+        playerLayer.addView(hintView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // 起播后画面要能点出面板（触屏机型），遥控器走 MENU
+        playerLayer.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openPanel();
+            }
+        });
     }
 
-    /** 顶栏胶囊。{@code active} 表示当前选中的分组 */
+    private void buildPanelLayer() {
+        panelLayer = new FrameLayout(getContext());
+        panelLayer.setVisibility(View.GONE);
+        addView(panelLayer, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+
+        // 面板外压暗一层：点一下也收起（触屏），遥控器走 BACK
+        View dim = new View(getContext());
+        dim.setBackgroundColor(0x88000000);
+        dim.setClickable(true);
+        dim.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                closePanel();
+            }
+        });
+        panelLayer.addView(dim, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        LinearLayout panel = new LinearLayout(getContext());
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setBackgroundResource(R.drawable.bg_module_menu);
+        panel.setPadding(dp(26), dp(22), dp(26), dp(18));
+        // 左边一整条：占屏宽 46%，右边留出画面（能一边看一边挑）
+        int width = (int) (getResources().getDisplayMetrics().widthPixels * 0.46f);
+        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
+                width, ViewGroup.LayoutParams.MATCH_PARENT);
+        panelParams.gravity = Gravity.START;
+        panelLayer.addView(panel, panelParams);
+
+        panelTitle = new TextView(getContext());
+        panelTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        panelTitle.setTextColor(Color.WHITE);
+        panelTitle.setSingleLine(true);
+        panelTitle.setEllipsize(TextUtils.TruncateAt.END);
+        panel.addView(panelTitle, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+
+        catScroll = new HorizontalScrollView(getContext());
+        catScroll.setHorizontalScrollBarEnabled(false);
+        catScroll.setOverScrollMode(OVER_SCROLL_NEVER);
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        scrollParams.topMargin = dp(10);
+        catScroll.setLayoutParams(scrollParams);
+        catRow = new LinearLayout(getContext());
+        catRow.setOrientation(LinearLayout.HORIZONTAL);
+        catRow.setGravity(Gravity.CENTER_VERTICAL);
+        catScroll.addView(catRow, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        panel.addView(catScroll);
+
+        panelWall = new TileWall(getContext());
+        panelWall.setNumColumns(PANEL_COLUMNS);
+        panelWall.setSpacingDp(6f, 6f);
+        panelWall.setAdapter(new TileWall.Adapter() {
+            @Override
+            public int getCount() {
+                return panelList.size();
+            }
+
+            @Override
+            public View getView(int index, View convertView, ViewGroup parent) {
+                return panelTile(index);
+            }
+
+            @Override
+            public String keyAt(int index) {
+                return index >= 0 && index < panelList.size() ? panelList.get(index).key() : "";
+            }
+        });
+        panelWall.setEdgeListener(new TileWall.OnEdgeListener() {
+            @Override
+            public boolean onEdge(int keyCode, int index) {
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    focusCategory(category);
+                    return true;
+                }
+                return false;
+            }
+        });
+        LinearLayout.LayoutParams wallParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        wallParams.topMargin = dp(12);
+        panel.addView(panelWall, wallParams);
+    }
+
+    /** 分类胶囊（「全部频道」+ 每个分组） */
     private TextView chip(String text, boolean active) {
         TextView item = new TextView(getContext());
         item.setId(View.generateViewId());
         item.setText(text);
-        item.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        item.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         item.setTextColor(AppCompatResources.getColorStateList(getContext(), R.color.nav_item_text));
         item.setBackgroundResource(R.drawable.bg_nav_item);
         item.setGravity(Gravity.CENTER);
@@ -296,108 +306,125 @@ public class LivePage extends FrameLayout implements ModulePage {
                 getResources().getDimensionPixelSize(R.dimen.nav_item_pad_h), 0);
         item.setSelected(active);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(32));
         lp.rightMargin = dp(2);
         item.setLayoutParams(lp);
         FocusScaler.attach(item, 1.06f);
         return item;
     }
 
-    /** 一张频道卡：台标 + 名字。台标取不到就退回名字首字，不留黑块 */
-    private View channelTile(final int index) {
+    /**
+     * 面板里的一张频道卡。
+     *
+     * <p>观感对齐影视播放页的选集格子：一行文字、深底、聚焦放大一点。
+     * 427 个台如果都带台标，滚动和内存都不划算——台标留给画面上的信息条。
+     */
+    private View panelTile(final int index) {
+        final LiveChannel channel = panelList.get(index);
+        // 两行：台名 + 正在播的节目。节目单拿不到就只显示台名（第二行留空、高度不变，
+        // 免得列表在有无 EPG 时跳来跳去）
         LinearLayout tile = new LinearLayout(getContext());
         tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setId(View.generateViewId());
+        tile.setBackgroundResource(R.drawable.bg_nav_item);
         tile.setFocusable(true);
         tile.setClickable(true);
         tile.setFocusableInTouchMode(true);
-        tile.setId(View.generateViewId());
-
-        FrameLayout frame = new FrameLayout(getContext());
-        frame.setBackgroundResource(R.drawable.bg_poster);
-        frame.setPadding(dp(3), dp(3), dp(3), dp(3));
-        frame.setDuplicateParentStateEnabled(true);
-
-        final LiveChannel channel = channels.get(index);
-        // 没台标时放一个首字当占位。注意别把整串台名放进来：格子下面已经有一行台名了，
-        // 上面再重复一遍会看起来像「每个台出现了两次」（实测截图就是这个观感）
-        final TextView initial = new TextView(getContext());
-        initial.setText(TextUtils.isEmpty(channel.name) ? "台" : channel.name.substring(0, 1));
-        initial.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
-        initial.setTextColor(0xFF6E6E76);
-        initial.setGravity(Gravity.CENTER);
-        frame.addView(initial, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        if (!TextUtils.isEmpty(channel.logo)) {
-            ImageView logo = new ImageView(getContext());
-            logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            logo.setPadding(dp(12), dp(12), dp(12), dp(12));
-            frame.addView(logo, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            Glide.with(getContext())
-                    .load(channel.logo)
-                    .diskCacheStrategy(DiskCacheStrategy.AUTOMATIC)
-                    .into(logo);
-        }
-        tile.addView(frame, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(88)));
+        tile.setPadding(dp(10), dp(5), dp(10), dp(5));
+        tile.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
+        boolean current = playIndex >= 0 && playIndex < playlist.size()
+                && playlist.get(playIndex).key().equals(channel.key());
+        tile.setSelected(current);
+        FocusScaler.attach(tile, 1.04f);
 
         TextView name = new TextView(getContext());
         name.setText(channel.name);
-        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        // 和应用卡片标题同一个档位：卡片底色偏深，纯白会晃眼
-        name.setTextColor(0xFFE6E9F0);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        name.setTextColor(AppCompatResources.getColorStateList(getContext(), R.color.nav_item_text));
         name.setSingleLine(true);
         name.setEllipsize(TextUtils.TruncateAt.END);
-        name.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        nameParams.topMargin = dp(5);
-        tile.addView(name, nameParams);
+        tile.addView(name, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        FocusScaler.attach(tile, 1.05f);
-        tile.setOnClickListener(new View.OnClickListener() {
+        String program = nowProgramTitle(channel);
+        if (program.length() > 0) {
+            TextView sub = new TextView(getContext());
+            sub.setText(program);
+            sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            sub.setTextColor(0xFF8E8E98);
+            sub.setSingleLine(true);
+            sub.setEllipsize(TextUtils.TruncateAt.END);
+            tile.addView(sub, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+
+        tile.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                play(index);
+                playChannel(channel);
+                closePanel();
             }
         });
-        tile.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+        tile.setOnFocusChangeListener(new OnFocusChangeListener() {
             @Override
             public void onFocusChange(View v, boolean hasFocus) {
                 if (hasFocus) {
-                    wallIndex = index;
+                    panelIndex = index;
                 }
             }
         });
         return tile;
     }
 
-
     // ---------------------------------------------------------------- 数据
 
     @Override
     public void onEnter() {
+        epg = EpgRepository.cached(getContext());
+        loadEpg(false);
         LiveCatalog cache = LiveRepository.cached(getContext());
         if (cache != null) {
-            apply(cache, true);
+            apply(cache);
             if (!LiveRepository.fresh(cache)) {
                 refresh(false);
             }
         } else {
-            empty("正在同步直播源…");
+            hint("正在同步直播源…");
             refresh(false);
         }
-        // 模块页从 GONE 变回 VISIBLE 时焦点已经掉了，系统会补给它找到的第一个可聚焦控件——
-        // 也就是左上那颗「直播 ▾」。进直播是要看台的，落点应该是上次那个台
-        if (!channels.isEmpty()) {
-            wall.post(new Runnable() {
-                @Override
-                public void run() {
-                    wall.focusPosition(Math.max(0, Math.min(wallIndex, channels.size() - 1)));
-                }
-            });
+    }
+
+    /** 节目单：缓存先用着，后台按需刷新；失败什么都不做 */
+    private void loadEpg(final boolean force) {
+        if (!force && EpgRepository.fresh(epg)) {
+            return;
         }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final Epg loaded = EpgRepository.load(getContext(), force);
+                if (loaded == null) {
+                    return;
+                }
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (released) {
+                            return;
+                        }
+                        epg = loaded;
+                        // 画面上的信息条和面板里的「正在播」都要按新节目单重画一遍
+                        if (playIndex >= 0 && playIndex < playlist.size()) {
+                            updateOsd(playlist.get(playIndex), urlTry);
+                        }
+                        if (panelOpen) {
+                            panelWall.notifyDataSetChanged();
+                        }
+                    }
+                });
+            }
+        }, "live-epg").start();
     }
 
     private void refresh(final boolean force) {
@@ -405,7 +432,9 @@ public class LivePage extends FrameLayout implements ModulePage {
             return;
         }
         loading = true;
-        updateStatus(force ? "正在同步…" : null);
+        if (playlist.isEmpty()) {
+            hint("正在同步直播源…");
+        }
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -426,19 +455,17 @@ public class LivePage extends FrameLayout implements ModulePage {
                             return;
                         }
                         if (value == null) {
-                            if (channels.isEmpty()) {
-                                empty(TextUtils.isEmpty(failure)
-                                        ? "直播源取不到 · 按「⟳ 同步」重试" : failure
-                                        + " · 按「⟳ 同步」重试");
-                            } else {
+                            if (playlist.isEmpty()) {
+                                hint(TextUtils.isEmpty(failure) ? "直播源取不到 · 按菜单键重试"
+                                        : failure + " · 按菜单键重试");
+                            } else if (force) {
                                 DeskToast.show(getContext(), "同步失败，继续用上一次的目录");
                             }
-                            updateStatus(null);
                             return;
                         }
                         boolean same = catalog != null && value.updatedAt == catalog.updatedAt;
-                        apply(value, true);
-                        if (force || !same) {
+                        apply(value);
+                        if (force && !same) {
                             DeskToast.show(getContext(), "直播源已更新 · "
                                     + value.channelCount() + " 个频道");
                         }
@@ -448,151 +475,58 @@ public class LivePage extends FrameLayout implements ModulePage {
         }, "live-sync").start();
     }
 
-    /** 目录到位：重建分组、按上次的分组恢复、刷新墙面 */
-    private void apply(LiveCatalog value, boolean focusWall) {
-        catalog = value;
-        List<String> groups = value.groupNames();
-        if (groups.isEmpty()) {
-            empty("直播源里没有可用的频道");
-            return;
-        }
-        String group0 = group;
-        if (TextUtils.isEmpty(group0) || !groups.contains(group0)) {
-            group0 = pickGroup(groups, DeskPrefs.liveGroup(getContext()));
-        }
-        group = group0;
-        emptyView.setVisibility(View.GONE);
-        buildGroups();
-        showGroup(group, focusWall);
-        updateStatus(null);
-    }
-
     /**
-     * 选默认分组：优先用户上次看的，其次「央视频道」这类最常看的，
-     * 都没有就用第一个。源里的分组名并不统一（央视/央视频道/CCTV），所以按包含关系认。
+     * 目录到位：摊平成「全部频道」，再按上次看的台起播。
+     *
+     * <p>只在「还没在播」时起播：后台同步换了一份目录，不能把用户正在看的台打断。
      */
-    private String pickGroup(List<String> groups, String remembered) {
-        if (!TextUtils.isEmpty(remembered) && groups.contains(remembered)) {
-            return remembered;
-        }
-        String[] preferred = {"央视频道", "央视", "卫视频道", "卫视", "CCTV"};
-        for (String want : preferred) {
-            for (String candidate : groups) {
-                if (candidate.contains(want)) {
-                    return candidate;
-                }
-            }
-        }
-        return groups.get(0);
-    }
-
-    private void buildGroups() {
-        groupsRow.removeAllViews();
-        for (final String name : catalog.groupNames()) {
-            TextView item = chip(name, name.equals(group));
-            item.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    showGroup(name, true);
-                }
-            });
-            item.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-                @Override
-                public void onFocusChange(View v, boolean hasFocus) {
-                    if (!hasFocus) {
-                        return;
-                    }
-                    groupsScroll.smoothScrollTo(Math.max(0, v.getLeft() - dp(60)), 0);
-                    // 焦点落到哪个分组就切到哪个分组：遥控器上左右移一下就该看到内容，
-                    // 还要再按一次「确定」才生效会让人以为没响应。和首页顶栏、应用页同一个口径。
-                    // 这里不把焦点送进墙面（false），用户是在浏览分组，不是选了就走
-                    if (!name.equals(group)) {
-                        showGroup(name, false);
-                    }
-                }
-            });
-            groupsRow.addView(item);
-        }
-        // 分组之间显式连左右：和 AppPage 顶栏一个道理，几何寻焦会按距离挑，
-        // 分组名长短不一时会跳格
-        for (int i = 0; i < groupsRow.getChildCount(); i++) {
-            View current = groupsRow.getChildAt(i);
-            current.setNextFocusRightId(i + 1 < groupsRow.getChildCount()
-                    ? groupsRow.getChildAt(i + 1).getId() : current.getId());
-            current.setNextFocusLeftId(i > 0 ? groupsRow.getChildAt(i - 1).getId() : current.getId());
-        }
-    }
-
-    /** 切分组：换墙面数据，焦点按需要送进第一张 */
-    private void showGroup(String name, boolean focusWall) {
-        group = name;
-        channels = catalog.group(name);
-        for (int i = 0; i < groupsRow.getChildCount(); i++) {
-            View child = groupsRow.getChildAt(i);
-            child.setSelected(i < catalog.groupNames().size()
-                    && name.equals(catalog.groupNames().get(i)));
-        }
-        DeskPrefs.setLiveGroup(getContext(), name);
-        wall.notifyDataSetChanged();
-        if (channels.isEmpty()) {
-            empty("这个分组没有频道");
+    private void apply(LiveCatalog value) {
+        catalog = value;
+        String keep = currentKey();
+        playlist = LiveRepository.flatten(value);
+        if (playlist.isEmpty()) {
+            hint("直播源里没有可用的频道");
             return;
         }
-        emptyView.setVisibility(View.GONE);
-        // 换分组后优先落在上次看过的那个台上（同分组内才有意义）
-        int target = indexOfRemembered();
-        wallIndex = Math.max(0, Math.min(target, channels.size() - 1));
-        if (focusWall) {
-            wall.post(new Runnable() {
-                @Override
-                public void run() {
-                    wall.focusPosition(wallIndex);
-                }
-            });
+        if (!playing) {
+            int target = indexOf(TextUtils.isEmpty(keep)
+                    ? DeskPrefs.liveChannel(getContext()) : keep);
+            if (target < 0) {
+                target = 0;
+            }
+            playIndex = target;
+            startChannel(playlist.get(target), 0);
         }
+        hint(null);
     }
 
-    private int indexOfRemembered() {
-        String key = DeskPrefs.liveChannel(getContext());
-        if (TextUtils.isEmpty(key)) {
-            return 0;
+    /** 当前正在播的台名归一化键；没在播返回空 */
+    private String currentKey() {
+        if (playIndex >= 0 && playIndex < playlist.size()) {
+            return playlist.get(playIndex).key();
         }
-        for (int i = 0; i < channels.size(); i++) {
-            if (key.equals(channels.get(i).key())) {
+        return "";
+    }
+
+    private int indexOf(String key) {
+        if (TextUtils.isEmpty(key)) {
+            return -1;
+        }
+        for (int i = 0; i < playlist.size(); i++) {
+            if (key.equals(playlist.get(i).key())) {
                 return i;
             }
         }
-        return 0;
+        return -1;
     }
 
-    private void focusGroupChip(String name) {
-        int index = catalog == null ? -1 : catalog.groupNames().indexOf(name);
-        if (index >= 0 && index < groupsRow.getChildCount()) {
-            groupsRow.getChildAt(index).requestFocus();
-        } else if (groupsRow.getChildCount() > 0) {
-            groupsRow.getChildAt(0).requestFocus();
-        }
-    }
-
-    private void updateStatus(String override) {
-        if (statusView == null) {
+    private void hint(String message) {
+        if (TextUtils.isEmpty(message)) {
+            hintView.setVisibility(View.GONE);
             return;
         }
-        if (!TextUtils.isEmpty(override)) {
-            statusView.setText(override);
-            return;
-        }
-        if (catalog == null) {
-            statusView.setText("");
-            return;
-        }
-        String text = LiveRepository.ago(catalog.updatedAt) + " · " + catalog.channelCount() + " 台";
-        statusView.setText(text);
-    }
-
-    private void empty(String message) {
-        emptyView.setText(message);
-        emptyView.setVisibility(View.VISIBLE);
+        hintView.setText(message);
+        hintView.setVisibility(View.VISIBLE);
     }
 
     // ---------------------------------------------------------------- 播放
@@ -615,31 +549,40 @@ public class LivePage extends FrameLayout implements ModulePage {
             public void onPlayerError(PlaybackException error) {
                 onStreamError(error);
             }
+
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_READY) {
+                    // 真的出画面了才算「这个台可用」，把连败计数清掉
+                    failStreak = 0;
+                } else if (state == Player.STATE_ENDED) {
+                    // 直播源里不少是有限时长的 m3u8（循环宣传片、录播），放完给的是 ENDED
+                    // 而不是错误。不接这一条的话画面就停在最后一帧不动了
+                    onStreamEnded();
+                }
+            }
         });
         playerView.setPlayer(player);
     }
 
-    /** 点一张台卡：进播放态 */
-    private void play(int index) {
-        if (index < 0 || index >= channels.size()) {
+    /** 选中一个台：换过去（面板由调用方决定要不要收） */
+    private void playChannel(LiveChannel channel) {
+        if (channel == null) {
             return;
         }
+        int index = indexOf(channel.key());
+        if (index < 0) {
+            playlist.add(channel);
+            index = playlist.size() - 1;
+        }
         playIndex = index;
-        urlTry = 0;
-        LiveChannel channel = channels.get(index);
-        DeskPrefs.setLiveChannel(getContext(), channel.key());
-        enterPlayer();
-        startUrl(channel, 0);
+        startChannel(channel, 0);
     }
 
-    private void enterPlayer() {
-        playing = true;
-        playerLayer.setVisibility(View.VISIBLE);
-        listLayer.setVisibility(View.GONE);
-        showOsd();
-    }
-
-    private void startUrl(LiveChannel channel, int tryIndex) {
+    private void startChannel(LiveChannel channel, int tryIndex) {
+        if (channel == null) {
+            return;
+        }
         if (channel.urls.isEmpty()) {
             DeskToast.show(getContext(), channel.name + " 没有可用地址");
             return;
@@ -650,80 +593,147 @@ public class LivePage extends FrameLayout implements ModulePage {
         }
         urlTry = tryIndex;
         ensurePlayer();
-        String url = channel.urls.get(tryIndex);
-        player.setMediaItem(MediaItem.fromUri(url));
+        playing = true;
+        hint(null);
+        player.setMediaItem(MediaItem.fromUri(channel.urls.get(tryIndex)));
         player.prepare();
         player.setPlayWhenReady(true);
+        DeskPrefs.setLiveChannel(getContext(), channel.key());
         updateOsd(channel, tryIndex);
+        showOsd();
     }
 
-    /** 换台：在当前分组里循环 */
+    /** 换台：全频道顺序循环 */
     private void stepChannel(int delta) {
-        if (channels.isEmpty()) {
+        if (playlist.isEmpty()) {
             return;
         }
         int next = playIndex + delta;
         if (next < 0) {
-            next = channels.size() - 1;
-        } else if (next >= channels.size()) {
+            next = playlist.size() - 1;
+        } else if (next >= playlist.size()) {
             next = 0;
         }
         playIndex = next;
-        urlTry = 0;
-        LiveChannel channel = channels.get(next);
-        DeskPrefs.setLiveChannel(getContext(), channel.key());
-        startUrl(channel, 0);
-        showOsd();
+        startChannel(playlist.get(next), 0);
     }
 
     /**
      * 起播失败：这个台还有下一条地址就接着试。
      *
      * <p>直播源里同一个台常挂好几个 CDN，某一条 404/超时很常见，直接判「播不了」
-     * 会让用户以为整个源坏了。只有全部试完才提示，而且不退列表——用户可能想接着换台。
+     * 会让用户以为整个源坏了。只有全部试完才提示。
      */
     private void onStreamError(PlaybackException error) {
-        if (!playing || playIndex < 0 || playIndex >= channels.size()) {
+        if (playIndex < 0 || playIndex >= playlist.size()) {
             return;
         }
-        LiveChannel channel = channels.get(playIndex);
-        int next = urlTry + 1;
-        android.util.Log.i(TAG, "播放失败 " + channel.name + " 第 " + (urlTry + 1) + " 条："
-                + error.getErrorCodeName());
-        if (next < channel.urls.size()) {
-            ui.post(new Runnable() {
-                @Override
-                public void run() {
-                    startUrl(channels.get(Math.max(0, Math.min(playIndex, channels.size() - 1))),
-                            urlTry + 1);
-                }
-            });
-        } else {
-            ui.post(new Runnable() {
-                @Override
-                public void run() {
-                    if (!released) {
-                        DeskToast.show(getContext(), channel.name + " 暂时播不了");
-                        updateOsd(channel, 0);
-                    }
-                }
-            });
+        // 直播窗口滑走了（暂停久了、切台回来、缓冲太慢）：这不是「地址坏了」，
+        // 重新对齐到当前窗口就能继续放。当成失败处理会把好好的台换掉
+        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW && player != null) {
+            android.util.Log.i(TAG, "直播窗口已滑走，重新对齐：" + playlist.get(playIndex).name);
+            player.seekToDefaultPosition();
+            player.prepare();
+            return;
         }
+        android.util.Log.i(TAG, "播放失败 " + playlist.get(playIndex).name
+                + " 第 " + (urlTry + 1) + " 条：" + error.getErrorCodeName());
+        advanceAfterFailure();
+    }
+
+    /** 流自己放完了（有限时长的 m3u8）：同样按「这条地址不行」处理 */
+    private void onStreamEnded() {
+        if (playIndex < 0 || playIndex >= playlist.size()) {
+            return;
+        }
+        android.util.Log.i(TAG, "播放结束 " + playlist.get(playIndex).name
+                + " 第 " + (urlTry + 1) + " 条，换下一路");
+        advanceAfterFailure();
+    }
+
+    /**
+     * 当前台这条路不行：先换同台的下一条地址，全都不行再自动往后跳几个台。
+     */
+    private void advanceAfterFailure() {
+        if (released) {
+            return;
+        }
+        final LiveChannel channel = playlist.get(playIndex);
+        final int next = urlTry + 1;
+        ui.post(new Runnable() {
+            @Override
+            public void run() {
+                if (next < channel.urls.size()) {
+                    startChannel(channel, next);
+                    return;
+                }
+                // 所有地址都不行。源里的台会失效，用户记住的那一台隔几天挂掉很常见，
+                // 所以先自动往后跳几台试试；连跳几个都不行才认为是大面积故障，停下来提示。
+                failStreak++;
+                if (panelOpen) {
+                    // 面板正开着（用户在挑台），别用整屏大字打断；换个轻提示就够
+                    DeskToast.show(getContext(), "「" + channel.name + "」播不了");
+                    return;
+                }
+                if (failStreak <= MAX_AUTO_SKIP) {
+                    hint("「" + channel.name + "」播不了，自动换台…");
+                    ui.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!released && !panelOpen) {
+                                stepChannel(1);
+                            }
+                        }
+                    }, 900L);
+                } else {
+                    hint("多个频道都播不了 · 按菜单键换个台，或同步直播源");
+                }
+            }
+        });
     }
 
     private void updateOsd(LiveChannel channel, int tryIndex) {
         if (channel == null) {
             return;
         }
-        int number = playIndex + 1;
-        osdTitle.setText(number + "  " + channel.name);
-        String line = group;
+        osdTitle.setText((playIndex + 1) + "  " + channel.name);
+        String line = channel.group;
         if (channel.urls.size() > 1) {
             line += " · 线路 " + (tryIndex + 1) + "/" + channel.urls.size();
         }
         osdSub.setText(line);
-        // 文字是后填的：不主动要一次布局，WRAP_CONTENT 的父容器可能还按空文本的宽度摆着
+        // 第三行：节目单。公共 EPG 常常滞后，此刻没有节目覆盖就不显示，
+        // 而不是把上一条硬挂在这儿（那会让人以为电视播的是别的节目）
+        EpgSchedule.Program now = nowProgram(channel);
+        if (now != null) {
+            osdProgram.setText(clock(now.startMs) + "-" + clock(now.stopMs) + "  " + now.title);
+            osdProgram.setVisibility(View.VISIBLE);
+        } else {
+            osdProgram.setVisibility(View.GONE);
+        }
         osdBox.requestLayout();
+    }
+
+    /** 这个频道此刻在播的节目；没有节目单就 null */
+    private EpgSchedule.Program nowProgram(LiveChannel channel) {
+        if (epg == null) {
+            return null;
+        }
+        EpgSchedule schedule = epg.scheduleOf(channel);
+        return schedule == null ? null : schedule.now(System.currentTimeMillis());
+    }
+
+    private String nowProgramTitle(LiveChannel channel) {
+        EpgSchedule.Program now = nowProgram(channel);
+        return now == null ? "" : now.title;
+    }
+
+    private static String clock(long timeMs) {
+        java.util.Calendar calendar = java.util.Calendar.getInstance();
+        calendar.setTimeInMillis(timeMs);
+        int hour = calendar.get(java.util.Calendar.HOUR_OF_DAY);
+        int minute = calendar.get(java.util.Calendar.MINUTE);
+        return (hour < 10 ? "0" : "") + hour + ":" + (minute < 10 ? "0" : "") + minute;
     }
 
     private void showOsd() {
@@ -732,125 +742,216 @@ public class LivePage extends FrameLayout implements ModulePage {
         ui.postDelayed(hideOsd, OSD_HIDE_MS);
     }
 
-    /** 回列表态：停画面，焦点落回刚才那个台 */
-    private void showList() {
-        playing = false;
-        if (player != null) {
-            player.setPlayWhenReady(false);
+    // ---------------------------------------------------------------- 频道面板
+
+    private void openPanel() {
+        if (panelOpen) {
+            return;
         }
-        playerLayer.setVisibility(View.GONE);
-        listLayer.setVisibility(View.VISIBLE);
-        final int target = wallIndex;
-        wall.post(new Runnable() {
-            @Override
-            public void run() {
-                if (channels.size() > 0) {
-                    wall.focusPosition(Math.max(0, Math.min(target, channels.size() - 1)));
+        if (playlist.isEmpty()) {
+            // 还没有数据：菜单键当「重试」用，比让用户退出去再进来强
+            refresh(true);
+            return;
+        }
+        panelOpen = true;
+        panelLayer.setVisibility(View.VISIBLE);
+        ui.removeCallbacks(hideOsd);
+        osdBox.setVisibility(View.GONE);
+        hint(null);
+        panelTitle.setText("频道 · 共 " + playlist.size() + " 台");
+        buildCategories();
+        // 焦点先落在分类行：菜单键是「我要换台」，第一步就是选类别；
+        // 想看当前台在哪一行，按一下「下」就进列表（列表里那台已经是选中态）
+        showCategory(category, false);
+        focusCategory(category);
+    }
+
+    private void closePanel() {
+        if (!panelOpen) {
+            return;
+        }
+        panelOpen = false;
+        panelLayer.setVisibility(View.GONE);
+        showOsd();
+    }
+
+    private List<String> categoryNames() {
+        List<String> names = new ArrayList<>();
+        names.add(ALL);
+        if (catalog != null) {
+            names.addAll(catalog.groupNames());
+        }
+        return names;
+    }
+
+    private void buildCategories() {
+        catRow.removeAllViews();
+        for (final String name : categoryNames()) {
+            TextView item = chip(name, name.equals(category));
+            item.setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    showCategory(name, true);
+                }
+            });
+            item.setOnFocusChangeListener(new OnFocusChangeListener() {
+                @Override
+                public void onFocusChange(View v, boolean hasFocus) {
+                    if (!hasFocus) {
+                        return;
+                    }
+                    catScroll.smoothScrollTo(Math.max(0, v.getLeft() - dp(40)), 0);
+                    // 焦点落到哪个分类就切哪个分类，遥控器上移一下就能看到内容
+                    if (!name.equals(category)) {
+                        showCategory(name, false);
+                    }
+                }
+            });
+            catRow.addView(item);
+        }
+        // 分类之间显式连左右：名字长短不一时几何寻焦会跳格
+        for (int i = 0; i < catRow.getChildCount(); i++) {
+            View current = catRow.getChildAt(i);
+            current.setNextFocusRightId(i + 1 < catRow.getChildCount()
+                    ? catRow.getChildAt(i + 1).getId() : current.getId());
+            current.setNextFocusLeftId(i > 0 ? catRow.getChildAt(i - 1).getId() : current.getId());
+        }
+    }
+
+    /** 切分类：换面板里的列表；{@code focusWall} 为真时把焦点送进频道区 */
+    private void showCategory(String name, boolean focusWall) {
+        category = name;
+        if (catalog != null && !ALL.equals(name)) {
+            panelList = catalog.group(name);
+        } else {
+            panelList = playlist;
+        }
+        List<String> names = categoryNames();
+        for (int i = 0; i < catRow.getChildCount() && i < names.size(); i++) {
+            catRow.getChildAt(i).setSelected(names.get(i).equals(name));
+        }
+        panelWall.notifyDataSetChanged();
+        // 落点优先给「正在播的那台」，一打开面板就停在当前台上
+        int target = 0;
+        if (playIndex >= 0 && playIndex < playlist.size()) {
+            String key = playlist.get(playIndex).key();
+            for (int i = 0; i < panelList.size(); i++) {
+                if (key.equals(panelList.get(i).key())) {
+                    target = i;
+                    break;
                 }
             }
-        });
+        }
+        panelIndex = Math.max(0, Math.min(target, Math.max(0, panelList.size() - 1)));
+        if (focusWall) {
+            final int index = panelIndex;
+            panelWall.post(new Runnable() {
+                @Override
+                public void run() {
+                    panelWall.focusPosition(index);
+                }
+            });
+        }
+    }
+
+    private void focusCategory(String name) {
+        int index = categoryNames().indexOf(name);
+        if (index >= 0 && index < catRow.getChildCount()) {
+            catRow.getChildAt(index).requestFocus();
+        } else if (catRow.getChildCount() > 0) {
+            catRow.getChildAt(0).requestFocus();
+        }
+    }
+
+    /** 分类行里的左右逐格移动（面板打开时生效） */
+    private boolean moveCategoryFocus(int keyCode) {
+        View focused = findFocus();
+        if (focused == null || catRow.indexOfChild(focused) < 0) {
+            return false;
+        }
+        int index = catRow.indexOfChild(focused);
+        int next = keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? index + 1 : index - 1;
+        if (next < 0 || next >= catRow.getChildCount()) {
+            return true;
+        }
+        catRow.getChildAt(next).requestFocus();
+        return true;
     }
 
     // ---------------------------------------------------------------- 模块契约
 
     @Override
     public boolean handleKeyDown(int keyCode) {
-        if (playing) {
-            if (keyCode == KeyEvent.KEYCODE_BACK) {
-                showList();
+        if (panelOpen) {
+            if (keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_MENU) {
+                closePanel();
                 return true;
             }
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                stepChannel(-1);
-                return true;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                    || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                return moveCategoryFocus(keyCode);
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                stepChannel(1);
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER
-                    || keyCode == KeyEvent.KEYCODE_ENTER) {
-                // 确定 = 回到频道列表挑台，画面先停着自己
-                showList();
-                return true;
-            }
-            if (keyCode == KeyEvent.KEYCODE_MENU
-                    || keyCode == KeyEvent.KEYCODE_INFO) {
-                if (osdBox.getVisibility() == View.VISIBLE) {
-                    osdBox.setVisibility(View.GONE);
-                } else {
-                    showOsd();
+                View focused = findFocus();
+                if (focused != null && catRow.indexOfChild(focused) >= 0) {
+                    panelWall.focusPosition(panelIndex);
+                    return true;
                 }
-                return true;
             }
+            return false;
+        }
+        // 播放态
+        if (keyCode == KeyEvent.KEYCODE_MENU
+                || keyCode == KeyEvent.KEYCODE_DPAD_CENTER
+                || keyCode == KeyEvent.KEYCODE_ENTER) {
+            openPanel();
             return true;
         }
-        // 列表态的分组顶栏左右自己算，一格一格走
-        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-            if (moveChipFocus(keyCode)) {
-                return true;
-            }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+            stepChannel(-1);
+            return true;
         }
         if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-            View focused = findFocus();
-            if (focused != null && groupsRow.indexOfChild(focused) >= 0) {
-                wall.focusPosition(wallIndex);
-                return true;
+            stepChannel(1);
+            return true;
+        }
+        if (keyCode == KeyEvent.KEYCODE_INFO) {
+            if (osdBox.getVisibility() == View.VISIBLE) {
+                osdBox.setVisibility(View.GONE);
+            } else {
+                showOsd();
             }
+            return true;
         }
         return false;
     }
 
-    /**
-     * 分组顶栏 / 底部按钮之间的左右移动。
-     *
-     * <p>显式逐格：这两个容器里胶囊宽度差得大（「CCTV」和「上海地方频道」），
-     * 交给几何寻焦会按中心距离挑，短名字旁边按一下可能跳过一颗。
-     */
-    private boolean moveChipFocus(int keyCode) {
-        View focused = findFocus();
-        if (focused == null) {
-            return false;
-        }
-        LinearLayout row = null;
-        if (groupsRow.indexOfChild(focused) >= 0) {
-            row = groupsRow;
-        } else if (headerRow.indexOfChild(focused) >= 0) {
-            row = headerRow;
-        }
-        if (row == null) {
-            return false;
-        }
-        int index = row.indexOfChild(focused);
-        int next = keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? index + 1 : index - 1;
-        if (next < 0 || next >= row.getChildCount()) {
-            return true;
-        }
-        row.getChildAt(next).requestFocus();
-        return true;
-    }
-
     @Override
     public void onLeave() {
-        // 切走就停：直播是持续占带宽的，后台继续放既费流量也费解码器
-        if (playing) {
-            showList();
-        }
+        closePanel();
         if (player != null) {
             player.setPlayWhenReady(false);
         }
+        playing = false;
     }
 
+    /**
+     * 直播没有「后台继续放」的意义：退出模块就该停。
+     *
+     * <p>返回 true 会让宿主弹「保持播放吗」，对直播是多余的一问——
+     * 用户按返回就是想回桌面，不是想把电视声留在后台。
+     */
     @Override
     public boolean hasActivePlayback() {
-        return playing;
+        return false;
     }
 
     @Override
     public void stopPlayback() {
-        if (playing) {
-            showList();
+        if (player != null) {
+            player.setPlayWhenReady(false);
         }
+        playing = false;
     }
 
     @Override

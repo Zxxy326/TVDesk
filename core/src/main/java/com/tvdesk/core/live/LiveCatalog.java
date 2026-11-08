@@ -128,7 +128,10 @@ public final class LiveCatalog {
         if (n.length() == 0) {
             return true;
         }
-        if (n.contains("更新时间") || n.contains("公告")) {
+        // 「支持作者」是源作者给自己打的广告位（点进去是一段宣传片），不是电视频道。
+        // 用户明确要求屏蔽，这里连同它的各种变体写法一起挡掉
+        if (n.contains("更新时间") || n.contains("公告") || n.contains("支持作者")
+                || n.contains("赞助") || n.contains("推广") || n.contains("免责")) {
             return true;
         }
         // 「2026-11-08 06:26:46」这种纯时间戳

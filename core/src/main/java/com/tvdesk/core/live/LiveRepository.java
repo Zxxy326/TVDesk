@@ -251,6 +251,9 @@ public final class LiveRepository {
                     }
                 }
             }
+            // 缓存里可能还留着旧版没过滤的广告位（比如「支持作者」）：
+            // 读的时候再过一遍，不用等下一次同步
+            catalog.dropPlaceholders();
             if (catalog.isEmpty()) {
                 return null;
             }
