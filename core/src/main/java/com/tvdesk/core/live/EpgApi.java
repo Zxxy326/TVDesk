@@ -48,6 +48,16 @@ public final class EpgApi {
     private static final String TAG = "EpgApi";
 
     private static final String ENDPOINT = "http://epg.51zmt.top:8000/api/diyp/";
+    /**
+     * 央视专用接口（apihz）：返回的是<b>当天真数据</b>，前 21 天到后 7 天都能查。
+     *
+     * <p>为什么专门给央视开一个：51zmt 的 DIY 接口对免费请求只回占位文案，
+     * 整份 XMLTV 又滞后一两天。而用户最常看的就是央视 1-17，这一路必须先真起来。
+     */
+    private static final String CCTV_ENDPOINT = "https://cn.apihz.cn/api/fun/cctv.php";
+    /** 公共演示凭据：有频次限制，所以结果按天缓存、一台一天只查一次 */
+    private static final String CCTV_CID = "88888888";
+    private static final String CCTV_KEY = "88888888";
     /** 占位文案：免费档没有授权时整天的节目都是这一条 */
     private static final String[] PLACEHOLDER = {
             "暂未提供", "未提供节目", "精彩节目-暂未提供", "无节目预告"
@@ -101,7 +111,10 @@ public final class EpgApi {
                 return hit == EMPTY ? null : hit;
             }
         }
-        EpgSchedule schedule = request(channel.name, day);
+        int cctvType = cctvType(channel.name);
+        EpgSchedule schedule = cctvType > 0
+                ? requestCctv(cctvType)   // 央视：走真数据接口
+                : request(channel.name, day);
         synchronized (CACHE) {
             // 查不到也记下来（存 null 用哨兵），免得同一个台反复打接口
             CACHE.put(key, schedule == null ? EMPTY : schedule);
@@ -111,6 +124,102 @@ public final class EpgApi {
 
     /** 哨兵：表示「查过了，没有」。省得缓存里分不清「没查过」和「查过但没有」 */
     private static final EpgSchedule EMPTY = new EpgSchedule();
+
+    /**
+     * 台名 → apihz 的 type 号。不是央视返回 -1。
+     *
+     * <p>对应关系：CCTV1~17 → 1~17；CCTV5+ → 101；CCTV4 欧洲/美洲 → 102/103。
+     */
+    static int cctvType(String name) {
+        String key = LiveChannel.normalize(name);
+        if (key.length() == 0) {
+            return -1;
+        }
+        // 央视一套 / 央视13套
+        java.util.regex.Matcher cn = java.util.regex.Pattern
+                .compile("央视(\\d{1,2})套").matcher(key);
+        if (cn.find()) {
+            int n = parseInt(cn.group(1));
+            return n >= 1 && n <= 17 ? n : -1;
+        }
+        java.util.regex.Matcher en = java.util.regex.Pattern
+                .compile("CCTV-?(\\d{1,2})(\\+|K|PLUS)?").matcher(key);
+        if (!en.find()) {
+            return -1;
+        }
+        int n = parseInt(en.group(1));
+        boolean plus = en.group(2) != null;
+        if (n == 4 && key.contains("欧洲")) {
+            return 102;
+        }
+        if (n == 4 && key.contains("美洲")) {
+            return 103;
+        }
+        if (n == 5 && plus) {
+            return 101;
+        }
+        return n >= 1 && n <= 17 ? n : -1;
+    }
+
+    private static int parseInt(String text) {
+        try {
+            return Integer.parseInt(text);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** 央视节目单：list[].title / startTime / endTime（秒级时间戳） */
+    private static EpgSchedule requestCctv(int type) {
+        String url = CCTV_ENDPOINT + "?id=" + CCTV_CID + "&key=" + CCTV_KEY + "&type=" + type;
+        Request request = new Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 9)")
+                .build();
+        try (Response response = http().newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                Log.i(TAG, "cctv type=" + type + " HTTP " + response.code());
+                return null;
+            }
+            ResponseBody body = response.body();
+            if (body == null) {
+                return null;
+            }
+            JSONObject json = new JSONObject(body.string());
+            if (json.optInt("code") != 200) {
+                Log.i(TAG, "cctv type=" + type + " code=" + json.optInt("code")
+                        + " msg=" + json.optString("msg"));
+                return null;
+            }
+            JSONArray items = json.optJSONArray("list");
+            if (items == null || items.length() == 0) {
+                return null;
+            }
+            EpgSchedule schedule = new EpgSchedule();
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.optJSONObject(i);
+                if (item == null) {
+                    continue;
+                }
+                long start = item.optLong("startTime") * 1000L;
+                long stop = item.optLong("endTime") * 1000L;
+                String title = item.optString("title", "").trim();
+                if (start <= 0 || stop <= start) {
+                    continue;
+                }
+                schedule.add(new EpgSchedule.Program(start, stop, title));
+            }
+            if (schedule.items.isEmpty()) {
+                return null;
+            }
+            schedule.sort();
+            Log.i(TAG, "央视 type=" + type + " 取到 " + schedule.items.size() + " 条");
+            return schedule;
+        } catch (Throwable th) {
+            Log.i(TAG, "cctv type=" + type + " 失败：" + th.getClass().getSimpleName());
+            return null;
+        }
+    }
 
     private static EpgSchedule request(String name, String day) {
         String url;

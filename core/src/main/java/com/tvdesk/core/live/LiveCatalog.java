@@ -33,9 +33,24 @@ public final class LiveCatalog {
             return;
         }
         String key = channel.key();
+        // 源里的台名常带画质与状态标注：「CCTV-1 (720p)」「CCTV-1 HD (1080p)」
+        // 「CCTV-6 [Geo-blocked]」。不清理的话同一个台会被当成好几个，
+        // 列表里就是一串 CCTV-1 / CCTV-1 HD / CCTV-1 (720p)。
+        String rawName = channel.name;
+        boolean hd = looksHd(rawName);
+        channel.rename(cleanName(rawName));
+        if (channel.name.length() == 0) {
+            return;
+        }
+        key = channel.key();
+
         LiveChannel exist = index.get(key);
         if (exist == null) {
             String group = channel.group.length() == 0 ? "其他" : channel.group;
+            // 不同源的分组命名完全不统一：iptv-org 把 CCTV-1 归到 "General"，
+            // vbskycn 归到「央视频道」，还有源用英文。统一按台名归一次，
+            // 用户才能在「央视频道」里按 1、2、3 顺序看到央视。
+            group = canonicalGroup(channel.name, group);
             channel.group = group;
             index.put(key, channel);
             List<LiveChannel> list = groups.get(group);
@@ -47,7 +62,14 @@ public final class LiveCatalog {
             return;
         }
         for (String url : channel.urls) {
-            if (!exist.urls.contains(url)) {
+            if (exist.urls.contains(url)) {
+                continue;
+            }
+            // 标着 HD/1080p 的那一条排到前面：合并后一个台可能有好几条地址，
+            // 先试清晰的
+            if (hd) {
+                exist.urls.add(0, url);
+            } else {
                 exist.urls.add(url);
             }
         }
@@ -189,6 +211,195 @@ public final class LiveCatalog {
         }
     }
 
+    /** 括号里出现这些词，说明是画质/状态标注，不属于台名 */
+    private static final String[] TAG_WORDS = {
+            "720", "1080", "2160", "576", "480", "4K", "8K", "GEO", "NOT24", "NOT 24", "SD", "HD"
+    };
+
+    /**
+     * 去掉台名里的画质/状态标注。
+     *
+     * <p>手写而不是正则：要处理中英文四种括号，正则里字符类转义一层套一层，
+     * 写错了还不容易看出来。这里按字符扫一遍，遇到括号就看里面有没有标注词，
+     * 有就整段丢掉。
+     */
+    static String cleanName(String name) {
+        if (name == null) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder(name.length());
+        int i = 0;
+        while (i < name.length()) {
+            char c = name.charAt(i);
+            char end = 0;
+            if (c == '(') {
+                end = ')';
+            } else if (c == '（') {
+                end = '）';
+            } else if (c == '[') {
+                end = ']';
+            } else if (c == '【') {
+                end = '】';
+            }
+            if (end != 0) {
+                int close = name.indexOf(end, i + 1);
+                if (close > i && isTag(name.substring(i + 1, close))) {
+                    i = close + 1;
+                    continue;
+                }
+            }
+            out.append(c);
+            i++;
+        }
+        String text = out.toString().replace('　', ' ').trim();
+        while (text.indexOf("  ") >= 0) {
+            text = text.replace("  ", " ");
+        }
+        // 行尾的「 HD」「 4K」也是标注
+        String upper = text.toUpperCase();
+        for (String suffix : new String[]{" HD", " 4K", " 8K"}) {
+            if (upper.endsWith(suffix) && text.length() > suffix.length() + 1) {
+                text = text.substring(0, text.length() - suffix.length()).trim();
+                break;
+            }
+        }
+        return text;
+    }
+
+    private static boolean isTag(String inner) {
+        String upper = inner.toUpperCase().replace(" ", "");
+        for (String word : TAG_WORDS) {
+            if (upper.contains(word.replace(" ", ""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 这条记录是不是标着高清（决定合并后哪条地址排前面） */
+    static boolean looksHd(String name) {
+        if (name == null) {
+            return false;
+        }
+        String upper = name.toUpperCase();
+        return upper.contains("1080") || upper.contains("2160") || upper.contains("4K")
+                || upper.contains("8K") || upper.contains("HD");
+    }
+
+    /**
+     * 按台名把分组归一到我们自己的三个大类。
+     *
+     * <p>不这么做的话，同一个央视在不同源里散落在「央视频道」「General」「News」里，
+     * 面板上会分成好几撮，用户的「央视在前、按频道号排」就无从谈起。
+     */
+    private static String canonicalGroup(String name, String original) {
+        String normalized = LiveChannel.normalize(name);
+        if (cctvRank(name) < 900) {
+            return "央视频道";
+        }
+        // CGTN 系列也算央视，但排在有编号的后面（cctvRank 给 900）
+        if (normalized.startsWith("CGTN")) {
+            return "央视频道";
+        }
+        if (normalized.contains("卫视")) {
+            return "卫视频道";
+        }
+        return original;
+    }
+
+    /**
+     * 每个分组内部按「用户熟悉的顺序」排一遍。
+     *
+     * <h3>为什么必须自己排</h3>
+     * 源里的顺序是扫描出来的（谁先验证通过谁在前），央视会变成
+     * CCTV13、CCTV5、CCTV1 这种乱序。用户找台靠的是「央视几套」，
+     * 顺序一乱就只能一个个翻。
+     *
+     * <h3>规则</h3>
+     * <ul>
+     *   <li>央视：按频道号升序，CCTV5 在 CCTV5+ 之前（带 + 的算同一号的后一位）；</li>
+     *   <li>卫视：湖南/浙江/江苏/东方/北京…这种常见顺序在前，其余按原名排在后面；</li>
+     *   <li>其他分组：不动，保持源里的顺序（地方台本来没有公认顺序）。</li>
+     * </ul>
+     *
+     * <p>{@code Collections.sort} 是稳定排序：同名的键保持原来的相对次序。
+     */
+    public void sortChannels() {
+        for (Map.Entry<String, List<LiveChannel>> entry : groups.entrySet()) {
+            String group = entry.getKey();
+            final boolean cctv = group.contains("央视") || group.equalsIgnoreCase("CCTV");
+            final boolean satellite = group.contains("卫视");
+            if (!cctv && !satellite) {
+                continue;
+            }
+            java.util.Collections.sort(entry.getValue(), new java.util.Comparator<LiveChannel>() {
+                @Override
+                public int compare(LiveChannel a, LiveChannel b) {
+                    int ra = cctv ? cctvRank(a.name) : satelliteRank(a.name);
+                    int rb = cctv ? cctvRank(b.name) : satelliteRank(b.name);
+                    if (ra != rb) {
+                        return ra - rb;
+                    }
+                    return 0;
+                }
+            });
+        }
+    }
+
+    /**
+     * 央视台的序号：CCTV1=10、CCTV2=20…CCTV5=50、CCTV5+=51。
+     *
+     * <p>「CCTV-1综合」「央视一套」这些写法都要认出来；认不出（比如 CCTV-4K）
+     * 排到最后，但仍然排在一起。
+     */
+    private static int cctvRank(String name) {
+        String key = LiveChannel.normalize(name);
+        // 央视一套 / 央视13套
+        java.util.regex.Matcher cn = java.util.regex.Pattern
+                .compile("央视(\\d{1,2})套").matcher(key);
+        if (cn.find()) {
+            return number(cn.group(1)) * 10;
+        }
+        // CCTV-1 / CCTV1 / CCTV5+ / CCTV5PLUS
+        java.util.regex.Matcher en = java.util.regex.Pattern
+                .compile("CCTV-?(\\d{1,2})(\\+)?(K|PLUS)?").matcher(key);
+        if (en.find()) {
+            int base = number(en.group(1)) * 10;
+            if (en.group(2) != null || "K".equals(en.group(3)) || "PLUS".equals(en.group(3))) {
+                base += 1;
+            }
+            return base;
+        }
+        // 认不出号的（CCTV-4K、CCTV风云剧场…）排在数字台之后
+        return 900;
+    }
+
+    private static int number(String text) {
+        try {
+            return Integer.parseInt(text);
+        } catch (Exception e) {
+            return 99;
+        }
+    }
+
+    /** 卫视的常用顺序；没列到的按 100 起排，保持源里的相对次序 */
+    private static final String[] SATELLITE_ORDER = {
+            "湖南", "浙江", "江苏", "东方", "上海", "北京", "安徽", "山东", "广东", "深圳",
+            "天津", "四川", "湖北", "河南", "河北", "福建", "江西", "辽宁", "黑龙江", "吉林",
+            "山西", "陕西", "甘肃", "宁夏", "青海", "云南", "贵州", "广西", "海南", "内蒙古",
+            "新疆", "西藏", "重庆", "东南", "海峡", "三沙", "厦门", "延边", "兵团", "农林"
+    };
+
+    private static int satelliteRank(String name) {
+        String key = LiveChannel.normalize(name);
+        for (int i = 0; i < SATELLITE_ORDER.length; i++) {
+            if (key.contains(SATELLITE_ORDER[i])) {
+                return i * 10;
+            }
+        }
+        return 1000;
+    }
+
     private static boolean isPlaceholderGroup(String name) {
         if (name == null) {
             return true;
@@ -204,6 +415,9 @@ public final class LiveCatalog {
     }
 
     private static boolean isPlaceholderChannel(String name) {
+        if (name != null && name.toUpperCase().contains("GEO-BLOCKED")) {
+            return true;
+        }
         String n = name == null ? "" : name.trim();
         if (n.length() == 0) {
             return true;

@@ -276,10 +276,14 @@ public class LivePage extends FrameLayout implements ModulePage {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(22)));
 
         // 两列：左分类、右频道
+        FrameLayout columnsWrap = new FrameLayout(getContext());
+        panel.addView(columnsWrap, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
         LinearLayout columns = new LinearLayout(getContext());
         columns.setOrientation(LinearLayout.HORIZONTAL);
-        panel.addView(columns, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        columnsWrap.addView(columns, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         catWall = new TileWall(getContext());
         catWall.setNumColumns(1);
@@ -348,6 +352,20 @@ public class LivePage extends FrameLayout implements ModulePage {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0.66f);
         chParams.leftMargin = dp(4);
         columns.addView(channelWall, chParams);
+
+        // 底部渐隐：列表滚到一半时，最后一行会被切成半个字，看起来像 bug。
+        // 盖一层「透明 → 面板底色」的渐变，把裁切线化掉，同时暗示下面还有内容。
+        View fade = new View(getContext());
+        GradientDrawable fadeBg = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x00101014, 0xE6101014});
+        fade.setBackground(fadeBg);
+        fade.setFocusable(false);
+        fade.setClickable(false);
+        FrameLayout.LayoutParams fadeParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+        fadeParams.gravity = Gravity.BOTTOM;
+        columnsWrap.addView(fade, fadeParams);
     }
 
     /** 左列：分类。选中态显示当前所在分类 */

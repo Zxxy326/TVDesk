@@ -54,7 +54,7 @@ public final class LiveRepository {
      * 缓存格式版本。源清单/合并规则变了就 +1：老目录里没有新源的高清地址，
      * 留着只会让人以为「加了源还是糊」。
      */
-    private static final int CACHE_VERSION = 11;
+    private static final int CACHE_VERSION = 15;
     /** 单份源整体上限：主地址 10 秒拿不到就换镜像 */
     private static final long FETCH_TIMEOUT_MS = 8000L;
     /** 一次同步最多等多久（几份源加镜像，串行最坏情况） */
@@ -149,6 +149,8 @@ public final class LiveRepository {
                 }
                 throw new IOException("直播源都取不到，检查网络后重试");
             }
+            // 多份源合过之后顺序是「谁先并进来谁在前」，必须按央视/卫视重排一遍
+            merged.sortChannels();
             merged.updatedAt = System.currentTimeMillis();
             merged.sources = names.toString();
             writeCache(file, merged);
@@ -333,6 +335,7 @@ public final class LiveRepository {
             // 缓存里可能还留着旧版没过滤的广告位（比如「支持作者」）：
             // 读的时候再过一遍，不用等下一次同步
             catalog.dropPlaceholders();
+            catalog.sortChannels();
             if (catalog.isEmpty()) {
                 return null;
             }
