@@ -20,6 +20,9 @@ final class DeskPrefs {
     private static final String KEY_SHOW_WEATHER = "show_weather";
     private static final String KEY_UPDATE_URL = "update_manifest_url";
     private static final String KEY_HOME_GUARD = "home_guard";
+    /** 直播页上次的分组名与频道名（归一化后） */
+    private static final String KEY_LIVE_GROUP = "live_group";
+    private static final String KEY_LIVE_CHANNEL = "live_channel";
 
     /** 音乐播放模式：0 顺序 / 1 随机 / 2 单首循环 */
     private static final String KEY_MUSIC_MODE = "music_play_mode";
@@ -177,6 +180,28 @@ final class DeskPrefs {
 
     public static void setKeepPlayingOnLeave(Context context, boolean keep) {
         of(context).edit().putBoolean(KEY_KEEP_PLAYING, keep).apply();
+    }
+
+    /**
+     * 直播页上次停在哪个分组、哪个频道。
+     *
+     * <p>存「归一化后的频道名」而不是下标：源每 6 小时重扫一次，频道会增删、顺序会变，
+     * 记下标下次回来就指到别人身上了。名字虽然也可能改名，但改名比换位置少得多。
+     */
+    public static String liveGroup(Context context) {
+        return of(context).getString(KEY_LIVE_GROUP, "");
+    }
+
+    public static void setLiveGroup(Context context, String group) {
+        of(context).edit().putString(KEY_LIVE_GROUP, group == null ? "" : group).apply();
+    }
+
+    public static String liveChannel(Context context) {
+        return of(context).getString(KEY_LIVE_CHANNEL, "");
+    }
+
+    public static void setLiveChannel(Context context, String key) {
+        of(context).edit().putString(KEY_LIVE_CHANNEL, key == null ? "" : key).apply();
     }
 
     /**

@@ -22,8 +22,8 @@ android {
     defaultConfig {
         applicationId 'com.tvdesk.app'
         targetSdkVersion 28
-        versionCode 25
-        versionName '1.1.14'
+        versionCode 26
+        versionName '1.1.15'
         multiDexEnabled true
         // 两个模式各自在清单里写 tvdesk.home_mode，见 app/src/standard|guard/AndroidManifest.xml。
         // desk 侧读 ApplicationInfo.metaData，不反向依赖 app 的 BuildConfig

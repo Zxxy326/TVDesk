@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 import okhttp3.MediaType;
@@ -206,8 +207,11 @@ public class DouyinClient {
      *
      * <p>抖音的 tab/feed 用 refresh_index 区分批次：一直传 1，服务端就永远给首页那批，
      * 于是续流看起来「怎么刷都是这几个人」。每要一次递增，才是真的往下翻。
+     *
+     * <p>用 AtomicInteger：屏保那边的四轮推荐是并发拉的，普通 int 自增在并发下
+     * 会拿到同一个 index（两轮问同一批，白花一次请求），也可能跳过几个。
      */
-    private int feedRound;
+    private final AtomicInteger feedRound = new AtomicInteger();
 
     private DouyinClient(Context context) {
         app = context.getApplicationContext();
@@ -296,9 +300,12 @@ public class DouyinClient {
     /**
      * 拿设备票 {@code ttwid}。这个接口不要签名、不要 cookie，一次拿到长期复用。
      *
+     * <p>{@code synchronized}：屏保的四轮推荐是并发拉的，四路同时发现「还没有 ttwid」
+     * 就会各注册一次，白打四个请求还可能彼此覆盖。串起来之后只注册一次，后面三路直接拿结果。
+     *
      * @return 是否可用；失败不抛错，因为拿不到 ttwid 也只是退化成「完全匿名」请求
      */
-    public boolean ensureTtwid() {
+    public synchronized boolean ensureTtwid() {
         if (!TextUtils.isEmpty(ttwid)) {
             return true;
         }
@@ -353,7 +360,10 @@ public class DouyinClient {
         params.put("share_aweme_id", "");
         params.put("live_insert_type", "");
         params.put("count", String.valueOf(count));
-        params.put("refresh_index", String.valueOf(++feedRound));
+        // 先取到本次用的 index 再进参数：日志要记「这一批用的是第几次」，
+        // 直接读字段的话并发时四路都会打出最后那个值，看不出批次差别
+        final int round = feedRound.incrementAndGet();
+        params.put("refresh_index", String.valueOf(round));
         params.put("video_type_select", "1");
         params.put("pull_type", "0");
         params.put("view_count", "0");
@@ -361,7 +371,7 @@ public class DouyinClient {
         params.put("aweme_pc_rec_raw_data", "{\"is_client\":false,\"is_dash_user\":true,"
                 + "\"related_recommend\":false,\"is_xigua_user\":false,\"seo_info\":\"\"}");
         List<DyItem> items = items(getJson("/aweme/v1/web/tab/feed/", params, true));
-        android.util.Log.i("DouyinClient", "推荐流 round=" + feedRound + " -> " + items.size() + " 条");
+        android.util.Log.i("DouyinClient", "推荐流 round=" + round + " -> " + items.size() + " 条");
         return items;
     }
 

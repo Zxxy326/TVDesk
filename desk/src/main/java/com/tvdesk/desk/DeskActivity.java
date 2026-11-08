@@ -89,7 +89,7 @@ public class DeskActivity extends DeskAdaptActivity {
      * 再留一个整页入口就是把同一件事做两遍。
      */
     private static final String[] MODULES = {
-            "桌面", "音乐", "抖音", "哔哩哔哩", "应用", "信号源", "设置"
+            "桌面", "音乐", "抖音", "哔哩哔哩", "应用", "信号源", "直播", "设置"
     };
 
     /**
@@ -102,7 +102,7 @@ public class DeskActivity extends DeskAdaptActivity {
      * 那是 TVBox 的整页设置（播放器、弹幕、界面、直播… 几十项），而桌面只用得到其中
      * 「配置地址」一项——把用户扔进一个满是陌生选项的页面里去找一个输入框，找不到是正常的。
      */
-    private static final int MODULE_SETTING = 6;
+    private static final int MODULE_SETTING = 7;
 
     /**
      * 「抖音」内嵌为模块页（{@link DouyinPage}）：竖屏信息流，一屏一条。
@@ -149,6 +149,14 @@ public class DeskActivity extends DeskAdaptActivity {
      * 内嵌页不会触发桌面 {@code onResume}，所以「关掉模块页回桌面」那一刻也补一次比对。
      */
     private static final int MODULE_SIGNAL = 5;
+
+    /**
+     * 「直播」内嵌为模块页（{@link LivePage}）：IPTV 频道墙 + 全屏播放，两态一页。
+     *
+     * <p>缓存实例是为了别每次进来都重建播放器；数据本身走 {@code LiveRepository}
+     * 的磁盘缓存，切走再回来是秒开的，不需要把目录留在内存里。
+     */
+    private static final int MODULE_LIVE = 6;
 
     /**
      * 顶栏最多显示几个类目，超出的收进「更多」。
@@ -364,6 +372,7 @@ public class DeskActivity extends DeskAdaptActivity {
     private BiliPage biliPage;
     /** 应用卡片墙实例缓存，理由同 {@link #biliPage}（重的是包目录扫描，不是网络） */
     private AppPage appPage;
+    private LivePage livePage;
     /** 信号源页实例缓存，理由同 {@link #appPage}（重的是问系统电视输入框架那一步） */
     private SignalPage signalPage;
     /** 还没开工模块的占位页，按模块下标缓存 */
@@ -3142,6 +3151,18 @@ public class DeskActivity extends DeskAdaptActivity {
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             }
             page = appPage;
+        } else if (index == MODULE_LIVE) {
+            if (livePage == null) {
+                livePage = new LivePage(this, new Runnable() {
+                    @Override
+                    public void run() {
+                        closeModulePage();
+                    }
+                });
+                moduleHost.addView(livePage, new android.widget.FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+            page = livePage;
         } else if (index == MODULE_SIGNAL) {
             if (signalPage == null) {
                 signalPage = new SignalPage(this, new Runnable() {
@@ -3399,8 +3420,11 @@ public class DeskActivity extends DeskAdaptActivity {
     }
 
     private boolean isCachedPage(ModulePage page) {
+        // 列在这里的页在关模块时只 setVisibility(GONE)，实例留在 moduleHost 里复用。
+        // 漏一个的后果不是「重建慢」而是黑屏：openModulePage 看到字段非空就不再 addView，
+        // 而关页时它已经被 removeView 了 —— 模块区是空的，连焦点都没有（直播页踩过这个坑）
         return page == musicPage || page == douyinPage || page == biliPage || page == appPage
-                || page == signalPage
+                || page == signalPage || page == livePage
                 || page instanceof PlaceholderPage;
     }
 

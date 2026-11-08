@@ -11,6 +11,12 @@ import com.tvdesk.core.douyin.model.DyItem;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 抖音推荐流 → 屏保条目。
@@ -30,6 +36,10 @@ public final class DouyinBackdropSource {
     private static final long TTL_MS = 30 * 60 * 1000L;
     /** 一次要多少条：横屏比例不高，多要一点才有得挑 */
     private static final int WANT = 30;
+    /** 下拉几轮。并发执行，所以轮数上去不会线性变慢，只是瞬时连接数上去 */
+    private static final int ROUNDS = 4;
+    /** 池子最多留多少条：再多也放不完一轮屏保 */
+    private static final int MAX_ITEMS = 16;
 
     private static List<BackdropItem> cache;
     private static long cacheAt;
@@ -52,48 +62,82 @@ public final class DouyinBackdropSource {
      * 抖音接口偶尔要 ttwid 或风控，失败不该把已经能放的内容清空。
      */
     public static synchronized List<BackdropItem> refresh(Context context) throws IOException {
-        DouyinClient client = DouyinClient.get(context);
+        final DouyinClient client = DouyinClient.get(context);
         List<BackdropItem> out = new ArrayList<>();
         int total = 0;
         int portrait = 0;
         StringBuilder seen = new StringBuilder();
         // 一次 feed 只回个位数（实测 2 条），多拉几轮才有得挑：
-        // refresh_index 每次递增，服务端当「又下拉了一次」，回来的不是同一批
-        for (int round = 0; round < 4 && out.size() < 16; round++) {
-            List<DyItem> items;
-            try {
-                items = client.feed(WANT, seen.toString());
-            } catch (Throwable th) {
-                Log.i(TAG, "第 " + (round + 1) + " 轮推荐失败：" + th.getMessage());
-                break;
+        // refresh_index 每次递增，服务端当「又下拉了一次」，回来的不是同一批。
+        //
+        // 这四轮是并发的，不是串行。串行实测 4×2 秒 ≈ 8 秒，屏保要等这么久才有抖音内容；
+        // 而这四个请求彼此不依赖——服务端只看 refresh_index（客户端自增），
+        // 同时下拉四次和先后下拉四次拿到的是同样四批。并发后整体≈单次耗时。
+        // 代价是瞬时 4 个连接，和原来「8 秒里连着发 4 个」总量一样，只是挤在一起。
+        ExecutorService pool = Executors.newFixedThreadPool(ROUNDS, new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable runnable) {
+                Thread thread = new Thread(runnable, "douyin-feed");
+                thread.setDaemon(true);
+                return thread;
             }
-            if (items == null || items.isEmpty()) {
-                break;
+        });
+        List<Future<List<DyItem>>> futures = new ArrayList<>(ROUNDS);
+        try {
+            for (int round = 0; round < ROUNDS; round++) {
+                futures.add(pool.submit(new Callable<List<DyItem>>() {
+                    @Override
+                    public List<DyItem> call() throws Exception {
+                        return client.feed(WANT, "");
+                    }
+                }));
             }
-            total += items.size();
-            for (DyItem dy : items) {
-                if (dy == null || TextUtils.isEmpty(dy.id)) {
+            for (int round = 0; round < futures.size(); round++) {
+                List<DyItem> items;
+                try {
+                    // 单次 feed 的读超时是 15 秒，这里多给一点余量等它自己失败
+                    items = futures.get(round).get(20, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    // 某一轮失败不该影响别的轮：继续收后面几轮的
+                    Log.i(TAG, "第 " + (round + 1) + " 轮推荐失败：" + e.getMessage());
                     continue;
                 }
-                if (seen.indexOf(dy.id) >= 0) {
+                if (items == null || items.isEmpty()) {
                     continue;
                 }
-                if (seen.length() > 0) {
-                    seen.append(',');
+                total += items.size();
+                for (DyItem dy : items) {
+                    if (dy == null || TextUtils.isEmpty(dy.id)) {
+                        continue;
+                    }
+                    if (seen.indexOf(dy.id) >= 0) {
+                        continue;
+                    }
+                    if (seen.length() > 0) {
+                        seen.append(',');
+                    }
+                    seen.append(dy.id);
+                    if (TextUtils.isEmpty(dy.playUrl) || dy.width <= 0 || dy.height <= 0) {
+                        continue;
+                    }
+                    if (dy.height >= dy.width) {
+                        portrait++;
+                        continue;
+                    }
+                    if (TextUtils.isEmpty(dy.cover)) {
+                        continue;
+                    }
+                    out.add(of(dy));
+                    if (out.size() >= MAX_ITEMS) {
+                        break;
+                    }
                 }
-                seen.append(dy.id);
-                if (TextUtils.isEmpty(dy.playUrl) || dy.width <= 0 || dy.height <= 0) {
-                    continue;
+                if (out.size() >= MAX_ITEMS) {
+                    break;
                 }
-                if (dy.height >= dy.width) {
-                    portrait++;
-                    continue;
-                }
-                if (TextUtils.isEmpty(dy.cover)) {
-                    continue;
-                }
-                out.add(of(dy));
             }
+        } finally {
+            pool.shutdownNow();
         }
         if (!out.isEmpty()) {
             cache = out;
