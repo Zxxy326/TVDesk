@@ -79,6 +79,64 @@ public final class LiveCatalog {
     }
 
     /**
+     * 排过序的分组名：央视 → 卫视 → 地方 → 其余 → 备用/测试垫底。
+     *
+     * <p>为什么要排：合并多份源之后，分组顺序取决于「哪份源先被并进来」。
+     * 实测 suxuang 那份把「备用频道」排在最前，于是进直播第一个台就是死链，
+     * 上下键换台也全在垃圾里跳。用户想看的永远是央视和卫视。
+     *
+     * <p>排序只调整展示和遍历顺序，不动分组内容。
+     */
+    public List<String> rankedGroupNames() {
+        List<String> names = new ArrayList<>(groups.keySet());
+        java.util.Collections.sort(names, new java.util.Comparator<String>() {
+            @Override
+            public int compare(String a, String b) {
+                int ra = rank(a);
+                int rb = rank(b);
+                if (ra != rb) {
+                    return ra - rb;
+                }
+                return 0;
+            }
+        });
+        return names;
+    }
+
+    private static int rank(String group) {
+        String name = group == null ? "" : group;
+        if (name.contains("备用") || name.contains("测试") || name.contains("其他")
+                || name.contains("其它")) {
+            return 90;
+        }
+        if (name.contains("央视") || name.equalsIgnoreCase("CCTV")) {
+            return 0;
+        }
+        if (name.contains("卫视")) {
+            return 10;
+        }
+        if (name.contains("地方") || name.contains("城市")) {
+            return 20;
+        }
+        if (name.contains("影视") || name.contains("电影") || name.contains("电视剧")) {
+            return 30;
+        }
+        if (name.contains("体育") || name.contains("赛事")) {
+            return 35;
+        }
+        if (name.contains("少儿") || name.contains("儿童") || name.contains("动画")) {
+            return 40;
+        }
+        if (name.contains("纪录") || name.contains("科教")) {
+            return 45;
+        }
+        if (name.contains("音乐") || name.contains("戏曲")) {
+            return 50;
+        }
+        return 60;
+    }
+
+    /**
      * 去掉「更新时间」这类不是频道的占位分组。
      *
      * <p>源的生成脚本会往 m3u 里塞一条「更新时间」记录（地址是宣传片），
@@ -120,7 +178,13 @@ public final class LiveCatalog {
     }
 
     private static boolean isPlaceholderGroup(String name) {
-        return name.contains("更新时间") || name.contains("公告") || name.contains("说明");
+        if (name == null) {
+            return true;
+        }
+        // 「备用频道」这类是给主线路挂掉时用的备份，实测九成是死链或者回放，
+        // 留在列表里只会让用户以为「这个台坏了」。整组丢掉。
+        return name.contains("更新时间") || name.contains("公告") || name.contains("说明")
+                || name.contains("备用") || name.contains("测试");
     }
 
     private static boolean isPlaceholderChannel(String name) {

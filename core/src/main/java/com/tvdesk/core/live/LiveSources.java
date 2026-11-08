@@ -3,17 +3,25 @@ package com.tvdesk.core.live;
 /**
  * 内置直播源清单。
  *
- * <p>三份源，分工不同：
+ * <h3>按清晰度排，不按数量排</h3>
+ * 央视/卫视在公网 IPv4 那批源里几乎都是几百 K 的低码率转码，画面糊成这样，
+ * 台再多也没意义。所以清单按<b>画质</b>分层：
+ *
  * <ol>
- *   <li><b>vbskycn IPv4</b>（主）：{@code live.zbds.top} 每 6 小时扫一遍，
- *       带台标和 EPG 头，频道以央视/卫视/地方为主，是日常看的那一份；</li>
- *   <li><b>vbskycn IPv6</b>（补充）：同一项目另一份清单，只收 IPv6 地址。
- *       这一份经常是空的（作者扫不到就只留一条更新时间），所以取不到不算错；</li>
- *   <li><b>Guovin iptv-api</b>（兜底）：主源整个取不到、或者取到了但频道数少得离谱时用。</li>
+ *   <li><b>fanmingming IPv6</b>：运营商 IPv6 单播（{@code 2409:...}），
+ *       实测同一路 CCTV 是实打实的 1080p；</li>
+ *   <li><b>YanG-1989「咪咕」</b>：移动咪咕的 4K/高清源，含体育赛事；</li>
+ *   <li><b>vbskycn IPv6</b>：同项目的 IPv6 清单（当前上游常为空，取不到不算错）；</li>
+ *   <li><b>vbskycn IPv4</b>：台最全（四百多），但画质普遍低，作为「能看就行」的兜底；</li>
+ *   <li><b>Guovin iptv-api</b>：全挂了才用。</li>
  * </ol>
  *
- * <p>每份源都配了镜像：GitHub 域名在国内时通时不通，raw 取不到就换加速站，
- * 全部失败才判定这份源不可用。
+ * <p>合并同名台时，<b>先出现的地址优先</b>（见 {@link LiveCatalog#add}），
+ * 所以这个顺序直接决定播放时先试哪一路——同一个央视一台，优先后面的高清地址，
+ * 播不动才回落到 IPv4 低码率那一路。
+ *
+ * <p>IPv6 那几份只在<b>本机 IPv6 真的通</b>时才排到前面（见 {@code Ipv6.available()}）：
+ * 有地址但路不通的机器上先试 IPv6 等于每个台白等一次超时。
  */
 public final class LiveSources {
 
@@ -23,12 +31,26 @@ public final class LiveSources {
         public final String title;
         /** 是否算「主源」：主源都失败或者频道太少，才启用兜底源 */
         public final boolean primary;
+        /** 是否 IPv6 专用（决定要不要在本机没有 IPv6 时跳过） */
+        public final boolean ipv6Only;
+        /**
+         * 合并前要不要先抽检两条地址。
+         *
+         * <p>只对「很可能整份播不动」的源开：跨运营商（移动源在电信线路上）、
+         * 需要白名单（咪咕）。通不过就整份丢弃，否则它的台名会和公网源重名，
+         * 变成每个台的「第 1 条地址」，每个台都先白试一次失败。
+         * 其余源默认信任（多两次探测就把首次同步拖长了）。
+         */
+        public final boolean verify;
         public final String[] urls;
 
-        Source(String id, String title, boolean primary, String... urls) {
+        Source(String id, String title, boolean primary, boolean ipv6Only, boolean verify,
+               String... urls) {
             this.id = id;
             this.title = title;
             this.primary = primary;
+            this.ipv6Only = ipv6Only;
+            this.verify = verify;
             this.urls = urls;
         }
     }
@@ -36,29 +58,69 @@ public final class LiveSources {
     private LiveSources() {
     }
 
-    public static final Source IPV4 = new Source("vbskycn4", "vbskycn · IPv4", true,
-            "https://live.zbds.top/tv/iptv4.m3u",
-            "https://raw.githubusercontent.com/vbskycn/iptv/master/tv/iptv4.m3u",
-            "https://gh-proxy.com/raw.githubusercontent.com/vbskycn/iptv/refs/heads/master/tv/iptv4.m3u");
+    /** 高清：运营商 IPv6 单播，画面最接近原画 */
+    public static final Source FM_IPV6 = new Source("fangming6", "FanMingMing · IPv6 高清", true, true, true,
+            "https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/ipv6.m3u",
+            "https://cdn.jsdelivr.net/gh/fanmingming/live@main/tv/m3u/ipv6.m3u",
+            "https://gh-proxy.com/raw.githubusercontent.com/fanmingming/live/main/tv/m3u/ipv6.m3u");
 
-    public static final Source IPV6 = new Source("vbskycn6", "vbskycn · IPv6", true,
+    /** 高清：移动咪咕，含 4K 体育；不在移动网络时多半播不动，但地址会作为候选保留 */
+    public static final Source YANG = new Source("yang1989", "YanG-1989 · 咪咕高清", true, false, true,
+            "https://raw.githubusercontent.com/YanG-1989/m3u/main/Gather.m3u",
+            "https://cdn.jsdelivr.net/gh/YanG-1989/m3u@main/Gather.m3u");
+
+    /** vbskycn IPv6（同项目另一份清单，上游经常是空的） */
+    public static final Source IPV6 = new Source("vbskycn6", "vbskycn · IPv6", true, true, false,
             "https://live.zbds.top/tv/iptv6.m3u",
             "https://raw.githubusercontent.com/vbskycn/iptv/master/tv/iptv6.m3u",
             "https://gh-proxy.com/raw.githubusercontent.com/vbskycn/iptv/refs/heads/master/tv/iptv6.m3u");
 
-    public static final Source FALLBACK = new Source("guovin", "Guovin iptv-api", false,
+    /** 台最全、画质一般：兜住「高清源里没有的地方台」 */
+    public static final Source IPV4 = new Source("vbskycn4", "vbskycn · IPv4 全量", true, false, false,
+            "https://live.zbds.top/tv/iptv4.m3u",
+            "https://raw.githubusercontent.com/vbskycn/iptv/master/tv/iptv4.m3u",
+            "https://gh-proxy.com/raw.githubusercontent.com/vbskycn/iptv/refs/heads/master/tv/iptv4.m3u");
+
+    /** 台最多、且带 130 条 IPv6 地址（社区每日扫描维护） */
+    public static final Source SUXUANG6 = new Source("suxuang6", "suxuang · IPv6 综合", true, false, true,
+            "https://raw.githubusercontent.com/suxuang/myIPTV/main/ipv6.m3u",
+            "https://cdn.jsdelivr.net/gh/suxuang/myIPTV@main/ipv6.m3u");
+
+    /** 少量但全是 4K/高清（北京卫视4K、东方卫视4K 这类） */
+    public static final Source SUXUANG4K = new Source("suxuang4k", "suxuang · 4K 精选", true, false, true,
+            "https://raw.githubusercontent.com/suxuang/myIPTV/main/ipv4.m3u",
+            "https://cdn.jsdelivr.net/gh/suxuang/myIPTV@main/ipv4.m3u");
+
+    /** 国际版国内台：一半标着 1080p，画质比公网转发源稳定 */
+    public static final Source IPTV_ORG = new Source("iptvorg", "iptv-org · CN", true, false, false,
+            "https://iptv-org.github.io/iptv/countries/cn.m3u");
+
+    /** 最后兜底 */
+    public static final Source FALLBACK = new Source("guovin", "Guovin iptv-api", false, false, false,
             "https://guovin.github.io/iptv-api/result.m3u",
             "https://raw.githubusercontent.com/Guovin/iptv-api/gd1/output/result.m3u");
 
-    public static Source[] all() {
-        return new Source[]{IPV4, IPV6, FALLBACK};
+    /**
+     * 按当前网络能力给出抓取顺序。
+     *
+     * @param ipv6Available 本机 IPv6 是否真的通（{@code Ipv6.available()}）
+     */
+    public static Source[] ordered(boolean ipv6Available) {
+        // 顺序 = 合并时地址的优先级。
+        //
+        // 这里把「能放」排在「标着高清」前面，是实测换来的：公开的高清清单
+        // 基本都是地区内网源（fanmingming 是北京移动、suxuang 是广东电信），
+        // 跨运营商/跨省时整份 502。把死链排在前面，结果是每个台先白等一次失败。
+        // 所以先上真正通的（iptv-org 有 1080p、vbskycn 台最全），
+        // 地区源放后面当附加线路——它哪天真通了，同名台会自动多一条更清的地址。
+        return new Source[]{IPTV_ORG, IPV4, SUXUANG6, SUXUANG4K, FM_IPV6, YANG, IPV6, FALLBACK};
     }
 
     /**
      * 主源加起来少于这个数，就认为「没取到有效内容」，启用兜底。
      *
-     * <p>正常一份有上千个频道；主源被墙、被改格式、返回 HTML 错误页时，
-     * 解析出来是 0 或个位数——用 50 当阈值足够区分「正常」和「坏了」。
+     * <p>正常一份有几百上千个频道；主源被墙、被改格式、返回 HTML 错误页时，
+     * 解析出来是 0 或个位数。
      */
     public static final int MIN_CHANNELS = 50;
 }

@@ -4,6 +4,7 @@ import android.content.Context;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.tvdesk.core.net.Ipv6;
 import com.tvdesk.core.net.PreferIpv4Dns;
 
 import org.json.JSONArray;
@@ -49,10 +50,15 @@ public final class LiveRepository {
     public static final long TTL_MS = 6 * 60 * 60 * 1000L;
 
     private static final Object LOCK = new Object();
+    /**
+     * 缓存格式版本。源清单/合并规则变了就 +1：老目录里没有新源的高清地址，
+     * 留着只会让人以为「加了源还是糊」。
+     */
+    private static final int CACHE_VERSION = 9;
     /** 单份源整体上限：主地址 10 秒拿不到就换镜像 */
-    private static final long FETCH_TIMEOUT_MS = 10000L;
+    private static final long FETCH_TIMEOUT_MS = 8000L;
     /** 一次同步最多等多久（几份源加镜像，串行最坏情况） */
-    private static final long SYNC_TIMEOUT_MS = 45000L;
+    private static final long SYNC_TIMEOUT_MS = 40000L;
 
     private static OkHttpClient http;
 
@@ -113,7 +119,10 @@ public final class LiveRepository {
             }
             LiveCatalog merged = new LiveCatalog();
             StringBuilder names = new StringBuilder();
-            for (LiveSources.Source source : LiveSources.all()) {
+            // 有 IPv6 就先抓高清的 IPv6 单播源；没有就完全跳过它们，
+            // 否则每个台都要先等一次连接超时才轮到 IPv4 那一路
+            boolean ipv6 = Ipv6.available();
+            for (LiveSources.Source source : LiveSources.ordered(ipv6)) {
                 if (!source.primary && merged.channelCount() >= LiveSources.MIN_CHANNELS) {
                     // 主源已经够用，兜底源就不打了——省一次跨网下载
                     continue;
@@ -123,7 +132,7 @@ public final class LiveRepository {
                     break;
                 }
                 int before = merged.channelCount();
-                if (fetchInto(merged, source, Math.min(left, FETCH_TIMEOUT_MS * 3))) {
+                if (fetchInto(merged, source, Math.min(left, FETCH_TIMEOUT_MS * 2))) {
                     int got = merged.channelCount() - before;
                     if (got > 0) {
                         if (names.length() > 0) {
@@ -143,7 +152,8 @@ public final class LiveRepository {
             merged.updatedAt = System.currentTimeMillis();
             merged.sources = names.toString();
             writeCache(file, merged);
-            Log.i(TAG, "同步完成：" + merged.channelCount() + " 个频道（" + merged.sources + "）");
+            Log.i(TAG, "同步完成：" + merged.channelCount() + " 个频道（" + merged.sources
+                    + "）ipv6=" + ipv6);
             return merged;
         }
     }
@@ -167,6 +177,13 @@ public final class LiveRepository {
                 Log.i(TAG, source.id + " " + url + " 解析出 0 个频道，换下一个地址");
                 continue;
             }
+            // 抽检必须在合并之前：解析得出来不等于播得动。咪咕这类源在非移动线路上
+            // 整份 404，但台名和公网源重名，先合并进来就会成为每个台的「第 1 条地址」，
+            // 于是每个台都要先白试一次失败才回落
+            if (source.verify && !reachable(parsed)) {
+                Log.i(TAG, source.id + " 抽检不通过（地址播不动），跳过这份源");
+                return false;
+            }
             if (into.epgUrl.length() == 0) {
                 into.epgUrl = parsed.epgUrl;
             }
@@ -180,6 +197,65 @@ public final class LiveRepository {
         }
         Log.i(TAG, source.id + " 所有地址都失败");
         return false;
+    }
+
+    /**
+     * 抽检：从这份源里挑两条不同的地址各试一次，有一条通就算可用。
+     *
+     * <p>为什么抽两条：单条可能是源作者漏掉的死链；全都不通基本就是「这份源在当前网络
+     * 不可用」（跨运营商、需要白名单、上游下线）。
+     */
+    private static boolean reachable(LiveCatalog catalog) {
+        // 抽 3 条、至少 2 条通才算这份源可用：只过 1 条的多半是个别能播，
+        // 剩下全是死链——这种源合并进来只会制造「这个台播不了」的错觉
+        int tried = 0;
+        int ok = 0;
+        for (String group : catalog.groupNames()) {
+            for (LiveChannel channel : catalog.group(group)) {
+                if (channel.urls.isEmpty()) {
+                    continue;
+                }
+                if (tried >= 3) {
+                    return ok >= 2;
+                }
+                tried++;
+                if (probe(channel.urls.get(0))) {
+                    ok++;
+                }
+            }
+        }
+        return ok >= 2;
+    }
+
+    /** 拉一小段看是不是 m3u8；能通就说明这条链路可用 */
+    private static boolean probe(String url) {
+        Request request = new Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 9) AppleWebKit/537.36")
+                .build();
+        OkHttpClient client = http().newBuilder()
+                .callTimeout(3500, TimeUnit.MILLISECONDS)
+                .build();
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                Log.i(TAG, "抽检 " + request.url().host() + " HTTP " + response.code());
+                return false;
+            }
+            ResponseBody body = response.body();
+            if (body == null) {
+                return false;
+            }
+            // 能读到字节就算通（m3u8 是文本，分片是二进制，都满足）
+            java.io.InputStream in = body.byteStream();
+            try {
+                return in.read() != -1;
+            } finally {
+                in.close();
+            }
+        } catch (Throwable th) {
+            Log.i(TAG, "抽检 " + request.url().host() + " 异常 " + th.getClass().getSimpleName());
+            return false;
+        }
     }
 
     private static String get(String url, long timeoutMs) {
@@ -212,6 +288,9 @@ public final class LiveRepository {
         }
         try {
             JSONObject root = new JSONObject(readText(file));
+            if (root.optInt("v", 0) != CACHE_VERSION) {
+                return null;
+            }
             LiveCatalog catalog = new LiveCatalog();
             catalog.updatedAt = root.optLong("updatedAt");
             catalog.epgUrl = root.optString("epg", "");
@@ -267,6 +346,7 @@ public final class LiveRepository {
     private static void writeCache(File file, LiveCatalog catalog) {
         try {
             JSONObject root = new JSONObject();
+            root.put("v", CACHE_VERSION);
             root.put("updatedAt", catalog.updatedAt);
             root.put("epg", catalog.epgUrl);
             root.put("sources", catalog.sources);
@@ -344,7 +424,8 @@ public final class LiveRepository {
         if (catalog == null) {
             return out;
         }
-        for (String group : catalog.groupNames()) {
+        // 用排过序的分组：央视/卫视在前，备用/测试垫底（上下键换台按这个顺序走）
+        for (String group : catalog.rankedGroupNames()) {
             out.addAll(catalog.group(group));
         }
         return out;
