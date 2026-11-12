@@ -1186,16 +1186,23 @@ public class DeskActivity extends DeskAdaptActivity {
 
             @Override
             public void onOpenNetwork() {
-                try {
-                    startActivity(new Intent(android.provider.Settings.ACTION_WIFI_SETTINGS));
-                } catch (Throwable th) {
-                    android.util.Log.w("DeskActivity", "打不开网络设置：" + th.getMessage());
+                // 厂家自己的网络页优先（小米是 MitvWifiActivity/以太网页），
+                // 不用 AOSP 的 ACTION_WIFI_SETTINGS：在电视上那是另一个体系的界面
+                if (!VendorSettings.openNetwork(DeskActivity.this)) {
+                    com.tvdesk.core.ui.DeskToast.show(DeskActivity.this,
+                            "没找到网络设置页 · 请用遥控器进电视设置");
                 }
             }
 
             @Override
             public void onOpenSettings() {
                 selectModule(MODULE_SETTING);
+            }
+
+            @Override
+            public void onClosedWithoutFocus() {
+                // 顶栏页签是桌面的「锚点」：焦点没地方去时回到它，遥控器立刻可用
+                focusActiveNav();
             }
         });
         root.addView(controlCenter, new android.widget.FrameLayout.LayoutParams(

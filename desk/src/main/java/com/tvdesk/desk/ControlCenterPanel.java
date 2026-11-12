@@ -62,6 +62,14 @@ public final class ControlCenterPanel extends FrameLayout {
         void onOpenNetwork();
 
         void onOpenSettings();
+
+        /**
+         * 面板收起了，而且没有可以还回去的焦点。
+         *
+         * <p>打开面板时如果桌面在「沉浸轮播」里，整页本来就没有焦点可记；
+         * 收起后什么都不聚焦，遥控器要按一下才「活过来」——表现为「按了没反应」。
+         */
+        void onClosedWithoutFocus();
     }
 
     // Aerial 的 Palette（tvOS 深色）
@@ -335,6 +343,8 @@ public final class ControlCenterPanel extends FrameLayout {
                 setVisibility(GONE);
                 if (lastFocus != null && lastFocus.isShown()) {
                     lastFocus.requestFocus();
+                } else if (listener != null) {
+                    listener.onClosedWithoutFocus();
                 }
             }
         }, 180);
@@ -689,11 +699,12 @@ public final class ControlCenterPanel extends FrameLayout {
             setOnClickListener(new OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    try {
-                        Intent intent = new Intent(Settings.ACTION_DISPLAY_SETTINGS);
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        getContext().startActivity(intent);
-                    } catch (Throwable ignored) {
+                    // 不进 AOSP 的「显示设置」：国产电视上那是另一套页面（小米上出来的是
+                    // 一个叫「图片」的公版界面）。点这一行是去厂家的画面设置里细调，
+                    // 找不到就明说一句，别跳到一个用户没见过的界面
+                    if (!VendorSettings.openPicture(getContext())) {
+                        com.tvdesk.core.ui.DeskToast.show(getContext(),
+                                "没找到画面设置 · 请用遥控器进电视设置");
                     }
                 }
             });

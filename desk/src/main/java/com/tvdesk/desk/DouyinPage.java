@@ -1394,6 +1394,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
     };
 
     private void setupDanmaku() {
+        Log.i(TAG, "danmaku setup view=" + (danmakuView != null));
         if (danmakuView == null) {
             return;
         }
@@ -1446,6 +1447,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
             danmakuView.release();
         } catch (Throwable ignored) {
         }
+        Log.i(TAG, "danmaku restart id=" + (item == null ? "-" : item.id) + " on=" + danmakuOn);
         if (!danmakuOn || item == null || TextUtils.isEmpty(item.id)) {
             danmakuView.setVisibility(View.GONE);
             return;
@@ -1479,6 +1481,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         if (danmakuView == null || !danmakuOn) {
             return;
         }
+        Log.i(TAG, "danmaku comments=" + (comments == null ? -1 : comments.size()));
         if (comments == null || comments.isEmpty()) {
             danmakuView.setVisibility(View.GONE);
             return;
@@ -1541,6 +1544,9 @@ public class DouyinPage extends FrameLayout implements ModulePage {
             flushDanmaku();
             return;
         }
+        if (tries == 40) {
+            Log.i(TAG, "danmaku give up waiting prepared");
+        }
         if (tries < 40) {
             danmakuView.postDelayed(new Runnable() {
                 @Override
@@ -1563,7 +1569,9 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         }
         pendingDanmaku.clear();
         danmakuView.setVisibility(View.VISIBLE);
-        danmakuView.start(player == null ? 0 : Math.max(0, player.getCurrentPosition()));
+        long startAt = player == null ? 0 : Math.max(0, player.getCurrentPosition());
+        danmakuView.start(startAt);
+        Log.i(TAG, "danmaku flush at " + startAt + " prepared=" + danmakuView.isPrepared());
     }
 
     /** 抽屉里的「弹幕」开关 */
