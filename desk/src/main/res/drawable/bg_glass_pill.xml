@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  统一的「玻璃胶囊」底色 —— 左上角模块切换器和中间顶栏共用这一张。
+
+  为什么要统一：以前左上角在代码里换成了 GlassDrawable（按自己在窗口里的位置
+  从磨砂背景上取样），顶栏还是 bg_pill。取样是<b>按位置取色</b>的，两颗胶囊隔着
+  几百像素，取到的颜色本来就不一样（实测顶栏取到一条偏红，左上角偏灰），
+  再加上 bg_pill 的焦点态会把底色从 #8A1C1C24 提到 #CC2A2A34，聚焦时又是一层色差。
+  用户看到的就是「左上角和顶栏不是一个颜色」。
+
+  所以这里固定成一个不随位置变的半透明底，焦点只改描边、不改填色 —— 这样
+  「背景色和透明度」在所有状态下都一致，焦点反馈交给描边和 FocusScaler 的缩放。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 焦点：底色不变，只把描边提亮加粗 -->
+    <item android:state_focused="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#B3222028" />
+                    <corners android:radius="@dimen/radius_control" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/radius_control" />
+                    <gradient
+                        android:angle="270"
+                        android:endColor="#00FFFFFF"
+                        android:startColor="#33FFFFFF"
+                        android:type="linear" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/radius_control" />
+                    <stroke
+                        android:width="2dp"
+                        android:color="#CCFFFFFF" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+
+    <item>
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#B3222028" />
+                    <corners android:radius="@dimen/radius_control" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/radius_control" />
+                    <gradient
+                        android:angle="270"
+                        android:centerColor="#08FFFFFF"
+                        android:endColor="#00FFFFFF"
+                        android:startColor="#1FFFFFFF"
+                        android:type="linear" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/radius_control" />
+                    <stroke
+                        android:width="1dp"
+                        android:color="#26FFFFFF" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+
+</selector>

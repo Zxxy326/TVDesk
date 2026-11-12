@@ -426,7 +426,7 @@
         android:layout_gravity="top|start"
         android:layout_marginStart="@dimen/screen_pad"
         android:layout_marginTop="@dimen/top_bar_top"
-        android:background="@drawable/bg_pill"
+        android:background="@drawable/bg_glass_pill"
         android:clickable="true"
         android:focusable="true"
         android:gravity="center_vertical"
@@ -466,7 +466,7 @@
         android:layout_height="@dimen/top_bar_height"
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="@dimen/top_bar_top"
-        android:background="@drawable/bg_pill"
+        android:background="@drawable/bg_glass_pill"
         android:clipChildren="false"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -556,7 +556,7 @@
         android:layout_height="36dp"
         android:layout_gravity="top|center_horizontal"
         android:layout_marginTop="72dp"
-        android:background="@drawable/bg_pill"
+        android:background="@drawable/bg_glass_pill"
         android:gravity="center_vertical"
         android:paddingStart="18dp"
         android:paddingEnd="18dp"
@@ -570,13 +570,17 @@
       顶栏装不下的类目收在这里。以前这些类目只有进影视页才能看到，现在选中后
       直接在同一屏换海报墙，不再跳页。高度在代码里按条目数收口。
     -->
+    <!--
+      位置由代码算（见 positionCategoryMenu）：贴着「更多」正下方，而不是屏幕正中。
+      宽度固定 240dp，左右各自会让屏幕边距兜住。
+    -->
     <ScrollView
         android:id="@+id/category_menu_scroll"
         android:layout_width="240dp"
         android:layout_height="wrap_content"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="72dp"
-        android:background="@drawable/bg_module_menu"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="@dimen/top_menu_top"
+        android:background="@drawable/bg_glass_panel"
         android:focusable="false"
         android:overScrollMode="never"
         android:scrollbars="none"
@@ -597,8 +601,8 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
         android:layout_marginStart="@dimen/screen_pad"
-        android:layout_marginTop="70dp"
-        android:background="@drawable/bg_module_menu"
+        android:layout_marginTop="@dimen/top_menu_top"
+        android:background="@drawable/bg_glass_panel"
         android:orientation="vertical"
         android:padding="6dp"
         android:visibility="gone" />

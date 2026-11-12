@@ -54,7 +54,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import master.flame.danmaku.controller.DrawHandler;
 import master.flame.danmaku.danmaku.model.BaseDanmaku;
+import master.flame.danmaku.danmaku.model.DanmakuTimer;
 import master.flame.danmaku.danmaku.model.IDisplayer;
 import master.flame.danmaku.danmaku.model.android.DanmakuContext;
 import master.flame.danmaku.ui.widget.DanmakuView;
@@ -329,6 +331,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
         }
         player.setPlayWhenReady(false);
         if (danmakuView != null) {
+            danmakuView.removeCallbacks(danmakuStartRetry);
             danmakuView.pause();
         }
         resumeOnEnter = true;
@@ -448,6 +451,12 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                     scheduleControlsHide();
                     if (danmakuView != null && danmakuOn) {
                         resumeDanmaku();
+                        // 弹幕没取到过（网络抖一下就空手而归）时，恢复播放是个好时机再试一次；
+                        // startDanmaku 自己有 fetching/generation 判断，不会重复打接口
+                        if (danmakuParser == null
+                                && System.currentTimeMillis() - danmakuLastAttemptAt > 6000) {
+                            startDanmaku();
+                        }
                     }
                 } else if (player.getPlaybackState() != Player.STATE_BUFFERING && !streamFailed) {
                     // 暂停时把控制条和播放键留在屏幕上；缓冲中不算暂停，不弹出来闪
@@ -1397,6 +1406,33 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
         danmakuContext.setDanmakuStyle(IDisplayer.DANMAKU_STYLE_STROKEN, 3).setDanmakuMargin(8);
         danmakuView.setClickable(false);
         danmakuView.setVisibility(danmakuOn ? View.VISIBLE : View.GONE);
+        // prepare 是异步的，只有它自己知道什么时候真的好了。拿这个回调立刻起播，
+        // 而不是「等 400 毫秒再试一次」——那一次如果没赶上就再也不试了
+        danmakuView.setCallback(new DrawHandler.Callback() {
+            @Override
+            public void prepared() {
+                final int generation = danmakuGeneration;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        danmakuStartTries = 0;
+                        startDanmakuAt(generation);
+                    }
+                });
+            }
+
+            @Override
+            public void updateTimer(DanmakuTimer timer) {
+            }
+
+            @Override
+            public void danmakuShown(BaseDanmaku danmaku) {
+            }
+
+            @Override
+            public void drawingFinished() {
+            }
+        });
         applyDanmakuStyle();
     }
 
@@ -1435,8 +1471,13 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
      * 解析器是分批吐的（首批 500 条），剩下的要接着喂，否则拖到后半段就没弹幕了。
      */
     private void startDanmaku() {
-        if (released || danmakuView == null || danmakuContext == null || !danmakuOn
-                || danmakuFetching) {
+        if (released || danmakuView == null || danmakuContext == null || !danmakuOn) {
+            return;
+        }
+        // 用 generation 判断「这次是否已经在取」：同一个 generation 不重复取，
+        // 换了集（generation 变了）就直接放行——原来的布尔量在旧请求没回来时
+        // 会把新的一集挡在门外，表现就是「这一集永远没弹幕」
+        if (danmakuFetching && danmakuFetchingGeneration == danmakuGeneration) {
             return;
         }
         final long cid = streamCid > 0 ? streamCid
@@ -1444,8 +1485,10 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
         if (cid <= 0) {
             return;
         }
-        danmakuFetching = true;
         final int generation = ++danmakuGeneration;
+        danmakuFetching = true;
+        danmakuFetchingGeneration = generation;
+        danmakuLastAttemptAt = System.currentTimeMillis();
         final long initial = player == null ? 0 : Math.max(0, player.getCurrentPosition());
         new Thread(new Runnable() {
             @Override
@@ -1469,11 +1512,15 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
                             }
                         }, initial);
                     }
-                } catch (Exception e) {
-                    android.util.Log.w(TAG, "danmaku xml failed cid=" + cid, e);
+                } catch (Throwable th) {
+                    // 连 Error 一起接：这个标志位没复位的话，本集就再也不取弹幕了
+                    android.util.Log.w(TAG, "danmaku xml failed cid=" + cid, th);
+                } finally {
+                    if (danmakuFetchingGeneration == generation) {
+                        danmakuFetching = false;
+                    }
                 }
                 final Parser result = parser;
-                danmakuFetching = false;
                 if (result == null || result.getDanmuCount() <= 0) {
                     // 静默返回过一次：弹幕一条都没上屏时完全没线索，只能靠这里
                     android.util.Log.w(TAG, "danmaku empty cid=" + cid + " xml=" + xmlLength
@@ -1506,12 +1553,7 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
         danmakuParser = parser;
         danmakuView.setVisibility(danmakuOn ? View.VISIBLE : View.GONE);
         startDanmakuAt(generation);
-        danmakuView.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                startDanmakuAt(generation);
-            }
-        }, 400);
+        scheduleDanmakuStart(generation);
         appendRemaining(generation);
     }
 
@@ -1562,7 +1604,48 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
 
     private int danmakuGeneration;
     private volatile boolean danmakuFetching;
+    /** 正在取弹幕的那一次 generation：换集后旧请求还在飞时，不能挡住新的 */
+    private int danmakuFetchingGeneration = -1;
     private Parser danmakuParser;
+    /** start 重试计数，见 {@link #scheduleDanmakuStart} */
+    private int danmakuStartTries;
+    /** 上次发起取弹幕的时间：给「播放中补取」限流，别让暂停/播放反复打接口 */
+    private long danmakuLastAttemptAt;
+
+    /**
+     * 反复尝试起播，直到 DanmakuView 真的 prepared。
+     *
+     * <p>每 150ms 一次、最多 40 次（6 秒）。停的条件：起来了、换集了（generation
+     * 变了）、弹幕关了、页面退了。原来只补一拍 400ms，慢设备上弹幕解完了却不起播，
+     * 表现就是「没有弹幕」，只能手动关再开一次。
+     */
+    private void scheduleDanmakuStart(final int generation) {
+        if (danmakuView == null) {
+            return;
+        }
+        danmakuStartTries = 0;
+        danmakuView.removeCallbacks(danmakuStartRetry);
+        danmakuView.post(danmakuStartRetry);
+    }
+
+    private final Runnable danmakuStartRetry = new Runnable() {
+        @Override
+        public void run() {
+            if (released || danmakuView == null || !danmakuOn) {
+                return;
+            }
+            int generation = danmakuGeneration;
+            if (danmakuView.isPrepared()) {
+                startDanmakuAt(generation);
+                return;
+            }
+            if (++danmakuStartTries < 40) {
+                danmakuView.postDelayed(this, 150);
+            } else {
+                android.util.Log.w(TAG, "danmaku start gave up waiting for prepared");
+            }
+        }
+    };
 
     private void startDanmakuAt(int generation) {
         if (released || generation != danmakuGeneration || danmakuView == null || player == null
@@ -1572,6 +1655,9 @@ public class BiliPlayerPage extends android.widget.FrameLayout implements Module
         long position = player.getCurrentPosition();
         danmakuView.seekTo(position);
         danmakuView.start(position);
+        android.util.Log.i(TAG, "danmaku start at " + position + " gen=" + generation);
+        danmakuStartTries = 0;
+        danmakuView.removeCallbacks(danmakuStartRetry);
     }
 
     private void resumeDanmaku() {

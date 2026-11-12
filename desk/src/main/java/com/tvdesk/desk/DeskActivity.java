@@ -609,6 +609,8 @@ public class DeskActivity extends DeskAdaptActivity {
 
     /** 顶栏条目，和 {@link #navActions} / {@link #navSorts} 一一对应 */
     private final List<TextView> navItems = new ArrayList<>();
+    /** 顶栏上的「更多」：类目下拉要贴着它摆（见 positionCategoryMenu） */
+    private View moreNavItem;
     private final List<Integer> navActions = new ArrayList<>();
     private final List<MovieSort.SortData> navSorts = new ArrayList<>();
 
@@ -895,20 +897,6 @@ public class DeskActivity extends DeskAdaptActivity {
     }
 
     /**
-     * 把一颗胶囊换成玻璃底板。
-     *
-     * <p>移植自 Aerial TV 的 LiquidGlass：面板显示它背后那块磨砂背景 + 受光的边。
-     * 因为做成了 Drawable，改这里一行就等于换了背景，布局不用动。
-     */
-    private void applyGlass(android.view.View view) {
-        if (view == null) {
-            return;
-        }
-        view.setBackground(new com.tvdesk.desk.widget.GlassDrawable(
-                getResources().getDimension(R.dimen.radius_control)));
-    }
-
-    /**
      * 桌面玻璃化：顶栏那几颗胶囊挨个换掉。
      *
      * <p>先拍一张磨砂背景（Hero 图铺完之后），再换背景——顺序反了的话
@@ -978,12 +966,10 @@ public class DeskActivity extends DeskAdaptActivity {
         if (deskStatus != null) {
             deskStatus.setBackground(null);
         }
-        applyGlass(findViewById(R.id.module_switcher));
-        android.view.View hint = findViewById(R.id.source_hint);
-        if (hint != null) {
-            hint.setBackground(new com.tvdesk.desk.widget.GlassDrawable(
-                    getResources().getDimension(R.dimen.radius_panel)));
-        }
+        // 左上角模块切换器、中间顶栏、两个下拉，底色都在 XML 里固定成同一张
+        // （bg_glass_pill / bg_glass_panel）：GlassDrawable 是「按位置取样」的，
+        // 几颗胶囊隔着几百像素取到的颜色本来就不一样，统一成固定半透明才有
+        // 一致的观感。这里不再逐颗替换背景，只保留上面那张磨砂图给别处用。
     }
 
     /** 正在加载的行标题，慢响应提示和还原都用它 */
@@ -1652,6 +1638,7 @@ public class DeskActivity extends DeskAdaptActivity {
 
     private void addNavItem(String label, int action, MovieSort.SortData sort) {
         final int index = navItems.size();
+        final boolean isMore = action == ACTION_MORE;
 
         TextView item = new TextView(this);
         item.setText(label);
@@ -1674,6 +1661,9 @@ public class DeskActivity extends DeskAdaptActivity {
         item.setLayoutParams(lp);
 
         FocusScaler.attach(item, 1.06f);
+        if (isMore) {
+            moreNavItem = item;
+        }
         item.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -1810,9 +1800,45 @@ public class DeskActivity extends DeskAdaptActivity {
         }
         categoryMenuOpen = true;
         categoryMenuScroll.setVisibility(View.VISIBLE);
+        positionCategoryMenu();
         if (focusIndex < categoryMenuList.getChildCount()) {
             categoryMenuList.getChildAt(focusIndex).requestFocus();
         }
+    }
+
+    /**
+     * 把类目下拉摆到「更多」按钮的正下方。
+     *
+     * <p>以前它在布局里写的是 {@code gravity=top|center_horizontal}，于是永远出现在
+     * 屏幕正中——「更多」在右边，下拉却从中间冒出来，看着像挂错了地方。位置得由
+     * 「更多」的实际位置算：先按「更多」的中心对齐，再让屏幕边距兜住两边。
+     */
+    private void positionCategoryMenu() {
+        if (categoryMenuScroll == null || moreNavItem == null) {
+            return;
+        }
+        ViewGroup.LayoutParams raw = categoryMenuScroll.getLayoutParams();
+        if (!(raw instanceof FrameLayout.LayoutParams)) {
+            return;
+        }
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
+        int menuWidth = categoryMenuScroll.getWidth() > 0
+                ? categoryMenuScroll.getWidth() : dp(240);
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int pad = getResources().getDimensionPixelSize(R.dimen.screen_pad);
+
+        // 两颗 View 可能不在同一个父容器里，统一换算到窗口坐标再比
+        int[] anchor = new int[2];
+        moreNavItem.getLocationInWindow(anchor);
+        int[] self = new int[2];
+        categoryMenuScroll.getLocationInWindow(self);
+        int anchorCenterInParent = anchor[0] - self[0] + moreNavItem.getWidth() / 2;
+
+        int left = anchorCenterInParent - menuWidth / 2;
+        left = Math.max(pad, Math.min(left, screenWidth - menuWidth - pad));
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.leftMargin = left;
+        categoryMenuScroll.setLayoutParams(lp);
     }
 
     private void hideCategoryMenu() {

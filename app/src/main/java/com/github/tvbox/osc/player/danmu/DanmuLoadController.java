@@ -41,6 +41,8 @@ public class DanmuLoadController {
     private LoadCallback loadCallback;
     private volatile int seekGeneration;
     private volatile long pendingSeekPosition = -1;
+    /** start 重试次数：prepared 之后要等播放器真的在播，可能得试好几拍 */
+    private int startRetries;
 
     public DanmuLoadController(MyVideoView videoView, VodController controller, DanmakuView danmuView) {
         this.videoView = videoView;
@@ -50,6 +52,8 @@ public class DanmuLoadController {
         if (this.videoView != null) {
             this.videoView.setDanmuView(this.danmuView);
             this.videoView.setDanmuSeekListener(this::onDanmuSeek);
+            // 视图真的准备好的那一刻就起，不等「稍后重试」猜时间
+            this.videoView.setDanmuPreparedListener(this::onViewPrepared);
         }
         applySettings(false);
     }
@@ -92,9 +96,21 @@ public class DanmuLoadController {
         seekGeneration++;
         pendingSeekPosition = -1;
         temporarilyClosed = false;
-        danmuText = TextUtils.isEmpty(danmu) ? "" : danmu.trim();
+        String newText = TextUtils.isEmpty(danmu) ? "" : danmu.trim();
+        String newEpisode = TextUtils.isEmpty(episode) ? "" : episode;
+        boolean sameSource = newText.equals(danmuText) && newEpisode.equals(danmuEpisode);
+        danmuText = newText;
         danmuTitle = TextUtils.isEmpty(title) ? "" : title;
-        danmuEpisode = TextUtils.isEmpty(episode) ? "" : episode;
+        danmuEpisode = newEpisode;
+        if (sameSource && !TextUtils.isEmpty(danmuText) && DanmuHelper.isOpen()
+                && danmuView != null && danmuView.isPrepared()) {
+            // 同一集又调了一次（换线路、重试等）：已经准备好了，别再 release 重来，
+            // 否则正在屏上的弹幕会被清空，还得等下一轮解析
+            if (controller != null) controller.setHasDanmu(true);
+            danmuView.setVisibility(View.VISIBLE);
+            startIfReady();
+            return;
+        }
         releaseView();
         boolean hasDanmu = !TextUtils.isEmpty(danmuText);
         if (controller != null) controller.setHasDanmu(hasDanmu);
@@ -118,6 +134,10 @@ public class DanmuLoadController {
             return;
         }
         startIfReady(loadSeq.get());
+        // 状态变化时也顺手补一次重试：例如缓冲结束正在播、但弹幕视图刚好这时 prepared
+        if (danmuView != null && !danmuView.isPrepared() && !TextUtils.isEmpty(danmuText)) {
+            scheduleStart(loadSeq.get());
+        }
     }
 
     public void reset() {
@@ -170,7 +190,10 @@ public class DanmuLoadController {
 
     public void destroy() {
         reset();
-        if (videoView != null) videoView.setDanmuSeekListener(null);
+        if (videoView != null) {
+            videoView.setDanmuSeekListener(null);
+            videoView.setDanmuPreparedListener(null);
+        }
         if (executor != null) {
             executor.shutdownNow();
             executor = null;
@@ -218,9 +241,11 @@ public class DanmuLoadController {
                     danmuView.prepare(preparedParser, danmakuContext);
                     clearLoadCallback(seq);
                     danmuView.setVisibility(DanmuHelper.isOpen() ? View.VISIBLE : View.GONE);
+                    // prepare 是异步的：isPrepared() 什么时候变 true 不确定（设备慢、
+                    // 弹幕多时可能一两秒）。原来只等 300/1000 两拍，过了就直接放弃，
+                    // 于是「弹幕解好了但一条都不显示」，开关一次才好——现在改成一直试到起来
                     startIfReady(seq);
-                    danmuView.postDelayed(() -> startIfReady(seq), 300);
-                    danmuView.postDelayed(() -> startIfReady(seq), 1000);
+                    scheduleStart(seq);
                     appendRemaining(preparedParser, seq, currentSeekGeneration);
                 } catch (Throwable th) {
                     LOG.e("echo-danmu prepare error: " + th.getMessage());
@@ -282,6 +307,45 @@ public class DanmuLoadController {
         callback.onFailed();
     }
 
+    /**
+     * 排一次「尝试起播」。
+     *
+     * <p>每 150ms 试一次，最多 40 次（约 6 秒）。停下来的条件有三个：起来了、
+     * 换集/换源了（seq 变了）、或者弹幕被关了。6 秒之后还在缓冲的极端情况，
+     * 播放状态变化会再调 {@link #startIfReady()} 补上。
+     */
+    private void scheduleStart(final int seq) {
+        if (danmuView == null || seq != loadSeq.get()) return;
+        startRetries = 0;
+        danmuView.removeCallbacks(startRetry);
+        danmuView.post(startRetry);
+    }
+
+    private final Runnable startRetry = new Runnable() {
+        @Override
+        public void run() {
+            if (danmuView == null || danmuView.getVisibility() != View.VISIBLE) return;
+            int seq = loadSeq.get();
+            if (seq == startedSeq || !DanmuHelper.isOpen() || TextUtils.isEmpty(danmuText)) return;
+            if (danmuView.isPrepared()) {
+                startIfReady(seq);
+                return;
+            }
+            if (++startRetries < 40) {
+                danmuView.postDelayed(this, 150);
+            } else {
+                LOG.i("echo-danmu start gave up waiting for prepared");
+            }
+        }
+    };
+
+    /** DanmakuView 真的准备好了（{@link DrawHandler.Callback#prepared()}） */
+    private void onViewPrepared() {
+        int seq = loadSeq.get();
+        startRetries = 0;
+        startIfReady(seq);
+    }
+
     private void startIfReady(int seq) {
         if (seq != loadSeq.get()
                 || seq == startedSeq
@@ -297,6 +361,8 @@ public class DanmuLoadController {
         danmuView.seekTo(position);
         danmuView.start(position);
         startedSeq = seq;
+        startRetries = 0;
+        danmuView.removeCallbacks(startRetry);
         LOG.i("echo-danmu start at: " + position);
     }
 
@@ -310,6 +376,8 @@ public class DanmuLoadController {
 
     private void releaseView() {
         if (danmuView == null) return;
+        danmuView.removeCallbacks(startRetry);
+        startRetries = 0;
         try {
             danmuView.release();
         } catch (Throwable ignored) {

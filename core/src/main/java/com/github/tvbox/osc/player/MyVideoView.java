@@ -23,9 +23,22 @@ public class MyVideoView extends VideoView implements DrawHandler.Callback {
         void onDanmuSeek(long position);
     }
 
+    /**
+     * 弹幕视图「准备好了」的通知口。
+     *
+     * <p>DanmakuView.prepare() 是异步的，什么时候真的 prepared 只有它自己知道
+     * （回调 {@link DrawHandler.Callback#prepared()}）。控制器拿到这个信号才能
+     * 立刻 start，而不是靠「等 300 毫秒再试一次」这种猜时间——猜早了就是永远
+     * 不显示弹幕，用户得手动关开一次才出来。
+     */
+    public interface DanmuPreparedListener {
+        void onDanmuPrepared();
+    }
+
     private DanmakuView danmuView;
     private ImageView artworkView;
     private DanmuSeekListener danmuSeekListener;
+    private DanmuPreparedListener danmuPreparedListener;
 
 
     public MyVideoView(@NonNull Context context) {
@@ -152,10 +165,20 @@ public class MyVideoView extends VideoView implements DrawHandler.Callback {
         danmuSeekListener = listener;
     }
 
+    public void setDanmuPreparedListener(DanmuPreparedListener listener) {
+        danmuPreparedListener = listener;
+    }
+
     @Override
     public void prepared() {
         post(() -> {
             if (danmuView == null) return;
+            // 有监听方就交给它决定（它知道 seq / 是否临时关闭 / 是否该换集）；
+            // 自己这边只看「在播且已准备」就直接起，作为兜底
+            if (danmuPreparedListener != null) {
+                danmuPreparedListener.onDanmuPrepared();
+                return;
+            }
             if (isPlaying() && danmuView.isPrepared()) {
                 danmuView.start(getCurrentPosition());
             }

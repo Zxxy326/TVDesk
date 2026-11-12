@@ -16,6 +16,8 @@
     <dimen name="screen_pad">48dp</dimen>
     <dimen name="top_bar_top">34dp</dimen>
     <dimen name="top_bar_height">44dp</dimen>
+    <!-- 顶栏下缘再让 8dp：下拉菜单从这个位置开始，不压住顶栏胶囊 -->
+    <dimen name="top_menu_top">86dp</dimen>
 
     <!--
       卡片墙的「焦点留白」：聚焦放大的卡片允许溢出格子，白环再往外一圈，
