@@ -1,5 +1,6 @@
 package com.tvdesk.desk;
 
+import android.graphics.Color;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
@@ -29,10 +30,22 @@ import com.tvdesk.core.douyin.DouyinClient;
 import com.tvdesk.core.douyin.DouyinException;
 import com.tvdesk.core.douyin.model.DyComment;
 import com.tvdesk.core.douyin.model.DyItem;
+
+import master.flame.danmaku.controller.DrawHandler;
+import master.flame.danmaku.danmaku.model.BaseDanmaku;
+import master.flame.danmaku.danmaku.model.DanmakuTimer;
+import master.flame.danmaku.danmaku.model.IDanmakus;
+import master.flame.danmaku.danmaku.model.IDisplayer;
+import master.flame.danmaku.danmaku.model.android.DanmakuContext;
+import master.flame.danmaku.danmaku.model.android.Danmakus;
+import master.flame.danmaku.danmaku.parser.BaseDanmakuParser;
+import master.flame.danmaku.danmaku.util.DanmakuUtils;
+import master.flame.danmaku.ui.widget.DanmakuView;
 import com.tvdesk.core.douyin.model.DyProfile;
 import com.tvdesk.desk.motion.PressFx;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -230,6 +243,13 @@ public class DouyinPage extends FrameLayout implements ModulePage {
 
     private SimpleExoPlayer player;
 
+    // ---- 弹幕（把这条视频的评论当弹幕飘过画面）
+    private DanmakuView danmakuView;
+    private DanmakuContext danmakuContext;
+    /** 每次换条自增：异步取回来的评论别贴到下一集身上 */
+    private int danmakuGeneration;
+    private boolean danmakuOn;
+
     public DouyinPage(Context context, Host host, Runnable backToDesk) {
         super(context);
         this.host = host;
@@ -237,6 +257,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         this.client = DouyinClient.get(context);
         LayoutInflater.from(context).inflate(R.layout.page_douyin, this, true);
         bind();
+        setupDanmaku();
     }
 
     private void bind() {
@@ -247,6 +268,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
 
         stage = findViewById(R.id.dy_stage);
         playerView = findViewById(R.id.dy_player);
+        danmakuView = findViewById(R.id.dy_danmaku);
         coverView = findViewById(R.id.dy_cover);
         backdropView = findViewById(R.id.dy_backdrop);
         avatarView = findViewById(R.id.dy_avatar);
@@ -374,6 +396,12 @@ public class DouyinPage extends FrameLayout implements ModulePage {
             return;
         }
         player.setPlayWhenReady(false);
+        if (danmakuView != null) {
+            try {
+                danmakuView.pause();
+            } catch (Throwable ignored) {
+            }
+        }
         resumeOnEnter = true;
     }
 
@@ -554,6 +582,15 @@ public class DouyinPage extends FrameLayout implements ModulePage {
 
     @Override
     public void onRelease() {
+        danmakuGeneration++;
+        pendingDanmaku.clear();
+        if (danmakuView != null) {
+            try {
+                danmakuView.release();
+            } catch (Throwable ignored) {
+            }
+            danmakuView = null;
+        }
         released = true;
         // 长按计时器不能比页活得久：它一响就会弹出一个没有主人的搜索窗
         ui.removeCallbacks(centerLongPress);
@@ -1336,6 +1373,222 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         return TextUtils.isEmpty(e.getMessage()) ? "抖音接口不通" : e.getMessage();
     }
 
+    // ---------------------------------------------------------------- 弹幕
+
+    /**
+     * 抖音弹幕：把这条视频的评论当弹幕飘过画面。
+     *
+     * <p>抖音没有「弹幕」这个产品形态，但评论接口（{@code client.comments}，带 a_bogus 签名）
+     * 拿到的就是一条条短文本，正好当弹幕用。时间轴没有真实值可以对齐（评论没有「说到第几秒」
+     * 的信息），所以按条数把这些评论均匀铺在这条视频的剩余时长里——短视频只有几十秒，
+     * 均匀铺开比「全部堆在开头」可读得多。
+     *
+     * <p>渲染用 DanmakuFlameMaster，和 B 站那条链路同一个库：滚动排布、避让、
+     * 透明度都由它处理，不用自己算。
+     */
+    private static final BaseDanmakuParser EMPTY_PARSER = new BaseDanmakuParser() {
+        @Override
+        protected IDanmakus parse() {
+            return new Danmakus();
+        }
+    };
+
+    private void setupDanmaku() {
+        if (danmakuView == null) {
+            return;
+        }
+        danmakuContext = DanmakuContext.create();
+        HashMap<Integer, Integer> maxLines = new HashMap<>();
+        // 短视频画面本来就窄，四行滚动 + 两行顶部固定已经是上限，再多就盖住人了
+        maxLines.put(BaseDanmaku.TYPE_SCROLL_RL, 4);
+        maxLines.put(BaseDanmaku.TYPE_FIX_TOP, 2);
+        danmakuContext.setMaximumLines(maxLines)
+                .setScrollSpeedFactor(1.1f)
+                .setScaleTextSize(1f)
+                .setDanmakuStyle(IDisplayer.DANMAKU_STYLE_STROKEN, 3)
+                .setDanmakuMargin(8);
+
+        danmakuOn = DeskPrefs.dyDanmaku(getContext());
+        danmakuView.setVisibility(danmakuOn ? View.VISIBLE : View.GONE);
+        danmakuView.setCallback(new DrawHandler.Callback() {
+            @Override
+            public void prepared() {
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        flushDanmaku();
+                    }
+                });
+            }
+
+            @Override
+            public void updateTimer(DanmakuTimer timer) {
+            }
+
+            @Override
+            public void danmakuShown(BaseDanmaku danmaku) {
+            }
+
+            @Override
+            public void drawingFinished() {
+            }
+        });
+    }
+
+    /** 换条时重起弹幕：清空旧的、异步取评论、再铺新的 */
+    private void restartDanmaku(final DyItem item) {
+        if (danmakuView == null) {
+            return;
+        }
+        final int generation = ++danmakuGeneration;
+        pendingDanmaku.clear();
+        try {
+            danmakuView.release();
+        } catch (Throwable ignored) {
+        }
+        if (!danmakuOn || item == null || TextUtils.isEmpty(item.id)) {
+            danmakuView.setVisibility(View.GONE);
+            return;
+        }
+        danmakuView.setVisibility(View.VISIBLE);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<DyComment> result = null;
+                try {
+                    result = client.comments(item.id, 0);
+                } catch (Throwable th) {
+                    Log.i(TAG, "弹幕取评论失败：" + th.getMessage());
+                }
+                final List<DyComment> value = result;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (released || generation != danmakuGeneration) {
+                            return;
+                        }
+                        prepareDanmaku(value, generation);
+                    }
+                });
+            }
+        }, "dy-danmaku").start();
+    }
+
+    /** 把评论铺到时间轴上 */
+    private void prepareDanmaku(List<DyComment> comments, int generation) {
+        if (danmakuView == null || !danmakuOn) {
+            return;
+        }
+        if (comments == null || comments.isEmpty()) {
+            danmakuView.setVisibility(View.GONE);
+            return;
+        }
+        long duration = player == null ? 0 : player.getDuration();
+        if (duration <= 0 || duration == com.google.android.exoplayer2.C.TIME_UNSET) {
+            // 时长还没解析出来：按抖音短视频的常见长度兜一个
+            duration = 15000;
+        }
+        long now = player == null ? 0 : Math.max(0, player.getCurrentPosition());
+        long window = Math.max(6000, Math.min(duration - now, 30000));
+
+        int count = Math.min(comments.size(), 40);
+        for (int i = 0; i < count; i++) {
+            DyComment comment = comments.get(i);
+            if (comment == null || TextUtils.isEmpty(comment.text)) {
+                continue;
+            }
+            String text = comment.text.replace('\n', ' ').trim();
+            if (text.length() > 40) {
+                text = text.substring(0, 40);
+            }
+            BaseDanmaku item = danmakuContext.mDanmakuFactory
+                    .createDanmaku(BaseDanmaku.TYPE_SCROLL_RL, danmakuContext);
+            if (item == null) {
+                continue;
+            }
+            item.setTime(now + (long) ((i + 0.5) * window / count));
+            item.textSize = dp(15);
+            item.textColor = Color.WHITE;
+            item.textShadowColor = Color.BLACK;
+            item.flags = danmakuContext.mGlobalFlagValues;
+            item.index = i;
+            DanmakuUtils.fillText(item, text);
+            pendingDanmaku.add(item);
+        }
+        if (pendingDanmaku.isEmpty()) {
+            danmakuView.setVisibility(View.GONE);
+            return;
+        }
+        danmakuView.setVisibility(View.VISIBLE);
+        if (danmakuView.isPrepared()) {
+            flushDanmaku();
+        } else {
+            danmakuView.prepare(EMPTY_PARSER, danmakuContext);
+            flushWhenReady(generation, 0);
+        }
+    }
+
+    /**
+     * prepare 是异步的，等它真的 prepared 再灌弹幕。
+     *
+     * <p>和 B 站/影视那边同一个坑：只补一两拍很容易错过，所以每 80ms 试一次、最多 40 次。
+     */
+    private void flushWhenReady(final int generation, final int tries) {
+        if (danmakuView == null || released || generation != danmakuGeneration) {
+            return;
+        }
+        if (danmakuView.isPrepared()) {
+            flushDanmaku();
+            return;
+        }
+        if (tries < 40) {
+            danmakuView.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    flushWhenReady(generation, tries + 1);
+                }
+            }, 80);
+        }
+    }
+
+    private void flushDanmaku() {
+        if (danmakuView == null || pendingDanmaku.isEmpty() || !danmakuOn) {
+            return;
+        }
+        for (BaseDanmaku item : pendingDanmaku) {
+            try {
+                danmakuView.addDanmaku(item);
+            } catch (Throwable ignored) {
+            }
+        }
+        pendingDanmaku.clear();
+        danmakuView.setVisibility(View.VISIBLE);
+        danmakuView.start(player == null ? 0 : Math.max(0, player.getCurrentPosition()));
+    }
+
+    /** 抽屉里的「弹幕」开关 */
+    private void toggleDanmaku() {
+        danmakuOn = !danmakuOn;
+        DeskPrefs.setDyDanmaku(getContext(), danmakuOn);
+        say(danmakuOn ? "弹幕 开" : "弹幕 关");
+        if (danmakuView == null) {
+            return;
+        }
+        if (danmakuOn) {
+            restartDanmaku(current());
+        } else {
+            danmakuGeneration++;
+            pendingDanmaku.clear();
+            try {
+                danmakuView.release();
+            } catch (Throwable ignored) {
+            }
+            danmakuView.setVisibility(View.GONE);
+        }
+    }
+
+    private final List<BaseDanmaku> pendingDanmaku = new ArrayList<>();
+
     // ---------------------------------------------------------------- 播放
 
     private void createPlayer() {
@@ -1375,6 +1628,21 @@ public class DouyinPage extends FrameLayout implements ModulePage {
             }
 
             @Override
+            public void onIsPlayingChanged(boolean isPlaying) {
+                if (danmakuView == null || !danmakuOn) {
+                    return;
+                }
+                try {
+                    if (isPlaying) {
+                        danmakuView.resume();
+                    } else {
+                        danmakuView.pause();
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+
+            @Override
             public void onPlayerError(com.google.android.exoplayer2.PlaybackException error) {
                 if (released) {
                     return;
@@ -1396,6 +1664,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         player.setMediaItem(MediaItem.fromUri(item.playUrl));
         player.prepare();
         player.setPlayWhenReady(true);
+        restartDanmaku(item);
     }
 
     private void togglePlay() {
@@ -1564,7 +1833,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         menuPage = 0;
         // 不重置 menuIndex：连着开两次菜单，用户多半还想点刚才那一项。
         // 每次都回到第一行，等于让人重新数一遍。
-        menuIndex = Math.max(0, Math.min(menuIndex, 6));
+        menuIndex = Math.max(0, Math.min(menuIndex, 7));
         buildMenuRows();
         menuPanel.setVisibility(View.VISIBLE);
         menuPanel.setAlpha(0f);
@@ -1607,12 +1876,13 @@ public class DouyinPage extends FrameLayout implements ModulePage {
             }
             String collect = item != null && item.collectStatus == 1 ? "取消收藏" : "收藏";
             labels = new String[]{comments, "接着刷", "搜索", "刷新推荐",
-                    collect, "倍速播放 " + speedLabel(), "账号与登录"};
+                    collect, "倍速播放 " + speedLabel(),
+                    danmakuOn ? "弹幕 · 开" : "弹幕 · 关", "账号与登录"};
             icons = new int[]{R.drawable.ic_dy_comment, R.drawable.ic_next, R.drawable.ic_search,
                     R.drawable.ic_mode_sequence,
                     item != null && item.collectStatus == 1
                             ? R.drawable.ic_dy_collect_on : R.drawable.ic_dy_collect,
-                    R.drawable.ic_play, R.drawable.ic_dy_login};
+                    R.drawable.ic_play, R.drawable.ic_dy_comment, R.drawable.ic_dy_login};
             menuTitle.setText("抖音");
             menuHint.setText("上/下 选择 · 确定 · 返回关闭");
         }
@@ -1669,7 +1939,8 @@ public class DouyinPage extends FrameLayout implements ModulePage {
     }
 
     private void moveMenu(int delta) {
-        int count = menuPage == 1 ? SPEED_LABELS.length : 7;
+        int count = menuPage == 1 ? SPEED_LABELS.length
+                : (menuList.getChildCount() > 0 ? menuList.getChildCount() : 8);
         menuIndex = ((menuIndex + delta) % count + count) % count;
         for (int i = 0; i < menuList.getChildCount(); i++) {
             menuList.getChildAt(i).setSelected(i == menuIndex);
@@ -1711,6 +1982,11 @@ public class DouyinPage extends FrameLayout implements ModulePage {
                 buildMenuRows();
                 break;
             case 6:
+                // 开关就地切换，不关抽屉：用户会连着试「关掉看看／再开回来」
+                toggleDanmaku();
+                buildMenuRows();
+                break;
+            case 7:
                 closeMenu();
                 host.openDouyinLogin(null);
                 break;

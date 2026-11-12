@@ -46,25 +46,23 @@ public class GlassDrawable extends Drawable {
      * <p>不用纯黑：纯黑块贴在彩色海报上像一块补丁（用户原话「纯黑色背景」）。
      * 换成半透明的中性深灰 —— 透出一点背后的颜色，又压得住白字。
      */
-    private static final int FLAT_GLASS = 0xB3222028;
+    private static final int FLAT_GLASS = 0xE6202022;
     /** 焦点态描边 */
     private static final int RIM_FOCUSED = 0xCCFFFFFF;
     /** 常态描边 */
     private static final int RIM_NORMAL = 0x33FFFFFF;
 
     /**
-     * 压暗矩阵。
+     * 压暗矩阵 —— 照抄 Aerial TV 的 {@code PanelTint}：亮度 0.48、偏移 14。
      *
-     * <p>基准是 Aerial TV 的 PanelTint（0.48 亮度 + 14 偏移）—— 但那套是按
-     * 「明亮壁纸」调的（他们的壁纸是航拍风景，雪地、白墙都很亮）。我们这边的背景
-     * 是深色电影海报，同一组参数压完就发黑、整块像补丁。
-     * 所以往上抬到 0.58 / 20：暗背景里还能透出海报颜色，白字照样读得清。
+     * <p>0.48 把磨砂图压到半亮，白色文字在任何画面上都读得清；+14 是往灰里抬一点，
+     * 免得暗部糊成纯黑（他们的注释写的是「so white text reads on snow」）。
      */
     private static final ColorFilter TINT = new ColorMatrixColorFilter(new ColorMatrix(
             new float[]{
-                    0.58f, 0f, 0f, 0f, 20f,
-                    0f, 0.58f, 0f, 0f, 20f,
-                    0f, 0f, 0.58f, 0f, 20f,
+                    0.48f, 0f, 0f, 0f, 14f,
+                    0f, 0.48f, 0f, 0f, 14f,
+                    0f, 0f, 0.48f, 0f, 14f,
                     0f, 0f, 0f, 1f, 0f,
             }));
 
@@ -171,19 +169,22 @@ public class GlassDrawable extends Drawable {
         }
 
         // 2) 顶部内侧高光：光从上方打下来，玻璃上沿先亮
+        // Aerial 的 glassEdge：纯白 alpha 0.10，到面板中线（50%）就淡完
         sheenPaint.setShader(new LinearGradient(0f, bounds.top, 0f, bounds.bottom,
                 new int[]{0x1AFFFFFF, 0x00FFFFFF},
-                new float[]{0f, 0.55f}, Shader.TileMode.CLAMP));
+                new float[]{0f, 0.5f}, Shader.TileMode.CLAMP));
         canvas.drawRoundRect(rect, r, r, sheenPaint);
         sheenPaint.setShader(null);
 
         // 3) 受光的边：焦点态更亮更粗
-        rimPaint.setStrokeWidth(focused ? dp(2.5f) : dp(1f));
+        // Aerial：描边 1.2dp，从左上到右下四段渐变（受光的边：左上最亮 0.55、
+        // 侧面很淡 0.10/0.06、远端角落再亮 0.30）；焦点态整体提亮加粗
+        rimPaint.setStrokeWidth(focused ? dp(2.4f) : dp(1.2f));
         rimPaint.setShader(new LinearGradient(bounds.left, bounds.top, bounds.right,
                 bounds.bottom,
                 focused
-                        ? new int[]{0xFFFFFFFF, 0x88FFFFFF, 0x66FFFFFF, 0xCCFFFFFF}
-                        : new int[]{RIM_NORMAL, 0x14FFFFFF, 0x0DFFFFFF, 0x44FFFFFF},
+                        ? new int[]{0xFFFFFFFF, 0x99FFFFFF, 0x77FFFFFF, 0xE6FFFFFF}
+                        : new int[]{0x8CFFFFFF, 0x1AFFFFFF, 0x0FFFFFFF, 0x4DFFFFFF},
                 new float[]{0f, 0.35f, 0.7f, 1f}, Shader.TileMode.CLAMP));
         float inset = rimPaint.getStrokeWidth() / 2f;
         rect.set(bounds.left + inset, bounds.top + inset,

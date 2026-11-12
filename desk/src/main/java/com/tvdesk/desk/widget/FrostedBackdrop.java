@@ -21,8 +21,14 @@ import android.view.View;
  */
 public final class FrostedBackdrop {
 
-    /** 缩小倍数：6 够糊，又不至于糊成一团纯色 */
+    /**
+     * 磨砂图的尺寸：Aerial TV 的 {@code Images.frost} 就是缩到 320×180 再做三次半径为 7 的
+     * 盒式模糊。1080p 屏按 1/6 缩正好是 320×180，所以两边的模糊程度一致。
+     */
     private static final int DOWNSCALE = 6;
+    /** Aerial 的模糊参数：3 遍、半径 7 */
+    private static final int BLUR_PASSES = 3;
+    private static final int BLUR_RADIUS = 7;
 
     private static Bitmap frosted;
     private static int screenW;
@@ -58,7 +64,7 @@ public final class FrostedBackdrop {
         try {
             int sw = Math.max(1, w / DOWNSCALE);
             int sh = Math.max(1, h / DOWNSCALE);
-            Bitmap small = Bitmap.createBitmap(sw, sh, Bitmap.Config.RGB_565);
+            Bitmap small = Bitmap.createBitmap(sw, sh, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(small);
             canvas.scale(sw / (float) w, sh / (float) h);
             for (View v : layers) {
@@ -71,11 +77,58 @@ public final class FrostedBackdrop {
                 v.draw(canvas);
                 canvas.restore();
             }
+            // 缩放在低端 GPU 上就是「廉价的模糊」，但只剩 1/6 的像素还不够：
+            // 大块色域（比如一张红色海报）缩完仍是一整片红，取样出来就是一条红带。
+            // 照 Aerial 再做三遍盒式模糊，局部颜色才会被摊平，几颗胶囊取到的色才接近
+            blur(small);
             frosted = small;
             screenW = w;
             screenH = h;
         } catch (Throwable ignored) {
             // 拍不下来就退回纯色玻璃，不该因此崩页面
+        }
+    }
+
+    /**
+     * 三遍盒式模糊（先横后竖）。参数照抄 Aerial 的 {@code Images.boxBlur}：
+     * 半径 7、跑 3 遍——两遍高斯近似，第三遍把残余的块状压掉。
+     */
+    private static void blur(Bitmap bitmap) {
+        int w = bitmap.getWidth();
+        int h = bitmap.getHeight();
+        if (w <= 0 || h <= 0) {
+            return;
+        }
+        int[] px = new int[w * h];
+        bitmap.getPixels(px, 0, w, 0, 0, w, h);
+        int[] tmp = new int[px.length];
+        for (int pass = 0; pass < BLUR_PASSES; pass++) {
+            blurPass(px, tmp, w, h, BLUR_RADIUS, true);
+            blurPass(tmp, px, w, h, BLUR_RADIUS, false);
+        }
+        bitmap.setPixels(px, 0, w, 0, 0, w, h);
+    }
+
+    private static void blurPass(int[] src, int[] dst, int w, int h, int r, boolean horizontal) {
+        int lines = horizontal ? h : w;
+        int len = horizontal ? w : h;
+        for (int l = 0; l < lines; l++) {
+            for (int i = 0; i < len; i++) {
+                int a = 0, rr = 0, g = 0, b = 0, n = 0;
+                for (int k = -r; k <= r; k++) {
+                    int j = i + k;
+                    if (j < 0) j = 0;
+                    if (j > len - 1) j = len - 1;
+                    int c = horizontal ? src[l * w + j] : src[j * w + l];
+                    a += c >>> 24;
+                    rr += (c >> 16) & 0xFF;
+                    g += (c >> 8) & 0xFF;
+                    b += c & 0xFF;
+                    n++;
+                }
+                int idx = horizontal ? l * w + i : i * w + l;
+                dst[idx] = ((a / n) << 24) | ((rr / n) << 16) | ((g / n) << 8) | (b / n);
+            }
         }
     }
 

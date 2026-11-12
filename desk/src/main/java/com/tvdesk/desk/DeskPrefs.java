@@ -29,6 +29,8 @@ final class DeskPrefs {
     private static final String KEY_LIVE_PICKS = "live_picks";
     /** 收藏的频道（归一化台名数组） */
     private static final String KEY_LIVE_FAVORITES = "live_favorites";
+    /** 抖音弹幕开关 */
+    private static final String KEY_DY_DANMAKU = "dy_danmaku";
 
     /** 音乐播放模式：0 顺序 / 1 随机 / 2 单首循环 */
     private static final String KEY_MUSIC_MODE = "music_play_mode";
@@ -406,6 +408,15 @@ final class DeskPrefs {
         if (mode >= 0 && mode <= 2) {
             of(context).edit().putInt(KEY_BILI_RESIZE, mode).apply();
         }
+    }
+
+    /** 抖音弹幕开关（默认开）：短视频的评论当弹幕飘过画面 */
+    public static boolean dyDanmaku(Context context) {
+        return of(context).getBoolean(KEY_DY_DANMAKU, true);
+    }
+
+    public static void setDyDanmaku(Context context, boolean on) {
+        of(context).edit().putBoolean(KEY_DY_DANMAKU, on).apply();
     }
 
     public static boolean biliDanmaku(Context context) {

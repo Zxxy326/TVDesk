@@ -55,6 +55,16 @@
             android:adjustViewBounds="true"
             android:scaleType="fitCenter" />
 
+        <!-- 弹幕层：压在画面和封面之上、作者/文案这些浮层之下。
+             用 DanmakuView 而不是自绘：滚动排布、避让、透明度都由库处理，
+             和 B 站那条链路同一套。 -->
+        <master.flame.danmaku.ui.widget.DanmakuView
+            android:id="@+id/dy_danmaku"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clickable="false"
+            android:focusable="false" />
+
         <!-- ============ 左上：模块胶囊（触屏出口，退页另有 BACK） ============
              不给焦点：本页四个方向键全被换条/点赞/评论占了，焦点永远走不到这颗上；
              它一旦可聚焦，弹窗关掉后系统就会把焦点丢回它，用户下一次按确定直接退出抖音页。 -->
@@ -65,7 +75,7 @@
             android:layout_gravity="top|start"
             android:layout_marginStart="@dimen/screen_pad"
             android:layout_marginTop="@dimen/top_bar_top"
-            android:background="@drawable/bg_pill"
+            android:background="@drawable/bg_glass_surface"
             android:clickable="true"
             android:focusable="false"
             android:gravity="center_vertical"
@@ -240,7 +250,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|center_horizontal"
             android:layout_marginBottom="26dp"
-            android:background="@drawable/bg_pill"
+            android:background="@drawable/bg_glass_surface"
             android:focusable="false"
             android:orientation="vertical"
             android:paddingStart="18dp"

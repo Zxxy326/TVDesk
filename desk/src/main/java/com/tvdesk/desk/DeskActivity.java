@@ -353,6 +353,8 @@ public class DeskActivity extends DeskAdaptActivity {
     private long weatherAt;
 
     private LinearLayout moduleSwitcher;
+    /** 首页按菜单键弹出的快捷面板（照 Aerial 的 Control Center） */
+    private ControlCenterPanel controlCenter;
     private TextView moduleTitle;
     private LinearLayout moduleMenu;
     /** 内嵌模块页的宿主容器。音乐/哔哩哔哩/应用/信号源整页挂这里，不跳 Activity */
@@ -956,6 +958,24 @@ public class DeskActivity extends DeskAdaptActivity {
         }
     };
 
+    /** 胶囊类（圆角 100dp）装玻璃 */
+    private void applyGlass(android.view.View view) {
+        if (view == null) {
+            return;
+        }
+        view.setBackground(new com.tvdesk.desk.widget.GlassDrawable(
+                getResources().getDimension(R.dimen.radius_control)));
+    }
+
+    /** 面板类（下拉菜单，圆角 20dp）装玻璃 */
+    private void applyPanelGlass(android.view.View view) {
+        if (view == null) {
+            return;
+        }
+        view.setBackground(new com.tvdesk.desk.widget.GlassDrawable(
+                getResources().getDimension(R.dimen.radius_panel)));
+    }
+
     private void applyDeskGlass() {
         // 拍「氛围光 + Hero 海报」两层叠起来的效果：只拍海报的话，
         // 海报还没加载完时拍到的是纯透明，玻璃就退回一块黑
@@ -966,10 +986,18 @@ public class DeskActivity extends DeskAdaptActivity {
         if (deskStatus != null) {
             deskStatus.setBackground(null);
         }
-        // 左上角模块切换器、中间顶栏、两个下拉，底色都在 XML 里固定成同一张
-        // （bg_glass_pill / bg_glass_panel）：GlassDrawable 是「按位置取样」的，
-        // 几颗胶囊隔着几百像素取到的颜色本来就不一样，统一成固定半透明才有
-        // 一致的观感。这里不再逐颗替换背景，只保留上面那张磨砂图给别处用。
+        // 磨砂图现在是「缩到 320×180 再跑三遍盒式模糊」（照 Aerial 的 Images.frost），
+        // 局部颜色被摊平了，几颗胶囊按各自位置取样也不会差出颜色来 —— 这才敢把
+        // 取样玻璃装回去。之前用的是只缩不糊的图，红海报上取出来就是一条红带。
+        applyGlass(findViewById(R.id.module_switcher));
+        applyGlass(findViewById(R.id.top_nav));
+        applyPanelGlass(findViewById(R.id.module_menu));
+        applyPanelGlass(findViewById(R.id.category_menu_scroll));
+        android.view.View hint = findViewById(R.id.source_hint);
+        if (hint != null) {
+            hint.setBackground(new com.tvdesk.desk.widget.GlassDrawable(
+                    getResources().getDimension(R.dimen.radius_panel)));
+        }
     }
 
     /** 正在加载的行标题，慢响应提示和还原都用它 */
@@ -1139,8 +1167,45 @@ public class DeskActivity extends DeskAdaptActivity {
         return sb.toString();
     }
 
+    /**
+     * 首页快捷面板（菜单键）。
+     *
+     * <p>内容映射到我们自己的入口：信号源 → 模块菜单里的「信号源」，网络 → 系统 Wi-Fi 设置，
+     * 设置 → 设置页。音量、亮度和桌面守护状态由面板自己管。
+     */
+    private void buildControlCenter() {
+        android.view.ViewGroup root = findViewById(R.id.desk_root);
+        if (root == null) {
+            return;
+        }
+        controlCenter = new ControlCenterPanel(this, new ControlCenterPanel.Listener() {
+            @Override
+            public void onOpenSource() {
+                selectModule(MODULE_SIGNAL);
+            }
+
+            @Override
+            public void onOpenNetwork() {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_WIFI_SETTINGS));
+                } catch (Throwable th) {
+                    android.util.Log.w("DeskActivity", "打不开网络设置：" + th.getMessage());
+                }
+            }
+
+            @Override
+            public void onOpenSettings() {
+                selectModule(MODULE_SETTING);
+            }
+        });
+        root.addView(controlCenter, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
     private void bindViews() {
         moduleSwitcher = findViewById(R.id.module_switcher);
+        buildControlCenter();
         moduleTitle = findViewById(R.id.module_title);
         moduleMenu = findViewById(R.id.module_menu);
         moduleHost = findViewById(R.id.module_host);
@@ -4670,6 +4735,11 @@ public class DeskActivity extends DeskAdaptActivity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        // 快捷面板开着时先给它：BACK / MENU 收起，其余照常走焦点
+        if (controlCenter != null && controlCenter.isShowing()
+                && controlCenter.handleKey(event)) {
+            return true;
+        }
         // 长按 OK。必须在播放器转发之前处理：播放器拿到键只看单次，
         // 等它处理完再判断，长按早被当成一次短按消费掉了
         if (isOkKey(event.getKeyCode())) {
@@ -4924,6 +4994,13 @@ public class DeskActivity extends DeskAdaptActivity {
             return true;
         }
         if (keyCode == KeyEvent.KEYCODE_MENU) {
+            // 首页的菜单键改成 Aerial 那个快捷面板；模块菜单还在左上角「桌面 ▾」里，
+            // 点一下就能出来，不用再占一个键
+            if (controlCenter != null) {
+                setMenuOpen(false);
+                controlCenter.show();
+                return true;
+            }
             setMenuOpen(!menuOpen);
             return true;
         }
