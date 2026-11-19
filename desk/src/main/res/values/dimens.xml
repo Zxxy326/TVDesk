@@ -77,7 +77,9 @@
     -->
     <dimen name="radius_card">10dp</dimen>
     <dimen name="radius_control">100dp</dimen>
-    <dimen name="radius_panel">20dp</dimen>
+    <!-- 面板圆角：Aerial 的 24dp 在 960dp 画布上，我们的画布是 1280dp，等比 4/3 → 32dp。
+         和快捷面板（ControlCenterPanel）同一个数，模块页的下拉菜单、抽屉、弹窗都用它 -->
+    <dimen name="radius_panel">32dp</dimen>
     <dimen name="radius_badge">4dp</dimen>
 
     <!-- 内容行 -->

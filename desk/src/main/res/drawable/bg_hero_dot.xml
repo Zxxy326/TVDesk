@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- kicker 前面那颗小圆点（MuYin 首页：播放中用强调色，其余白色 40%） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#66FFFFFF" />
+</shape>

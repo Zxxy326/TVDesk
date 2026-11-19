@@ -31,12 +31,18 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:alpha="0"
-        android:scaleType="centerCrop" />
+        android:scaleType="fitCenter" />
+
+    <!-- MuYin 首页同款两层压暗 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/bg_home_scrim_h" />
 
     <View
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/bg_music_scrim" />
+        android:background="@drawable/bg_home_scrim_v" />
 
     <!-- ============ 左上：模块胶囊 ============ -->
     <!-- 坐标和桌面那颗「桌面 ▾」完全对齐。点开是「返回桌面」——本页没有桌面顶栏，这是唯一常驻出口 -->
@@ -103,76 +109,192 @@
         android:layout_marginTop="@dimen/content_top"
         android:clipToPadding="false"
         android:orientation="vertical"
-        android:paddingStart="48dp"
-        android:paddingEnd="48dp">
+        android:paddingStart="37dp"
+        android:paddingEnd="37dp">
 
-        <!-- ============ 标题 + 搜索框 ============ -->
+        <!-- ============ Hero：kicker / 标题 / 元信息 / 简介 / 操作 ============
+             和音乐页同一套（都按 MuYin 首页 ×4/3 换算） -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:clipChildren="false"
             android:clipToPadding="false"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp">
+            android:orientation="vertical"
+            android:paddingTop="41dp">
 
-            <!-- 当前视图的锚点图：分区榜的封面 / 收藏夹封面 / 账号头像 -->
+            <!-- 锚点缩略图：新版 Hero 直接用整屏封面，这张不再显示；
+                 保留节点是因为 MusicPage/BiliPage 里有 bindHeadCover() 在维护它 -->
             <ImageView
                 android:id="@+id/bili_head_cover"
-                android:layout_width="72dp"
-                android:layout_height="72dp"
-                android:layout_marginEnd="18dp"
-                android:background="@drawable/bg_cover_placeholder"
-                android:importantForAccessibility="no"
-                android:scaleType="centerCrop"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:visibility="gone" />
 
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <View
+                    android:layout_width="7dp"
+                    android:layout_height="7dp"
+                    android:background="@drawable/bg_hero_dot" />
 
                 <TextView
-                    android:id="@+id/bili_title"
+                    android:id="@+id/bili_hero_kicker"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="推荐"
-                    android:textColor="@color/text_primary"
-                    android:textSize="@dimen/module_title_size"
+                    android:layout_marginStart="11dp"
+                    android:letterSpacing="0.16"
+                    android:shadowColor="#80000000"
+                    android:shadowDy="2"
+                    android:shadowRadius="12"
+                    android:text="为你推荐"
+                    android:textColor="#B8FFFFFF"
+                    android:textSize="13sp"
                     android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/bili_subtitle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text=""
-                    android:textColor="@color/text_tertiary"
-                    android:textSize="13sp" />
             </LinearLayout>
 
-            <!-- 只在「搜索」栏目露出来（BiliPage 控制显隐） -->
-            <EditText
-                android:id="@+id/bili_search"
-                android:layout_width="420dp"
-                android:layout_height="52dp"
-                android:layout_marginStart="24dp"
-                android:background="@drawable/bg_dialog_input"
-                android:focusable="true"
-                android:focusableInTouchMode="true"
-                android:hint="搜视频 / UP 主 / BV 号"
-                android:imeOptions="actionSearch|flagNoExtractUi"
-                android:inputType="text"
+            <TextView
+                android:id="@+id/bili_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:ellipsize="end"
+                android:letterSpacing="-0.022"
                 android:maxLines="1"
-                android:paddingStart="20dp"
-                android:paddingEnd="20dp"
-                android:singleLine="true"
-                android:textColor="#F5F7FA"
-                android:textColorHint="#6F7280"
-                android:textSize="16sp"
-                android:visibility="gone" />
+                android:maxWidth="827dp"
+                android:shadowColor="#80000000"
+                android:shadowDy="2"
+                android:shadowRadius="12"
+                android:text="推荐"
+                android:textColor="@color/text_primary"
+                android:textSize="61sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/bili_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:shadowColor="#80000000"
+                android:shadowDy="2"
+                android:shadowRadius="12"
+                android:text=""
+                android:textColor="#CCFFFFFF"
+                android:textSize="17sp" />
+
+            <TextView
+                android:id="@+id/bili_hero_desc"
+                android:layout_width="747dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:ellipsize="end"
+                android:lineSpacingExtra="5dp"
+                android:maxLines="2"
+                android:shadowColor="#80000000"
+                android:shadowDy="2"
+                android:shadowRadius="12"
+                android:text=""
+                android:textColor="#ADFFFFFF"
+                android:textSize="19sp" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:clipChildren="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/bili_hero_cta"
+                    android:layout_width="176dp"
+                    android:layout_height="59dp"
+                    android:background="@drawable/bg_hero_cta"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:shadowColor="#66000000"
+                    android:shadowDy="1"
+                    android:shadowRadius="6"
+                    android:text="开始观看"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <FrameLayout
+                    android:id="@+id/bili_action_like"
+                    android:layout_width="59dp"
+                    android:layout_height="59dp"
+                    android:layout_marginStart="13dp"
+                    android:background="@drawable/bg_hero_circle"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:layout_width="25dp"
+                        android:layout_height="25dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_like" />
+                </FrameLayout>
+
+                <FrameLayout
+                    android:id="@+id/bili_action_author"
+                    android:layout_width="59dp"
+                    android:layout_height="59dp"
+                    android:layout_marginStart="11dp"
+                    android:background="@drawable/bg_hero_circle"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:layout_width="25dp"
+                        android:layout_height="25dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_author" />
+                </FrameLayout>
+
+                <FrameLayout
+                    android:id="@+id/bili_action_refresh"
+                    android:layout_width="59dp"
+                    android:layout_height="59dp"
+                    android:layout_marginStart="11dp"
+                    android:background="@drawable/bg_hero_circle"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <ImageView
+                        android:layout_width="25dp"
+                        android:layout_height="25dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/ic_refresh" />
+                </FrameLayout>
+
+                <!-- 只在「搜索」栏目露出来（BiliPage 控制显隐） -->
+                <EditText
+                    android:id="@+id/bili_search"
+                    android:layout_width="560dp"
+                    android:layout_height="59dp"
+                    android:layout_marginStart="24dp"
+                    android:background="@drawable/bg_dialog_input"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
+                    android:hint="搜视频 / UP 主 / BV 号"
+                    android:imeOptions="actionSearch|flagNoExtractUi"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:paddingStart="26dp"
+                    android:paddingEnd="26dp"
+                    android:singleLine="true"
+                    android:textColor="#F5F7FA"
+                    android:textColorHint="#6F7280"
+                    android:textSize="18sp"
+                    android:visibility="gone" />
+            </LinearLayout>
         </LinearLayout>
 
         <!--
@@ -208,21 +330,49 @@
         <!-- 卡片墙。参数和影视页/音乐页一致：6 列 / 20dp 横距 / 24dp 行距。
              不再是 GridView（回收子视图 → 焦点没主 → 「翻页跳左上角」），
              换成全量挂载的 TileWall；列数和间距在 BiliPage.setupGrid 里给。 -->
-        <!-- 焦点留白同应用页（wall_room_*） -->
-        <com.tvdesk.desk.widget.TileWall
-            android:id="@+id/bili_grid"
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:shadowColor="#80000000"
+                android:shadowDy="2"
+                android:shadowRadius="12"
+                android:text="推荐给你"
+                android:textColor="@color/text_primary"
+                android:textSize="27sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/bili_row_meta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:text=""
+                android:textColor="#94FFFFFF"
+                android:textSize="15sp" />
+        </LinearLayout>
+
+        <!-- 弹性空档：把海报行顶到底部（桌面首页 Hero 在上、海报行在下的排法） -->
+        <View
+            android:id="@+id/bili_top_spacer"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1"
-            android:layout_marginStart="-14dp"
-            android:layout_marginTop="10dp"
-            android:layout_marginEnd="-14dp"
+            android:layout_weight="1" />
+
+        <!-- 底部海报行：一行、横向滚动（桌面首页「今日热门」同款） -->
+        <com.tvdesk.desk.widget.TileRow
+            android:id="@+id/bili_grid"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
             android:clipChildren="false"
             android:clipToPadding="false"
-            android:focusable="false"
-            android:paddingStart="14dp"
-            android:paddingTop="24dp"
-            android:paddingEnd="14dp"
             android:paddingBottom="24dp" />
 
         <TextView

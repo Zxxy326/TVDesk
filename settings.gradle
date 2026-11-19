@@ -8,10 +8,12 @@ pluginManagement {
     }
 }
 
-rootProject.name = "TVDesk"
+rootProject.name = "xbox-tv"
 
 include ':app'
 include ':core'
 include ':desk'
 include ':player'
 include ':quickjs'
+// 新版 Compose 音乐模块已弃用，恢复桌面内嵌 MusicPage；源码保留在 musicui/ 但不再参与构建
+// include ':musicui'

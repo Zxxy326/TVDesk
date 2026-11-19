@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MuYin 首页上下渐变：顶部压一点、中段几乎透明、底部压死（海报行和播放条要用）。
+     四段压到三段：0f #8C05060A → 0.55f #0D05060A → 1f #F205060A。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="270"
+        android:centerColor="#0D05060A"
+        android:centerY="0.55"
+        android:endColor="#F205060A"
+        android:startColor="#8C05060A"
+        android:type="linear" />
+</shape>

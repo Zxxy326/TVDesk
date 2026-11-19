@@ -20,6 +20,8 @@ public class DyItem {
     public long durationMs;
     public int width;
     public int height;
+    /** 发布时间（毫秒）。作者主页的每一行用它说「这条是什么时候发的」 */
+    public long createTime;
 
     /** 已经按「路径签名 → /aweme/v1/play/ → signature= → 首个」选好的播放地址，可能为空 */
     public String playUrl = "";

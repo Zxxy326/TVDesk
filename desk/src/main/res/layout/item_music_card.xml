@@ -13,7 +13,7 @@
     <FrameLayout
         android:id="@+id/music_card_frame"
         android:layout_width="match_parent"
-        android:layout_height="180dp"
+        android:layout_height="112dp"
         android:background="@drawable/bg_poster"
         android:duplicateParentState="true"
         android:padding="3dp">
@@ -53,7 +53,7 @@
         android:gravity="center"
         android:singleLine="true"
         android:textColor="#F2F5FA"
-        android:textSize="17sp" />
+        android:textSize="18sp" />
 
     <TextView
         android:id="@+id/music_card_note"

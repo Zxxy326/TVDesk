@@ -311,7 +311,10 @@
             android:layout_width="360dp"
             android:layout_height="match_parent"
             android:layout_gravity="end"
-            android:background="@color/dy_drawer_bg"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="10dp"
+            android:background="@drawable/bg_glass_panel"
             android:focusable="false"
             android:orientation="vertical"
             android:paddingStart="20dp"
@@ -338,12 +341,22 @@
                 android:textColor="@color/text_tertiary"
                 android:textSize="11sp" />
 
-            <LinearLayout
-                android:id="@+id/dy_menu_list"
+            <!-- 抽屉加一行作者卡片之后，9 行在 540dp 高的屏幕上装不下了：
+                 交给 ScrollView 自己滚，高亮行会跟着滚进可视区（见 scrollMenuToSelection） -->
+            <ScrollView
+                android:id="@+id/dy_menu_scroll"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="0dp"
                 android:layout_marginTop="14dp"
-                android:orientation="vertical" />
+                android:layout_weight="1"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/dy_menu_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </ScrollView>
         </LinearLayout>
 
         <!-- ============ 推荐面板：菜单「接着刷」唤出 ============
@@ -355,7 +368,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="start|center_vertical"
             android:layout_marginStart="24dp"
-            android:background="@color/dy_drawer_bg"
+            android:background="@drawable/bg_glass_panel"
             android:focusable="false"
             android:orientation="vertical"
             android:padding="18dp"
@@ -419,7 +432,10 @@
         android:layout_width="360dp"
         android:layout_height="match_parent"
         android:layout_gravity="end"
-        android:background="@color/dy_drawer_bg"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="10dp"
+        android:layout_marginBottom="10dp"
+        android:background="@drawable/bg_glass_panel"
         android:orientation="vertical"
         android:paddingStart="20dp"
         android:paddingTop="70dp"
@@ -454,6 +470,155 @@
 
             <LinearLayout
                 android:id="@+id/dy_comments_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
+    </LinearLayout>
+
+    <!-- ============ 作者主页：菜单里点作者卡片进来 ============
+         和抖音网页版一样的结构：上面是头像／昵称／抖音号／粉丝与获赞，下面是这个作者的作品。
+         底色不透明：这一页是「另一页」，不是浮层，背后那条正在播的视频不该透出来。
+         列表也不参与焦点（本页的焦点永远在页自己身上），上下键改的是高亮行。 -->
+    <LinearLayout
+        android:id="@+id/dy_author_page"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/dy_drawer_bg"
+        android:orientation="vertical"
+        android:paddingStart="48dp"
+        android:paddingTop="60dp"
+        android:paddingEnd="48dp"
+        android:paddingBottom="24dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/dy_author_back"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_module_item"
+                android:paddingStart="14dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="14dp"
+                android:paddingBottom="8dp"
+                android:text="‹ 返回"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_weight="1"
+                android:text="作者主页"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/dy_author_hint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="上/下 选择 · 确定播放 · 返回"
+                android:textColor="@color/text_tertiary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/dy_author_avatar"
+                android:layout_width="76dp"
+                android:layout_height="76dp"
+                android:background="@drawable/bg_btn_circle" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="18dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/dy_author_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text=""
+                    android:textColor="@color/text_primary"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/dy_author_uid"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:ellipsize="end"
+                    android:singleLine="true"
+                    android:text=""
+                    android:textColor="@color/text_tertiary"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/dy_author_stats"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="5dp"
+                    android:text=""
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/dy_author_sign"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:ellipsize="end"
+            android:lineSpacingExtra="3dp"
+            android:maxLines="2"
+            android:text=""
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:background="#1AFFFFFF" />
+
+        <TextView
+            android:id="@+id/dy_author_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="作品"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <ScrollView
+            android:id="@+id/dy_author_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="1">
+
+            <LinearLayout
+                android:id="@+id/dy_author_list"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />

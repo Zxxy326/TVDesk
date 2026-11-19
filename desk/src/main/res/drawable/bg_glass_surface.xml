@@ -1,42 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  静态玻璃胶囊 —— 给各个模块页的顶栏用（音乐/应用/B 站/设置/信号源…）。
+  模块页顶栏 / 侧栏 / 开关条的统一玻璃底。
 
-  桌面那几颗是 GlassDrawable：它在运行时按自己在窗口里的位置，从磨砂背景上取样。
-  模块页没有那张磨砂图（每页背景都不一样），所以用这张静态的：
-  底色取 Aerial 的 Palette.Glass（#E6202022，「Follow App」模式下的兜底色），
-  高光和描边照 LiquidGlass 的 glassEdge：上沿 10% 白淡出、1dp 描边从左上 0.55
-  渐变到右下 0.30。两边视觉语言一致，只是桌面那颗会透出背后的画面。
+  参数全部来自 Aerial 的 LiquidGlass（用户点名要「和主页一样」）：
+  底色 #E6202022、上沿白 0.10 到 50% 淡完、描边 1.2dp 四段 0.55/0.10/0.06/0.30。
+  以前这里是手写的 layer-list：描边 1dp、单色、高光到 55%，和桌面的 GlassDrawable
+  差一点点，九块面板摆在一起就能看出不是一套。现在两边共用一个 Drawable 实现。
 -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <item>
-        <shape android:shape="rectangle">
-            <solid android:color="#E6202022" />
-            <corners android:radius="@dimen/radius_control" />
-        </shape>
-    </item>
-
-    <!-- 上沿受光：10% 白，到中线淡完 -->
-    <item>
-        <shape android:shape="rectangle">
-            <corners android:radius="@dimen/radius_control" />
-            <gradient
-                android:angle="270"
-                android:centerColor="#00FFFFFF"
-                android:endColor="#00FFFFFF"
-                android:startColor="#1AFFFFFF"
-                android:type="linear" />
-        </shape>
-    </item>
-
-    <item>
-        <shape android:shape="rectangle">
-            <corners android:radius="@dimen/radius_control" />
-            <stroke
-                android:width="1.2dp"
-                android:color="#59FFFFFF" />
-        </shape>
-    </item>
-
-</layer-list>
+<com.tvdesk.desk.widget.GlassSurface
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:glassRadius="@dimen/radius_control" />

@@ -366,6 +366,15 @@ final class DeskPrefs {
     }
 
     /** 播放模式存这里而不是只记在页面上：这一版没播，下次进音乐页还是该用上次那个模式 */
+    /** 播放页风格：0 涟漪 / 1 简约 / 2 时钟 */
+    public static int musicStageStyle(Context context) {
+        return of(context).getInt("music_stage_style", 0);
+    }
+
+    public static void setMusicStageStyle(Context context, int style) {
+        of(context).edit().putInt("music_stage_style", style).apply();
+    }
+
     public static int musicPlayMode(Context context) {
         int mode = of(context).getInt(KEY_MUSIC_MODE, 0);
         return mode >= 0 && mode <= 2 ? mode : 0;

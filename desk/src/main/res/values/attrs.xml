@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 静态玻璃底板的圆角（GlassSurface 用）。单位是 dimension，直接写 @dimen/xxx 或 12dp -->
+    <declare-styleable name="GlassSurface">
+        <attr name="glassRadius" format="dimension" />
+    </declare-styleable>
+</resources>

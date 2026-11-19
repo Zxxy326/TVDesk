@@ -224,6 +224,72 @@ public class NeteaseClient {
         }
     }
 
+    /**
+     * 手机号 + 密码登录（EAPI 通道）—— 对齐像素播放器 v1.8.0。
+     *
+     * <p>原来只能把别处登录好的 cookie 粘进来。这条 EAPI 路由不需要短信验证码，
+     * 手机号 + 密码就能换到 MUSIC_U，不依赖 WebView。
+     *
+     * <p>Set-Cookie 与 body 里的 cookie 都并进会话（{@code execute} 负责 Set-Cookie）；
+     * 登录后必须校验 MUSIC_U，没有就当失败——否则页面显示"已登录"却什么都拉不到。
+     *
+     * <p>只对网络错误 / 5xx 重试一次；密码错、风控（-462）不重试，那只会让风控更严。
+     *
+     * @return 昵称（拿不到就是空串）
+     */
+    public String loginByPhoneEapi(String phone, String password) throws Exception {
+        if (TextUtils.isEmpty(phone) || TextUtils.isEmpty(password)) {
+            throw new NeteaseException("手机号和密码都要填");
+        }
+        Map<String, Object> p = params();
+        p.put("phone", phone.trim());
+        p.put("countrycode", "86");
+        p.put("password", NeteaseCrypto.md5Hex(password));
+        p.put("rememberLogin", "true");
+
+        JSONObject json = null;
+        NeteaseException last = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            try {
+                // 登录失败不能把 eapi 判死（取流还要用它）
+                json = requestEapi("/api/w/login/cellphone", p, false);
+                break;
+            } catch (NeteaseException e) {
+                last = e;
+                if (!retryableLoginError(e)) {
+                    throw e;
+                }
+                try {
+                    Thread.sleep(700L);
+                } catch (InterruptedException ignored) {
+                    throw e;
+                }
+            }
+        }
+        if (json == null) {
+            throw last != null ? last : new NeteaseException("登录失败");
+        }
+        if (!loggedIn()) {
+            throw new NeteaseException("登录响应里没有 MUSIC_U（可能被风控拦了，改用扫码 / 粘 Cookie）");
+        }
+        saveCookie();
+        // 换账号等于换红心列表
+        likedIds = null;
+        JSONObject profile = json.optJSONObject("profile");
+        return profile == null ? "" : profile.optString("nickname", "");
+    }
+
+    /** 只有网络不通 / 5xx 值得重试；密码错、风控重试只会更糟 */
+    private static boolean retryableLoginError(Throwable t) {
+        if (t == null) {
+            return false;
+        }
+        String m = String.valueOf(t.getMessage());
+        return m.contains("网络不通") || m.contains("HTTP 5")
+                || m.contains("timeout") || m.contains("Timeout")
+                || m.contains("没有返回内容");
+    }
+
     private void loadCookie() {
         if (!cookieFile.isFile()) {
             return;
@@ -628,6 +694,11 @@ public class NeteaseClient {
      * 不用 RSA，也就不用随机密钥。
      */
     private JSONObject requestEapi(String path, Map<String, Object> p) throws Exception {
+        return requestEapi(path, p, true);
+    }
+
+    private JSONObject requestEapi(String path, Map<String, Object> p, boolean markEapiBroken)
+            throws Exception {
         JSONObject payload = new JSONObject();
         payload.put("params", p);
         Request request = new Request.Builder()
@@ -635,7 +706,7 @@ public class NeteaseClient {
                 .headers(Headers.of(buildHeaders()))
                 .post(RequestBody.create(FORM, NeteaseCrypto.eapiBody(path, p)))
                 .build();
-        return execute(request);
+        return execute(request, markEapiBroken);
     }
 
     private JSONObject requestApi(String path, Map<String, String> form) throws Exception {
@@ -656,6 +727,14 @@ public class NeteaseClient {
     }
 
     private JSONObject execute(Request request) throws Exception {
+        return execute(request, true);
+    }
+
+    /**
+     * @param markEapiBroken 空响应时要不要把 eapi 判定成「这条路由废了」。
+     *                       登录要传 false：登录失败（密码错、风控）不该连累取流。
+     */
+    private JSONObject execute(Request request, boolean markEapiBroken) throws Exception {
         Response response = null;
         try {
             response = http.newCall(request).execute();
@@ -665,7 +744,7 @@ public class NeteaseClient {
             String text = response.body() == null ? "" : response.body().string();
             if (TextUtils.isEmpty(text)) {
                 // eapi 路由现在的常态就是「200 但空体」，别把它当成偶发错误
-                if (request.url().encodedPath().contains("/eapi/")) {
+                if (markEapiBroken && request.url().encodedPath().contains("/eapi/")) {
                     eapiBroken = true;
                 }
                 throw new NeteaseException("网易云没有返回内容（HTTP " + response.code() + "）");

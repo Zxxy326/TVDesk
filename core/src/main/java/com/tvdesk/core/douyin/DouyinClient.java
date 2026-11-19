@@ -8,6 +8,8 @@ import android.util.Log;
 import com.tvdesk.core.douyin.model.DyComment;
 import com.tvdesk.core.douyin.model.DyItem;
 import com.tvdesk.core.douyin.model.DyProfile;
+import com.tvdesk.core.douyin.model.DyUser;
+import com.tvdesk.core.douyin.model.DyUserPosts;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -117,6 +119,10 @@ public class DouyinClient {
                     "/aweme/v1/web/search/item/",
                     "/aweme/v1/web/commit/item/digg/",
                     "/aweme/v1/web/aweme/collect/",
+                    // 作者主页：资料和作品列表。这两条和详情同类——匿名时给的是 403 / 空 body，
+                    // 签名补上才谈得上「有没有 cookie」这一层
+                    "/aweme/v1/web/user/profile/other/",
+                    "/aweme/v1/web/aweme/post/",
                     "/aweme/v1/web/user/profile/self/"));
 
     /** 路径签名形如 {@code douyinvod.com/<32 hex>/<8 hex>/}，是播放地址里的最优解 */
@@ -423,6 +429,74 @@ public class DouyinClient {
             profile.avatar = firstUrl(user.optJSONObject("avatar_thumb"));
         }
         return profile;
+    }
+
+    /**
+     * 别的作者的主页资料。
+     *
+     * <p>网页上的「点头像 → 进主页」走的就是这条：{@code sec_user_id} 是唯一的钥匙
+     * （数字 uid 拼不出地址，也换不出资料）。匿名时它多半回 403/空 body，
+     * 所以调用方必须准备「只有当前这条里带的昵称和头像」的退化版本。
+     */
+    public DyUser userProfile(String secUid) throws IOException {
+        if (TextUtils.isEmpty(secUid)) {
+            throw new DouyinException("缺少作者 ID", false);
+        }
+        Map<String, String> params = base();
+        params.put("sec_user_id", secUid);
+        params.put("publish_video_strategy_type", "2");
+        params.put("personal_center_strategy", "1");
+        JSONObject json = getJson("/aweme/v1/web/user/profile/other/", params);
+        JSONObject user = json.optJSONObject("user");
+        DyUser out = new DyUser();
+        out.secUid = secUid;
+        if (user == null) {
+            return out;
+        }
+        out.nickname = user.optString("nickname", "");
+        out.uniqueId = user.optString("unique_id", "");
+        out.signature = user.optString("signature", "");
+        out.avatar = firstUrl(user.optJSONObject("avatar_medium"));
+        if (TextUtils.isEmpty(out.avatar)) {
+            out.avatar = firstUrl(user.optJSONObject("avatar_thumb"));
+        }
+        out.ipLocation = user.optString("ip_location", "");
+        // 计数字段在不同版本里有时是数字、有时是字符串，optLong 两种都认
+        out.follower = user.optLong("follower_count");
+        out.following = user.optLong("following_count");
+        out.totalFavorited = user.optLong("total_favorited");
+        out.awemeCount = user.optLong("aweme_count");
+        return out;
+    }
+
+    /**
+     * 某个作者的作品列表（主页里那一格一格的）。
+     *
+     * @param cursor 第一页传 0，之后传上一页返回的 {@link DyUserPosts#cursor}
+     */
+    public DyUserPosts userPosts(String secUid, long cursor, int count) throws IOException {
+        if (TextUtils.isEmpty(secUid)) {
+            throw new DouyinException("缺少作者 ID", false);
+        }
+        Map<String, String> params = base();
+        params.put("sec_user_id", secUid);
+        params.put("max_cursor", String.valueOf(cursor));
+        params.put("count", String.valueOf(count));
+        params.put("locate_query", "false");
+        params.put("show_live_replay_strategy", "1");
+        params.put("need_time_list", "1");
+        params.put("time_list_query", "0");
+        params.put("whale_cut_token", "");
+        params.put("cut_version", "1");
+        params.put("publish_video_strategy_type", "2");
+        JSONObject json = getJson("/aweme/v1/web/aweme/post/", params);
+        DyUserPosts page = new DyUserPosts();
+        page.cursor = json.optLong("max_cursor");
+        page.hasMore = json.optBoolean("has_more");
+        JSONArray raw = json.optJSONArray("aweme_list");
+        page.rawCount = raw == null ? 0 : raw.length();
+        page.items.addAll(items(json));
+        return page;
     }
 
     /** 搜索。需要登录 cookie + a_bogus，当前只有导了 cookie 的设备能用 */    public List<DyItem> search(String keyword, int offset, int count) throws IOException {
@@ -739,6 +813,7 @@ public class DouyinClient {
         item.awemeType = aweme.optInt("aweme_type");
         item.diggStatus = aweme.optInt("digg_status");
         item.collectStatus = aweme.optInt("collect_status");
+        item.createTime = aweme.optLong("create_time") * 1000L;
 
         JSONObject statistics = aweme.optJSONObject("statistics");
         if (statistics != null) {
@@ -795,6 +870,16 @@ public class DouyinClient {
     private JSONObject getJson(String path, Map<String, String> params, boolean pad)
             throws IOException {
         String referer = REFERER.get(path);
+        if (referer == null) {
+            // 作者主页的两条接口是在 {@code douyin.com/user/<sec_uid>} 里发起的，
+            // Referer 对不上会被当爬虫（和评论、点赞同一个道理）
+            String secUid = params.get("sec_user_id");
+            if (!TextUtils.isEmpty(secUid)
+                    && (path.startsWith("/aweme/v1/web/user/")
+                    || path.startsWith("/aweme/v1/web/aweme/post/"))) {
+                referer = API + "/user/" + secUid;
+            }
+        }
         if (referer == null) {
             // 其余接口都在作品页里发起，Referer 就是那条视频自己的地址
             String awemeId = params.get("aweme_id");

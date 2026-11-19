@@ -13,6 +13,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import com.bumptech.glide.Glide;
@@ -30,6 +31,8 @@ import com.tvdesk.core.douyin.DouyinClient;
 import com.tvdesk.core.douyin.DouyinException;
 import com.tvdesk.core.douyin.model.DyComment;
 import com.tvdesk.core.douyin.model.DyItem;
+import com.tvdesk.core.douyin.model.DyUser;
+import com.tvdesk.core.douyin.model.DyUserPosts;
 
 import master.flame.danmaku.controller.DrawHandler;
 import master.flame.danmaku.danmaku.model.BaseDanmaku;
@@ -229,6 +232,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
     private int recIndex;
     /** 菜单键唤出的功能抽屉（照 myDV：评论/接着刷/搜索/倍速/账号） */
     private LinearLayout menuPanel;
+    private ScrollView menuScroll;
     private LinearLayout menuList;
     private TextView menuTitle;
     private TextView menuHint;
@@ -236,6 +240,36 @@ public class DouyinPage extends FrameLayout implements ModulePage {
     /** 0 主菜单，1 倍速选择 */
     private int menuPage;
     private int menuIndex;
+
+    // ---- 作者主页：菜单首行（作者卡片）点进来
+    private LinearLayout authorPage;
+    private ScrollView authorScroll;
+    private LinearLayout authorList;
+    private ImageView authorAvatar;
+    private TextView authorName;
+    private TextView authorUidView;
+    private TextView authorStats;
+    private TextView authorSign;
+    private TextView authorSection;
+    private TextView authorHint;
+    private boolean authorOpen;
+    /** 高亮的是 {@link #authorItems} 的第几条 */
+    private int authorIndex;
+    /** 当前看的这个作者的作品（可能只有本地刷到的那几条，见 {@link #openAuthor}） */
+    private final List<DyItem> authorItems = new ArrayList<>();
+    private String authorSecUid = "";
+    private String authorFallbackName = "";
+    private long authorCursor;
+    private boolean authorHasMore;
+    private boolean authorLoading;
+    /** 每次开／关自增：晚回来的那一份资料别贴到下一个作者头上 */
+    private int authorGeneration;
+    /** 上一次取到的作者资料，抽屉副标题拿它显示粉丝数（省一次请求） */
+    private DyUser authorUser;
+    /** 作品列表被登录挡住了：列表末尾多给一行「登录后可翻全部」 */
+    private boolean authorNeedLogin;
+    /** 进作者主页前是不是在放：出来时原样还回去，别把用户看的视频停了不还 */
+    private boolean authorWasPlaying;
     private float playbackSpeed = 1f;
     private static final float[] SPEEDS = {0.75f, 1f, 1.25f, 1.5f, 2f};
     private static final String[] SPEED_LABELS = {"0.75x", "1.0x", "1.25x", "1.5x", "2.0x"};
@@ -296,9 +330,30 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         recPanel = findViewById(R.id.dy_rec);
         recList = findViewById(R.id.dy_rec_list);
         menuPanel = findViewById(R.id.dy_menu);
+        menuScroll = findViewById(R.id.dy_menu_scroll);
         menuList = findViewById(R.id.dy_menu_list);
         menuTitle = findViewById(R.id.dy_menu_title);
         menuHint = findViewById(R.id.dy_menu_hint);
+        authorPage = findViewById(R.id.dy_author_page);
+        authorScroll = findViewById(R.id.dy_author_scroll);
+        authorList = findViewById(R.id.dy_author_list);
+        authorAvatar = findViewById(R.id.dy_author_avatar);
+        authorName = findViewById(R.id.dy_author_name);
+        authorUidView = findViewById(R.id.dy_author_uid);
+        authorStats = findViewById(R.id.dy_author_stats);
+        authorSign = findViewById(R.id.dy_author_sign);
+        authorSection = findViewById(R.id.dy_author_section);
+        authorHint = findViewById(R.id.dy_author_hint);
+
+        findViewById(R.id.dy_author_back).setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                closeAuthor();
+            }
+        });
+        // 画面上的头像/昵称**不挂点击**。挂了之后它们就是「可点击控件」，在电视上
+        // 会参与按键分发：遥控器按确定时，key up 会落到它们身上直接 performClick，
+        // 于是抽屉里点任何一项都会变成「进作者主页」。入口只留抽屉里那一张作者卡片。
 
         findViewById(R.id.dy_switcher).setOnClickListener(new OnClickListener() {
             @Override
@@ -409,7 +464,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
 
     /** 正在出声才算「沉浸」：暂停、缓冲、评论抽屉打开时都把浮层留在脸上 */
     private boolean chromeShouldStay() {
-        return released || commentsOpen || menuOpen || recOpen || player == null
+        return released || commentsOpen || menuOpen || recOpen || authorOpen || player == null
                 || !player.getPlayWhenReady()
                 || player.getPlaybackState() != Player.STATE_READY;
     }
@@ -600,6 +655,8 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         centerDown = false;
         progressShown = false;
         recOpen = false;
+        authorOpen = false;
+        authorGeneration++;
         if (player != null) {
             try {
                 player.stop();
@@ -625,6 +682,10 @@ public class DouyinPage extends FrameLayout implements ModulePage {
     @Override
     public boolean handleKeyDown(int keyCode, KeyEvent event) {
         boolean burst = event != null && event.getRepeatCount() > 0;
+        // 作者主页盖在最上面：它自己吃掉所有按键，下面的换条/快进/浮层一个都不该动
+        if (authorOpen) {
+            return handleAuthorKey(keyCode, burst);
+        }
         // 任意按键都先把收起来的浮层唤回来；隐藏期间按方向键照样执行动作，
         // 不做「第一下只负责唤回」——那会让换条看起来像丢了半拍
         showChrome();
@@ -975,6 +1036,9 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         }
         if (recOpen) {
             closeRec();
+        }
+        if (authorOpen) {
+            closeAuthor();
         }
     }
 
@@ -1840,8 +1904,8 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         menuOpen = true;
         menuPage = 0;
         // 不重置 menuIndex：连着开两次菜单，用户多半还想点刚才那一项。
-        // 每次都回到第一行，等于让人重新数一遍。
-        menuIndex = Math.max(0, Math.min(menuIndex, 7));
+        // 每次都回到第一行，等于让人重新数一遍。上限是「作者卡片 + 8 个功能行」。
+        menuIndex = Math.max(0, Math.min(menuIndex, 8));
         buildMenuRows();
         menuPanel.setVisibility(View.VISIBLE);
         menuPanel.setAlpha(0f);
@@ -1871,16 +1935,19 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         menuList.removeAllViews();
         final String[] labels;
         final int[] icons;
+        // 主菜单第 0 行是作者卡片，剩下的功能行整体往后挪一位
+        final int offset;
         if (menuPage == 1) {
             labels = SPEED_LABELS;
             icons = null;
+            offset = 0;
             menuTitle.setText("倍速播放");
             menuHint.setText("上/下 选择 · 确定应用 · 返回上级");
         } else {
             DyItem item = current();
             String comments = "查看评论";
             if (item != null && item.comment > 0) {
-                comments += " · " + item.comment;
+                comments += " · " + human(item.comment);
             }
             String collect = item != null && item.collectStatus == 1 ? "取消收藏" : "收藏";
             labels = new String[]{comments, "接着刷", "搜索", "刷新推荐",
@@ -1891,12 +1958,17 @@ public class DouyinPage extends FrameLayout implements ModulePage {
                     item != null && item.collectStatus == 1
                             ? R.drawable.ic_dy_collect_on : R.drawable.ic_dy_collect,
                     R.drawable.ic_play, R.drawable.ic_dy_comment, R.drawable.ic_dy_login};
+            offset = 1;
             menuTitle.setText("抖音");
             menuHint.setText("上/下 选择 · 确定 · 返回关闭");
+            if (item != null) {
+                addAuthorMenuRow(item);
+            }
         }
-        menuIndex = Math.max(0, Math.min(menuIndex, labels.length - 1));
+        final int total = labels.length + offset;
+        menuIndex = Math.max(0, Math.min(menuIndex, total - 1));
         for (int i = 0; i < labels.length; i++) {
-            final int position = i;
+            final int position = i + offset;
             LinearLayout row = new LinearLayout(getContext());
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -1908,7 +1980,7 @@ public class DouyinPage extends FrameLayout implements ModulePage {
             // 「menuIndex 行」各画各的——屏幕上同时两行高亮，按一下方向键像错位。
             row.setFocusable(false);
             row.setFocusableInTouchMode(false);
-            row.setSelected(i == menuIndex);
+            row.setSelected(position == menuIndex);
 
             if (icons != null) {
                 ImageView icon = new ImageView(getContext());
@@ -1944,57 +2016,158 @@ public class DouyinPage extends FrameLayout implements ModulePage {
             });
             menuList.addView(row);
         }
+        // 抽屉是从上次的 menuIndex 接着来的：建完就把那行滚进可视区，
+        // 否则「一开菜单高亮看不见」，只能靠按上下键才找回来
+        scrollMenuToSelection();
+    }
+
+    /**
+     * 抽屉首行：当前这条的作者。
+     *
+     * <p>和功能行同一个外形（同样的高度、同样的 selected 底色），但内容换成头像 + 昵称 +
+     * 一行副标题——它是「人」不是「功能」。副标题在没取过资料时写「进入作者主页」，
+     * 取过之后换成分丝数：这样第二次开菜单，作者是谁、有多大，一眼就有。
+     */
+    private void addAuthorMenuRow(DyItem item) {
+        LinearLayout row = new LinearLayout(getContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setBackgroundResource(R.drawable.bg_module_item);
+        row.setPadding(dp(8), dp(6), dp(6), dp(6));
+        row.setMinimumHeight(dp(58));
+        row.setFocusable(false);
+        row.setFocusableInTouchMode(false);
+        row.setSelected(menuIndex == 0);
+
+        ImageView face = new ImageView(getContext());
+        LinearLayout.LayoutParams faceLp = new LinearLayout.LayoutParams(dp(38), dp(38));
+        faceLp.rightMargin = dp(10);
+        face.setLayoutParams(faceLp);
+        face.setBackgroundResource(R.drawable.bg_btn_circle);
+        face.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        String avatar = authorUser != null && item.authorUid.equals(authorUser.secUid)
+                ? authorUser.avatar : item.avatar;
+        if (!TextUtils.isEmpty(avatar)) {
+            Glide.with(getContext()).load(avatar).circleCrop().into(face);
+        }
+        row.addView(face);
+
+        LinearLayout box = new LinearLayout(getContext());
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setLayoutParams(new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView name = new TextView(getContext());
+        name.setText(TextUtils.isEmpty(item.author) ? "作者" : item.author);
+        name.setTextSize(15);
+        name.setTextColor(getResources().getColor(R.color.text_primary));
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        box.addView(name);
+
+        TextView sub = new TextView(getContext());
+        sub.setTextSize(11);
+        sub.setTextColor(getResources().getColor(R.color.text_tertiary));
+        sub.setSingleLine(true);
+        boolean cached = authorUser != null && item.authorUid.equals(authorUser.secUid);
+        sub.setText(cached
+                ? "粉丝 " + human(authorUser.follower) + " · 获赞 " + human(authorUser.totalFavorited)
+                : "进入作者主页");
+        box.addView(sub);
+        row.addView(box);
+
+        ImageView chevron = new ImageView(getContext());
+        LinearLayout.LayoutParams chevronLp = new LinearLayout.LayoutParams(dp(14), dp(14));
+        chevron.setLayoutParams(chevronLp);
+        chevron.setImageResource(R.drawable.ic_chevron_right);
+        row.addView(chevron);
+
+        row.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                menuIndex = 0;
+                activateMenu();
+            }
+        });
+        menuList.addView(row);
     }
 
     private void moveMenu(int delta) {
         int count = menuPage == 1 ? SPEED_LABELS.length
-                : (menuList.getChildCount() > 0 ? menuList.getChildCount() : 8);
+                : (menuList.getChildCount() > 0 ? menuList.getChildCount() : 9);
         menuIndex = ((menuIndex + delta) % count + count) % count;
         for (int i = 0; i < menuList.getChildCount(); i++) {
             menuList.getChildAt(i).setSelected(i == menuIndex);
         }
+        scrollMenuToSelection();
+    }
+
+    /** 抽屉里的行比屏幕高：高亮行跑到可视区外时把它滚回来 */
+    private void scrollMenuToSelection() {
+        if (menuScroll == null || menuIndex < 0 || menuList.getChildCount() <= menuIndex) {
+            return;
+        }
+        final View target = menuList.getChildAt(menuIndex);
+        menuScroll.post(new Runnable() {
+            @Override
+            public void run() {
+                int top = target.getTop();
+                int bottom = top + target.getHeight();
+                int viewTop = menuScroll.getScrollY();
+                int viewBottom = viewTop + menuScroll.getHeight();
+                if (top < viewTop) {
+                    menuScroll.smoothScrollTo(0, top);
+                } else if (bottom > viewBottom) {
+                    menuScroll.smoothScrollTo(0, bottom - menuScroll.getHeight());
+                }
+            }
+        });
     }
 
     private void activateMenu() {
         if (menuPage == 1) {
             applySpeed(SPEEDS[Math.max(0, Math.min(menuIndex, SPEEDS.length - 1))]);
             menuPage = 0;
-            menuIndex = 5;
+            menuIndex = 6;
             buildMenuRows();
             return;
         }
         switch (menuIndex) {
             case 0:
-                closeMenu();
-                toggleComments();
+                // 首行是作者卡片：进作者主页
+                openAuthor();
                 break;
             case 1:
                 closeMenu();
-                showRec();
+                toggleComments();
                 break;
             case 2:
                 closeMenu();
-                requestSearch();
+                showRec();
                 break;
             case 3:
                 closeMenu();
-                refreshFeed();
+                requestSearch();
                 break;
             case 4:
                 closeMenu();
-                collect();
+                refreshFeed();
                 break;
             case 5:
+                closeMenu();
+                collect();
+                break;
+            case 6:
                 menuPage = 1;
                 menuIndex = speedIndex();
                 buildMenuRows();
                 break;
-            case 6:
+            case 7:
                 // 开关就地切换，不关抽屉：用户会连着试「关掉看看／再开回来」
                 toggleDanmaku();
                 buildMenuRows();
                 break;
-            case 7:
+            case 8:
                 closeMenu();
                 host.openDouyinLogin(null);
                 break;
@@ -2192,6 +2365,625 @@ public class DouyinPage extends FrameLayout implements ModulePage {
         }
         show(target, target > index);
         ensureMore();
+    }
+
+    // ---------------------------------------------------------------- 作者主页
+
+    /**
+     * 菜单首行（或画面上的头像）→ 当前作者的主页。
+     *
+     * <p>打开时<b>先用手上这条的昵称和头像把页撑住</b>，再去要资料和作品。
+     * 理由很实在：抖音的用户页接口在没登录／被风控时会 403 或回空 body，
+     * 那时候页上至少有个真人名字和头像，再加一句「没取到全部作品」，
+     * 而不是一块转圈的黑板——电视上转圈是最劝退的界面。
+     */
+    private void openAuthor() {
+        DyItem item = current();
+        if (item == null) {
+            say("还没有内容");
+            return;
+        }
+        if (TextUtils.isEmpty(item.authorUid)) {
+            say("这条没带作者 ID · 翻一条再试");
+            return;
+        }
+        if (menuOpen) {
+            closeMenu();
+        }
+        if (recOpen) {
+            closeRec();
+        }
+        if (commentsOpen) {
+            closeComments();
+        }
+        authorOpen = true;
+        authorGeneration++;
+        authorSecUid = item.authorUid;
+        authorFallbackName = item.author;
+        authorItems.clear();
+        authorIndex = 0;
+        authorCursor = 0;
+        authorHasMore = false;
+        authorLoading = true;
+        ui.removeCallbacks(hideChrome);
+
+        authorPage.setVisibility(View.VISIBLE);
+        authorPage.setAlpha(0f);
+        authorPage.setTranslationX(dp(24));
+        authorPage.animate().alpha(1f).translationX(0f).setDuration(200).start();
+
+        // 主页是「另一页」而不是浮层，背后那条视频还在出声会很怪（画面被盖住了，
+        // 只剩声音，遥控器一按还以为是主页在放）。停下并记住原来在不在放。
+        authorWasPlaying = player != null && player.getPlayWhenReady();
+        if (player != null) {
+            player.setPlayWhenReady(false);
+        }
+        if (danmakuView != null) {
+            try {
+                danmakuView.pause();
+            } catch (Throwable ignored) {
+            }
+        }
+
+        bindAuthorHeader(null, item);
+        authorSection.setText("作品");
+        authorList.removeAllViews();
+        authorHint.setText("正在取作者主页…");
+        loadAuthor(authorGeneration);
+    }
+
+    private void closeAuthor() {
+        closeAuthor(true);
+    }
+
+    /**
+     * @param resume 出来之后要不要接着放。挑了一条作品去播时传 false——
+     *               那条会自己在 {@link #show} 里起播，先恢复再切会白抖一下
+     */
+    private void closeAuthor(boolean resume) {
+        if (!authorOpen) {
+            return;
+        }
+        authorOpen = false;
+        // 作废在飞的那次请求：晚回来的资料不该在页关了之后还改 UI
+        authorGeneration++;
+        authorLoading = false;
+        authorPage.animate().alpha(0f).translationX(dp(24)).setDuration(160)
+                .withEndAction(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!authorOpen) {
+                            authorPage.setVisibility(View.GONE);
+                        }
+                    }
+                }).start();
+        if (resume && authorWasPlaying && player != null) {
+            player.setPlayWhenReady(true);
+            if (danmakuOn && danmakuView != null) {
+                try {
+                    danmakuView.resume();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        authorWasPlaying = false;
+        scheduleChromeHide();
+    }
+
+    private boolean handleAuthorKey(int keyCode, boolean burst) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                if (!burst) {
+                    moveAuthor(1);
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_UP:
+                if (!burst) {
+                    moveAuthor(-1);
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                // 左＝退回上一条视频，和「返回」同义；面板里没有横向层级
+                if (!burst) {
+                    closeAuthor();
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+            case KeyEvent.KEYCODE_ENTER:
+                if (!burst) {
+                    playAuthor();
+                }
+                return true;
+            case KeyEvent.KEYCODE_MENU:
+                if (!burst) {
+                    closeAuthor();
+                }
+                return true;
+            case KeyEvent.KEYCODE_BACK:
+                if (!burst) {
+                    closeAuthor();
+                    return Back.consume("抖音·收起作者主页");
+                }
+                return true;
+            default:
+                // 作者页盖在最上面，方向键以外的键也一并吃掉：
+                // 漏下去就会变成「在作者页里按了暂停/快进」，画面看不见却真的动了
+                return true;
+        }
+    }
+
+    /**
+     * 取作者资料 + 第一页作品。
+     *
+     * <p>两件事各发各的：资料（名字、粉丝数）先到先贴；作品列表可以慢一点。
+     * 一个失败不拖累另一个——很多设备上资料能取、作品列表被限流，反过来也见过。
+     */
+    private void loadAuthor(final int generation) {
+        final String secUid = authorSecUid;
+        final DyItem seed = current();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                DyUser user = null;
+                DyUserPosts posts = null;
+                String userError = null;
+                String postError = null;
+                try {
+                    user = client.userProfile(secUid);
+                } catch (Exception e) {
+                    userError = e.getMessage();
+                    Log.w(TAG, "作者资料没取到", e);
+                }
+                try {
+                    posts = client.userPosts(secUid, 0, 18);
+                } catch (Exception e) {
+                    postError = e.getMessage();
+                    Log.w(TAG, "作者作品没取到", e);
+                }
+                if (posts == null || posts.items.isEmpty()) {
+                    // 作品列表这条接口要登录 cookie。匿名状态下还有一条路：相关推荐
+                    // 是免签可用的，里面常常连着同一个作者的几条，先捞回来应个急
+                    posts = relatedFallback(secUid, seed, posts);
+                }
+                final DyUser foundUser = user;
+                final DyUserPosts foundPosts = posts;
+                final String ue = userError;
+                final String pe = postError;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!authorOpen || generation != authorGeneration) {
+                            return;
+                        }
+                        applyAuthor(foundUser, foundPosts, ue, pe);
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /**
+     * 匿名兜底：把「相关推荐」里同一个作者的作品挑出来当作者页的内容。
+     *
+     * <p>它不是完整的作品列表（只有和当前这条相关的十来条），但比「只有一条」强，
+     * 而且这条路免登录、免签名，任何时候都能用。
+     */
+    private DyUserPosts relatedFallback(String secUid, DyItem seed, DyUserPosts page) {
+        if (seed == null || TextUtils.isEmpty(seed.id)) {
+            return page;
+        }
+        try {
+            List<DyItem> related = client.related(seed.id);
+            DyUserPosts out = page == null ? new DyUserPosts() : page;
+            for (DyItem one : related) {
+                if (TextUtils.isEmpty(one.authorUid) || !one.authorUid.equals(secUid)) {
+                    continue;
+                }
+                boolean dup = false;
+                for (DyItem added : out.items) {
+                    if (added.id.equals(one.id)) {
+                        dup = true;
+                        break;
+                    }
+                }
+                if (!dup) {
+                    out.items.add(one);
+                }
+            }
+            Log.i(TAG, "作者作品匿名兜底：相关推荐里挑到 " + out.items.size() + " 条");
+            return out;
+        } catch (Exception e) {
+            Log.w(TAG, "作者作品兜底也失败", e);
+            return page;
+        }
+    }
+
+    private void applyAuthor(DyUser user, DyUserPosts page, String userError, String postError) {
+        authorLoading = false;
+        if (user != null && user.valid()) {
+            authorUser = user;
+        }
+        bindAuthorHeader(user, current());
+
+        int rawCount = 0;
+        if (page != null) {
+            authorItems.addAll(page.items);
+            authorCursor = page.cursor;
+            authorHasMore = page.hasMore;
+            rawCount = page.rawCount;
+        }
+        // 接口没给就退回「本地刷到的同一个作者的那几条」：有东西可点，比一句失败有用
+        if (authorItems.isEmpty()) {
+            collectLocalAuthorItems();
+        }
+        boolean blocked = postError != null
+                && (postError.contains("UIFID") || postError.contains("登录"));
+        authorNeedLogin = blocked;
+        if (authorItems.isEmpty()) {
+            String reason = postError == null ? "这个作者的作品列表是空的" : shortError(postError);
+            authorHint.setText(blocked ? "抖音要登录才能翻全部作品 · 确定去登录" : reason + " · 返回可继续刷");
+        } else if (blocked) {
+            authorHint.setText("只取到 " + authorItems.size()
+                    + " 条 · 登录后可翻全部作品（按确定最后一行）");
+        } else if (page == null) {
+            authorHint.setText("只列出刷到过的 " + authorItems.size() + " 条 · 返回可继续刷");
+        } else if (page.items.isEmpty() && rawCount > 0) {
+            authorHint.setText("这个作者发的是图文 · 只列出能播的视频");
+        } else {
+            authorHint.setText("上/下 选择 · 确定播放 · 返回");
+        }
+        if (rawCount > 0 && page != null) {
+            authorSection.setText("作品 · " + Math.max(page.items.size(), authorItems.size())
+                    + (authorHasMore ? "+" : ""));
+        } else {
+            authorSection.setText("作品 · " + authorItems.size());
+        }
+        if (!authorItems.isEmpty()) {
+            authorIndex = Math.max(0, Math.min(authorIndex, authorItems.size() - 1));
+        }
+        buildAuthorRows();
+        scrollAuthorToSelection();
+        if (userError != null && authorUser == null) {
+            Log.w(TAG, "作者资料没取到：" + userError);
+        }
+    }
+
+    /** 本地列表里同一个作者的条目（推荐流里经常连着好几条出自一个人） */
+    private void collectLocalAuthorItems() {
+        for (DyItem item : items) {
+            if (authorItems.size() >= 18) {
+                break;
+            }
+            if (TextUtils.isEmpty(item.authorUid) || !item.authorUid.equals(authorSecUid)) {
+                continue;
+            }
+            boolean dup = false;
+            for (DyItem added : authorItems) {
+                if (added.id.equals(item.id)) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup) {
+                authorItems.add(item);
+            }
+        }
+    }
+
+    private void bindAuthorHeader(DyUser user, DyItem item) {
+        String name = user != null && user.valid() ? user.nickname
+                : (item != null && !TextUtils.isEmpty(item.author) ? item.author : authorFallbackName);
+        authorName.setText(TextUtils.isEmpty(name) ? "作者" : name);
+
+        String avatar = user != null && !TextUtils.isEmpty(user.avatar) ? user.avatar
+                : (item == null ? "" : item.avatar);
+        if (!TextUtils.isEmpty(avatar)) {
+            Glide.with(getContext()).load(avatar).circleCrop().into(authorAvatar);
+        }
+
+        String uid = user == null ? "" : user.uniqueId;
+        authorUidView.setText(TextUtils.isEmpty(uid) ? "抖音号 --" : "抖音号 " + uid);
+        authorUidView.setVisibility(View.VISIBLE);
+
+        if (user != null && user.valid()) {
+            StringBuilder stats = new StringBuilder();
+            stats.append("粉丝 ").append(human(user.follower))
+                    .append("  获赞 ").append(human(user.totalFavorited));
+            if (user.awemeCount > 0) {
+                stats.append("  作品 ").append(human(user.awemeCount));
+            }
+            if (!TextUtils.isEmpty(user.ipLocation)) {
+                stats.append("  IP ").append(user.ipLocation);
+            }
+            authorStats.setText(stats.toString());
+        } else {
+            authorStats.setText("");
+        }
+
+        String sign = user == null ? "" : user.signature;
+        authorSign.setText(TextUtils.isEmpty(sign) ? "—" : sign);
+    }
+
+    private void buildAuthorRows() {
+        authorList.removeAllViews();
+        for (int i = 0; i < authorItems.size(); i++) {
+            final int position = i;
+            final DyItem item = authorItems.get(i);
+            LinearLayout row = new LinearLayout(getContext());
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setBackgroundResource(R.drawable.bg_dy_author_row);
+            row.setPadding(dp(8), dp(6), dp(10), dp(6));
+            row.setMinimumHeight(dp(78));
+            row.setTag(position);
+            row.setSelected(i == authorIndex);
+
+            ImageView thumb = new ImageView(getContext());
+            LinearLayout.LayoutParams thumbLp = new LinearLayout.LayoutParams(dp(48), dp(64));
+            thumbLp.rightMargin = dp(12);
+            thumb.setLayoutParams(thumbLp);
+            thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            if (!TextUtils.isEmpty(item.cover)) {
+                Glide.with(getContext()).load(item.cover).into(thumb);
+            }
+            row.addView(thumb);
+
+            LinearLayout textBox = new LinearLayout(getContext());
+            textBox.setOrientation(LinearLayout.VERTICAL);
+            textBox.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+            TextView title = new TextView(getContext());
+            title.setText(TextUtils.isEmpty(item.desc) ? "无文案" : item.desc);
+            title.setTextColor(getResources().getColor(R.color.text_primary));
+            title.setTextSize(14);
+            title.setMaxLines(2);
+            title.setEllipsize(TextUtils.TruncateAt.END);
+            textBox.addView(title);
+
+            TextView meta = new TextView(getContext());
+            meta.setTextSize(11);
+            meta.setTextColor(getResources().getColor(R.color.text_tertiary));
+            meta.setSingleLine(true);
+            StringBuilder line = new StringBuilder();
+            line.append("❤ ").append(human(item.digg))
+                    .append("   💬 ").append(human(item.comment));
+            String day = day(item.createTime);
+            if (!TextUtils.isEmpty(day)) {
+                line.append("   ").append(day);
+            }
+            String quality = qualityLabel(item);
+            if (!TextUtils.isEmpty(quality)) {
+                line.append("   ").append(quality);
+            }
+            meta.setText(line.toString());
+            LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            metaLp.topMargin = dp(4);
+            textBox.addView(meta, metaLp);
+
+            row.addView(textBox);
+
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(4);
+            row.setLayoutParams(lp);
+            row.setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    authorIndex = position;
+                    playAuthor();
+                }
+            });
+            authorList.addView(row);
+        }
+        if (authorNeedLogin) {
+            // 最后一行不是作品，是出口：抖音把作品列表锁在登录后面，这里必须给条路，
+            // 否则「只有一条」就成了死胡同
+            LinearLayout row = new LinearLayout(getContext());
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setBackgroundResource(R.drawable.bg_dy_author_row);
+            row.setPadding(dp(12), dp(6), dp(12), dp(6));
+            row.setMinimumHeight(dp(56));
+            row.setTag(-1);
+            row.setSelected(authorIndex == authorItems.size());
+
+            TextView label = new TextView(getContext());
+            label.setText("登录后可翻全部作品 · 导入 cookie");
+            label.setTextSize(14);
+            label.setTextColor(getResources().getColor(R.color.text_primary));
+            label.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            row.addView(label);
+
+            ImageView chevron = new ImageView(getContext());
+            chevron.setImageResource(R.drawable.ic_chevron_right);
+            row.addView(chevron, new LinearLayout.LayoutParams(dp(14), dp(14)));
+
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            lp.bottomMargin = dp(4);
+            row.setLayoutParams(lp);
+            row.setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    authorIndex = authorItems.size();
+                    playAuthor();
+                }
+            });
+            authorList.addView(row);
+        }
+    }
+
+    private void moveAuthor(int delta) {
+        if (authorItems.isEmpty()) {
+            return;
+        }
+        int last = authorItems.size() - 1 + (authorNeedLogin ? 1 : 0);
+        int next = Math.max(0, Math.min(last, authorIndex + delta));
+        if (next == authorIndex) {
+            return;
+        }
+        authorIndex = next;
+        for (int i = 0; i < authorList.getChildCount(); i++) {
+            authorList.getChildAt(i).setSelected(i == authorIndex);
+        }
+        scrollAuthorToSelection();
+        ensureAuthorMore();
+    }
+
+    /**
+     * 快到底了就把下一页要回来（和推荐流的预取同一个思路：不等撞墙再取）。
+     *
+     * <p>{@code authorLoading} 既表示「第一页在飞」也表示「下一页在飞」——同一个时刻
+     * 只允许一条请求，否则连着按两下下键会打两次同样的游标。
+     */
+    private void ensureAuthorMore() {
+        if (!authorHasMore || authorLoading || authorItems.isEmpty()
+                || authorIndex < authorItems.size() - 3) {
+            return;
+        }
+        authorLoading = true;
+        final int generation = authorGeneration;
+        final String secUid = authorSecUid;
+        final long cursor = authorCursor;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                DyUserPosts page = null;
+                try {
+                    page = client.userPosts(secUid, cursor, 18);
+                } catch (Exception e) {
+                    Log.w(TAG, "作者主页续页失败", e);
+                }
+                final DyUserPosts got = page;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!authorOpen || generation != authorGeneration) {
+                            return;
+                        }
+                        authorLoading = false;
+                        if (got == null || got.items.isEmpty()) {
+                            authorHasMore = false;
+                            return;
+                        }
+                        for (DyItem item : got.items) {
+                            boolean dup = false;
+                            for (DyItem added : authorItems) {
+                                if (added.id.equals(item.id)) {
+                                    dup = true;
+                                    break;
+                                }
+                            }
+                            if (!dup) {
+                                authorItems.add(item);
+                            }
+                        }
+                        authorCursor = got.cursor;
+                        authorHasMore = got.hasMore;
+                        buildAuthorRows();
+                        authorSection.setText("作品 · " + authorItems.size()
+                                + (authorHasMore ? "+" : ""));
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** 遥控器没有惯性滚动：高亮跑到可视区外时自己把它滚进来 */
+    private void scrollAuthorToSelection() {
+        if (authorScroll == null || authorList.getChildCount() <= authorIndex) {
+            return;
+        }
+        final View target = authorList.getChildAt(authorIndex);
+        ui.post(new Runnable() {
+            @Override
+            public void run() {
+                int top = target.getTop();
+                int bottom = top + target.getHeight();
+                int viewTop = authorScroll.getScrollY();
+                int viewBottom = viewTop + authorScroll.getHeight();
+                if (top < viewTop + dp(8)) {
+                    authorScroll.smoothScrollTo(0, Math.max(0, top - dp(8)));
+                } else if (bottom > viewBottom - dp(8)) {
+                    authorScroll.smoothScrollTo(0, bottom - authorScroll.getHeight() + dp(8));
+                }
+            }
+        });
+    }
+
+    /**
+     * 播这一条。
+     *
+     * <p>已经在列表里就直接跳过去；不在就插到当前这条后面——这样「返回」时
+     * 上一条是刚才看的，下一条是作者主页里挑的，位置是连续的，
+     * 不用把整个推荐流换掉（换掉就丢了「接着刷」的上下文）。
+     */
+    private void playAuthor() {
+        if (authorItems.isEmpty() && !authorNeedLogin) {
+            say("这个作者没有能播的作品");
+            return;
+        }
+        if (authorNeedLogin && authorIndex >= authorItems.size()) {
+            closeAuthor();
+            host.openDouyinLogin("作者的全部作品要登录后可见");
+            return;
+        }
+        DyItem target = authorItems.get(Math.max(0, Math.min(authorIndex, authorItems.size() - 1)));
+        closeAuthor(false);
+        int existing = -1;
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).id.equals(target.id)) {
+                existing = i;
+                break;
+            }
+        }
+        if (existing >= 0) {
+            if (existing == index) {
+                // 就是现在这条：别为了「重新播一遍」把进度清零
+                say("正在播这条");
+                return;
+            }
+            show(existing, existing > index);
+            ensureMore();
+            return;
+        }
+        int at = Math.max(0, Math.min(items.size(), index + 1));
+        items.add(at, target);
+        // 记进 seen：续流时别把这条再推一遍（不然刷两下又遇见同一条）
+        seen.add(target.id);
+        show(at, true);
+        ensureMore();
+    }
+
+    /** 「2026-11-03」这种日期；跨年的老作品只留年月，省得一行太长 */
+    private static String day(long timeMs) {
+        if (timeMs <= 0) {
+            return "";
+        }
+        java.util.Calendar now = java.util.Calendar.getInstance();
+        java.util.Calendar then = java.util.Calendar.getInstance();
+        then.setTimeInMillis(timeMs);
+        String pattern = now.get(java.util.Calendar.YEAR) == then.get(java.util.Calendar.YEAR)
+                ? "M月d日" : "yyyy年M月";
+        return new java.text.SimpleDateFormat(pattern, java.util.Locale.CHINA)
+                .format(new java.util.Date(timeMs));
+    }
+
+    /** 接口的报错原样太长（带 URL 和 JSON），抽屉里只留一句能读的 */
+    private static String shortError(String message) {
+        if (TextUtils.isEmpty(message)) {
+            return "没取到作品";
+        }
+        if (message.contains("UIFID") || message.contains("登录")) {
+            return "抖音要登录才能翻作者的全部作品";
+        }
+        if (message.contains("风控") || message.contains("签名")) {
+            return "抖音风控挡住了作者页";
+        }
+        return message.length() > 24 ? message.substring(0, 24) : message;
     }
 
     // ---------------------------------------------------------------- 互动

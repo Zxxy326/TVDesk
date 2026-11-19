@@ -101,6 +101,17 @@ public class HomeGuardService extends AccessibilityService {
     /** 已经为「同一次接管」复查过几轮（防止无限拉） */
     private int recheckRound;
     private Set<String> homePackages = new HashSet<>();
+    /**
+     * 包名 → 它家真正算「桌面」的那些 Activity 类名。
+     *
+     * <p>为什么不能只看包名：小米电视的设置应用 {@code com.xiaomi.mitv.settings} 里也声明了
+     * 两个带 HOME 分类的 Activity（{@code .entry.FallbackHome} 和
+     * {@code .upgrade.FirmwareUpgradeActivity}）。按包名算「这是桌面」的话，
+     * 只要设置页一露头就被当成「原厂桌面回来了」，守护立刻把 TVDesk 拉回前台 ——
+     * 用户看到的就是「点网络 → 跳一下厂家设置 → 立刻闪回来」。
+     * 所以窗口事件这条路要连类名一起判：前台必须是那个包真正的桌面 Activity。
+     */
+    private java.util.Map<String, Set<String>> homeActivities = new java.util.HashMap<>();
     private long homePackagesAt;
     /** 最近一次前台窗口的包名（亮屏延迟判断时用） */
     private String lastForeground;
@@ -331,6 +342,18 @@ public class HomeGuardService extends AccessibilityService {
         return true;
     }
 
+    /**
+     * 「自己人抑制窗口」：桌面要拉起自家另一个 Activity（音乐模块的 Compose 页）时，
+     * 切换瞬间原厂桌面会短暂回前台并抛一条窗口事件，守护会误判成「原厂桌面回来了」
+     * 而立刻把 DeskActivity 拉回去 —— 新页面活不过一秒。
+     * 拉起前调一下这个方法，窗口期内不做接管。
+     */
+    private static volatile long suppressUntil;
+
+    public static void suppress(long ms) {
+        suppressUntil = android.os.SystemClock.elapsedRealtime() + Math.max(0, ms);
+    }
+
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event == null || event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
@@ -342,6 +365,8 @@ public class HomeGuardService extends AccessibilityService {
         }
         String pkg = pkgName.toString();
         lastForeground = pkg;
+        CharSequence clsName = event.getClassName();
+        final String cls = clsName == null ? null : clsName.toString();
         if (pkg.equals(getPackageName())) {
             // 自己回到前台：放行作废，之后 HOME 键重新接管
             DeskPrefs.clearStockAllow(this);
@@ -357,7 +382,10 @@ public class HomeGuardService extends AccessibilityService {
             // 结果唤醒后迟迟不接管。
             DeskPrefs.setWasHome(this, false);
         }
-        HomeTakeoverPolicy.Evidence ev = evidence(pkg);
+        if (android.os.SystemClock.elapsedRealtime() < suppressUntil) {
+            return;
+        }
+        HomeTakeoverPolicy.Evidence ev = evidence(pkg, cls);
         HomeTakeoverPolicy.Decision decision = HomeTakeoverPolicy.decide(this, ev);
         GuardRuntimeState.noteDecision(decision.reason);
         if (!decision.allowed()) {
@@ -409,12 +437,21 @@ public class HomeGuardService extends AccessibilityService {
 
     /** 把当前证据打包给统一判定 */
     private HomeTakeoverPolicy.Evidence evidence(String foreground) {
+        return evidence(foreground, null);
+    }
+
+    /**
+     * @param cls 前台 Activity 的类名。窗口事件能给到，就一定要用上：小米设置包里
+     *            也有带 HOME 分类的 Activity，只按包名判会把设置页当成桌面（见
+     *            {@link #homeActivities} 的注释）
+     */
+    private HomeTakeoverPolicy.Evidence evidence(String foreground, String cls) {
         HomeTakeoverPolicy.Evidence ev = new HomeTakeoverPolicy.Evidence();
         ev.guardOn = DeskPrefs.homeGuard(this);
         ev.temporaryBypass = DeskPrefs.stockAllowed(this);
         ev.screenInteractive = HomeTakeoverPolicy.screenInteractive(this);
         ev.foreground = foreground;
-        ev.foregroundIsHome = foreground != null && isHomePackage(foreground);
+        ev.foregroundIsHome = foreground != null && isHomeScreen(foreground, cls);
         ev.selfPackage = getPackageName();
         ev.recoverAttempts = GuardRuntimeState.recoverAttempts();
         ev.evidenceAt = System.currentTimeMillis();
@@ -527,21 +564,62 @@ public class HomeGuardService extends AccessibilityService {
         return homePackages.contains(pkg);
     }
 
+    /**
+     * 前台这一屏是不是真的落在某个桌面上。
+     *
+     * @param cls 前台 Activity 的类名，可能为 null（只有包名可用时退回按包判断）
+     */
+    private boolean isHomeScreen(String pkg, String cls) {
+        long now = System.currentTimeMillis();
+        if (homePackages.isEmpty() || now - homePackagesAt > HOME_CACHE_MS) {
+            homePackages = queryHomePackages();
+            homePackagesAt = now;
+        }
+        if (!homePackages.contains(pkg)) {
+            return false;
+        }
+        if (cls == null || cls.isEmpty()) {
+            // 拿不到类名（亮屏复查那种只有包名的路）就按包算，和以前一样
+            return true;
+        }
+        Set<String> classes = homeActivities.get(pkg);
+        return classes == null || classes.contains(cls);
+    }
+
     private Set<String> queryHomePackages() {
         Set<String> out = new HashSet<>();
+        homeActivities = new java.util.HashMap<>();
         try {
             Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
             for (ResolveInfo info : getPackageManager()
                     .queryIntentActivities(home, PackageManager.MATCH_ALL)) {
-                if (info.activityInfo != null) {
-                    out.add(info.activityInfo.packageName);
+                if (info.activityInfo == null) {
+                    continue;
                 }
+                String pkg = info.activityInfo.packageName;
+                String cls = info.activityInfo.name;
+                // FallbackHome 是 AOSP 在「还没有可用桌面」时顶班的那一页（开机解锁前），
+                // 它坐在设置包里，但绝对不是用户的桌面
+                if (cls != null && cls.endsWith("FallbackHome")) {
+                    continue;
+                }
+                out.add(pkg);
+                if (cls == null) {
+                    continue;
+                }
+                Set<String> classes = homeActivities.get(pkg);
+                if (classes == null) {
+                    classes = new HashSet<>();
+                    homeActivities.put(pkg, classes);
+                }
+                classes.add(cls);
             }
         } catch (Throwable th) {
             Log.w(TAG, "查桌面列表失败：" + th.getMessage());
         }
         // 我们自己也在这个列表里（声明了 HOME），但上面已经排除了
         out.remove(getPackageName());
+        homeActivities.remove(getPackageName());
         return out;
     }
 

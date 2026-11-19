@@ -200,7 +200,8 @@ public class LivePage extends FrameLayout implements ModulePage {
 
         osdBox = new LinearLayout(getContext());
         osdBox.setOrientation(LinearLayout.VERTICAL);
-        osdBox.setBackgroundColor(0xCC101014);
+        // 和桌面面板同一块玻璃：底色 #E6202022 + 1.2dp 四段描边 + 上沿高光
+        osdBox.setBackground(new com.tvdesk.desk.widget.GlassSurface(getContext(), dp(18)));
         osdBox.setPadding(dp(22), dp(14), dp(22), dp(14));
         osdBox.setMinimumWidth(dp(300));
         FrameLayout.LayoutParams osdParams = new FrameLayout.LayoutParams(
@@ -274,11 +275,9 @@ public class LivePage extends FrameLayout implements ModulePage {
 
         LinearLayout panel = new LinearLayout(getContext());
         panel.setOrientation(LinearLayout.VERTICAL);
-        // 半透明底 + 圆角：面板窄了之后，不透明会像一块黑板贴在画面左边
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0x99101014);
-        bg.setCornerRadius(dp(16));
-        panel.setBackground(bg);
+        // 玻璃面板：原来是一块 #99101014 的渐变色块，和桌面的胶囊不是一套；
+        // 直播画面在动、又拿不到它的磨砂快照，所以用静态玻璃（Aerial 的 Follow App 兜底）
+        panel.setBackground(new com.tvdesk.desk.widget.GlassSurface(getContext(), dp(20)));
         panel.setPadding(dp(9), dp(12), dp(7), dp(16));
         int width = (int) (getResources().getDisplayMetrics().widthPixels * PANEL_WIDTH_RATIO);
         FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(
@@ -1143,10 +1142,7 @@ public class LivePage extends FrameLayout implements ModulePage {
 
         LinearLayout card = new LinearLayout(getContext());
         card.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xF2151519);
-        bg.setCornerRadius(dp(18));
-        card.setBackground(bg);
+        card.setBackground(new com.tvdesk.desk.widget.GlassSurface(getContext(), dp(20)));
         card.setPadding(dp(24), dp(18), dp(24), dp(16));
         // 卡片自己吃掉点击：否则点内容区会穿透到压暗层，把对话框关掉
         card.setClickable(true);

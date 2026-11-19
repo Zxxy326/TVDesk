@@ -71,9 +71,9 @@ case "$VARIANT" in
           exit 1
         fi
         if [ "$m" = "guard" ]; then
-          cp "$SRC" "dist/TVDesk-$VERSION-guard-$TAG.apk"
+          cp "$SRC" "dist/xbox-tv-$VERSION-guard-$TAG.apk"
         else
-          cp "$SRC" "dist/TVDesk-$VERSION-$TAG.apk"
+          cp "$SRC" "dist/xbox-tv-$VERSION-$TAG.apk"
         fi
       done
     done

@@ -43,9 +43,9 @@ import java.util.Set;
 /**
  * 内嵌搜索页。
  *
- * <p>输入有两条路：遥控器用左边的屏幕键盘（A-Z/0-9），中文则把焦点移到片名框，
- * 用系统输入法直接打字——电视上的输入法通常带拼音，屏幕键盘只解决英文和数字。
- * 两条路写的是同一个 EditText，所以结果和普通搜索框完全一致。
+ * <p>输入走<b>系统输入法</b>：进页面自动把输入法弹起来，不再自绘屏幕键盘。
+ * 电视上的输入法一般带拼音和语音，比遥控器逐个字母挪快得多；「最近搜索」退到
+ * 输入框下面一行，搜过的词一点就回来。
  *
  * <p>结果按源陆续回来（{@link DetailFeed#search} 每拿到一个源就回一批），
  * 不等最慢的源。点结果进内嵌详情页。
@@ -65,7 +65,6 @@ public class SearchPage extends FrameLayout implements ModulePage {
 
     private EditText input;
     private ImageView goButton;
-    private LinearLayout keys;
     private com.tvdesk.desk.widget.TileWall grid;
     private ProgressBar loading;
     private TextView emptyView;
@@ -82,6 +81,15 @@ public class SearchPage extends FrameLayout implements ModulePage {
     private int seq;
     private boolean released;
     private boolean pendingFocusResults;
+
+    /**
+     * 输入法此刻是不是「我们主动弹起来」的状态。
+     *
+     * <p>不能用 {@code imm.isActive(input)} 判断：键盘收起来之后它照样返回 true
+     * （输入连接还在，只是不可见），返回键就会一直走「收输入法」那一支，
+     * 用户按多少下都退不出搜索页。所以自己记一个开关，show/hide 时同步。
+     */
+    private boolean imeShown;
 
     private final Runnable liveSearch = new Runnable() {
         @Override
@@ -101,7 +109,6 @@ public class SearchPage extends FrameLayout implements ModulePage {
 
         input = findViewById(R.id.search_input);
         goButton = findViewById(R.id.search_go);
-        keys = findViewById(R.id.search_keys);
         grid = findViewById(R.id.search_grid);
         loading = findViewById(R.id.search_loading);
         emptyView = findViewById(R.id.search_empty);
@@ -111,22 +118,18 @@ public class SearchPage extends FrameLayout implements ModulePage {
         grid.setAdapter(adapter);
         grid.setNumColumns(GRID_COLUMNS);
         grid.setSpacingDp(16f, 18f);
-        // 到边：左边是字母键盘（用户按左就是要回键盘），上下到顶回输入框，其余回弹
+        // 到边：上/左都回输入框（没有键盘列了，回输入框就是回「输入区」）
         grid.setEdgeListener(new com.tvdesk.desk.widget.TileWall.OnEdgeListener() {
             @Override
             public boolean onEdge(int keyCode, int index) {
-                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                    focusFirstKey();
-                    return true;
-                }
-                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-                    input.requestFocus();
+                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                        || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                    focusInput();
                     return true;
                 }
                 return false;
             }
         });
-        buildKeyboard();
         wireInput();
     }
 
@@ -147,16 +150,13 @@ public class SearchPage extends FrameLayout implements ModulePage {
     }
 
     /**
-     * 进页面时焦点落在片名框里。
+     * 进页面 / 从结果区回输入框：聚焦片名框并把系统输入法弹起来。
      *
-     * <p>用户进搜索页要做的第一件事就是输入，焦点先站在字母键盘上等于让他先挪一次手。
-     * 但电视上焦点落到输入框会顺手把系统输入法叫出来，把下半屏盖掉 —— 这里的默认输入
-     * 方式是左边那套字母键盘，所以落焦之后要把输入法收回去（{@link #hideIme()}）。
+     * <p>页面里已经没有自绘键盘了，输入法就是唯一的输入方式 —— 所以弹输入法是主路径，
+     * 不再是「顺手带出来、随后收回去」的副作用。
      */
     private void focusInput() {
-        // 页面刚塞进宿主、还没量完布局时 requestFocus 会落空，
-        // 随后系统按「第一个可聚焦」把焦点给到键盘的 A —— 那正是要避免的结果。
-        // 所以等这一轮布局结束再要焦点。
+        // 页面刚塞进宿主、还没量完布局时 requestFocus 会落空，等这一轮布局结束再要焦点
         if (input.getViewTreeObserver().isAlive()) {
             input.getViewTreeObserver().addOnGlobalLayoutListener(
                     new ViewTreeObserver.OnGlobalLayoutListener() {
@@ -173,27 +173,42 @@ public class SearchPage extends FrameLayout implements ModulePage {
                 grabInputFocus();
             }
         }, 220);
-        // 输入法是「焦点变了之后」才弹的，一次 hide 往往赶在它前面
+        // 输入法是「焦点落定之后」才弹的，补一次，赶在系统第一次弹失败时兜住
         postDelayed(new Runnable() {
             @Override
             public void run() {
                 if (!gone() && input.hasFocus()) {
-                    hideIme();
+                    showIme();
                 }
             }
         }, 420);
     }
 
     private void grabInputFocus() {
-        if (gone() || input.hasFocus()) {
+        if (gone()) {
             return;
         }
-        input.requestFocus();
-        Editable text = input.getText();
-        if (text != null) {
-            input.setSelection(text.length());
+        if (!input.hasFocus()) {
+            input.requestFocus();
+            Editable text = input.getText();
+            if (text != null) {
+                input.setSelection(text.length());
+            }
         }
-        hideIme();
+        showIme();
+    }
+
+    /** 弹系统输入法（进搜索页、从结果区回输入框都走这里） */
+    private void showIme() {
+        if (input == null) {
+            return;
+        }
+        InputMethodManager imm = (InputMethodManager)
+                getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT);
+            imeShown = true;
+        }
     }
 
     /**
@@ -223,37 +238,24 @@ public class SearchPage extends FrameLayout implements ModulePage {
 
     @Override
     public boolean handleKeyDown(int keyCode) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && input.hasFocus()) {
-            // 层级表 L4：输入法弹着的时候，第一次返回只把它收起来（焦点退回键盘，
-            // 再按一次才是退出本页）；输入法没弹（用左边屏幕键盘打的字），这一下就该退页了。
-            if (imeActive()) {
-                hideIme();
-                focusFirstKey();
-                return Back.consume("影视搜索·收起输入法");
-            }
-            return Back.pass("影视搜索·退出搜索页");
+        if (keyCode != KeyEvent.KEYCODE_BACK) {
+            return false;
         }
-        if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // 焦点还在结果墙／最近搜索里：返回先回「顶栏」（片名框 + 键盘这一块），
-            // 再按一次才退出搜索页。和其它模块「内容 → 顶栏」是同一个口径。
-            //
-            // 落点选键盘而不是片名框：焦点一进 EditText，系统输入法会自己再弹出来，
-            // 下一次返回又会被判成「还在输入态」，用户得按三次才出得去。
-            if (grid.findFocus() != null || historyWords.findFocus() != null) {
-                hideIme();
-                focusFirstKey();
-                return Back.consume("影视搜索·回搜索栏");
-            }
-            return Back.pass("影视搜索·退出搜索页");
+        // 层级表 L4：输入法弹着的时候，第一次返回只把它收起来；收起后这一下
+        // 不该同时退页，否则用户想收个键盘就直接被弹出去了。
+        //
+        // 焦点在结果墙里时没有「中间态」可回：回片名框必然把输入法弹回来，
+        // 下一次返回又变成「收输入法」，要按三次才出得去。所以这里直接退页，
+        // 想改词按「上」回输入框。
+        // 还要再量一次「键盘是不是真的还在」：很多输入法会自己吃掉第一次返回
+        // （它自己把键盘收起来），我们这边的 onKeyDown 根本收不到，标志位却还是 true。
+        // 只看标志位的话，用户按第二下会被当成「再收一次键盘」，要按三下才退得出去。
+        if (imeShown && imeVisibleNow()) {
+            hideIme();
+            return Back.consume("影视搜索·收起输入法");
         }
-        return false;
-    }
-
-    /** 输入法当前是不是正为片名框弹着 */
-    private boolean imeActive() {
-        InputMethodManager imm = (InputMethodManager)
-                getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
-        return imm != null && input != null && imm.isActive(input);
+        hideIme();
+        return Back.pass("影视搜索·退出搜索页");
     }
 
     private boolean gone() {
@@ -306,12 +308,30 @@ public class SearchPage extends FrameLayout implements ModulePage {
                 if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN
                         || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                     if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                        // 没有键盘列了：向下就是进内容区 —— 有结果进结果墙，
+                        // 没结果就去「最近搜索」，两样都没有就留在片名框
                         hideIme();
-                        focusFirstKey();
+                        if (grid.getVisibility() == View.VISIBLE && !results.isEmpty()) {
+                            focusResult(0);
+                        } else if (historyBox != null && historyBox.getVisibility() == View.VISIBLE
+                                && historyWords != null && historyWords.getChildCount() > 0) {
+                            historyWords.getChildAt(0).requestFocus();
+                        }
                     }
                     return true;
                 }
                 return false;
+            }
+        });
+
+        // 焦点一回到片名框，系统就会把输入法弹出来（不管是不是我们叫的）。
+        // 这里补记一笔，否则下一次返回会被判成「键盘没开」直接退页，把键盘留在屏幕上。
+        input.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean hasFocus) {
+                if (hasFocus) {
+                    imeShown = true;
+                }
             }
         });
 
@@ -322,122 +342,6 @@ public class SearchPage extends FrameLayout implements ModulePage {
             }
         });
         FocusScaler.attach(goButton, 1.06f);
-    }
-
-    private void buildKeyboard() {
-        String[][] rows = {
-                {"A", "B", "C", "D", "E", "F"},
-                {"G", "H", "I", "J", "K", "L"},
-                {"M", "N", "O", "P", "Q", "R"},
-                {"S", "T", "U", "V", "W", "X"},
-                {"Y", "Z", "0", "1", "2", "3"},
-                {"4", "5", "6", "7", "8", "9"},
-        };
-        for (String[] row : rows) {
-            LinearLayout line = new LinearLayout(getContext());
-            line.setOrientation(LinearLayout.HORIZONTAL);
-            LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lineParams.bottomMargin = dp(5);
-            line.setLayoutParams(lineParams);
-            for (String key : row) {
-                line.addView(buildKey(key));
-            }
-            keys.addView(line);
-        }
-
-        LinearLayout actions = new LinearLayout(getContext());
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        actions.addView(buildAction("删除", false, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                deleteLast();
-            }
-        }));
-        actions.addView(buildAction("清空", false, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                input.setText("");
-                emptyView.setVisibility(View.GONE);
-                showHistory();
-                focusFirstKey();
-            }
-        }));
-        actions.addView(buildAction("搜索", true, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                searchNow(true);
-            }
-        }));
-        keys.addView(actions);
-    }
-
-    private TextView buildKey(final String text) {
-        TextView key = new TextView(getContext());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(34), 1f);
-        lp.rightMargin = dp(8);
-        key.setLayoutParams(lp);
-        key.setBackgroundResource(R.drawable.bg_dialog_item);
-        key.setFocusable(true);
-        key.setFocusableInTouchMode(true);
-        key.setClickable(true);
-        key.setGravity(Gravity.CENTER);
-        key.setText(text);
-        key.setTextColor(AppCompatResources.getColorStateList(getContext(), R.color.nav_item_text));
-        key.setTextSize(15);
-        key.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                append(text);
-            }
-        });
-        return key;
-    }
-
-    private TextView buildAction(String text, boolean primary, View.OnClickListener listener) {
-        TextView button = new TextView(getContext());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(36), 1f);
-        lp.rightMargin = dp(8);
-        button.setLayoutParams(lp);
-        button.setBackgroundResource(primary ? R.drawable.bg_btn_primary : R.drawable.bg_pill);
-        button.setFocusable(true);
-        button.setFocusableInTouchMode(true);
-        button.setClickable(true);
-        button.setGravity(Gravity.CENTER);
-        button.setText(text);
-        button.setTextSize(15);
-        button.setTextColor(primary
-                ? getResources().getColor(R.color.text_on_light)
-                : getResources().getColor(R.color.text_primary));
-        button.setOnClickListener(listener);
-        return button;
-    }
-
-    private void append(String text) {
-        int start = Math.max(0, input.getSelectionStart());
-        int end = Math.max(0, input.getSelectionEnd());
-        if (start > end) {
-            int tmp = start;
-            start = end;
-            end = tmp;
-        }
-        input.getText().replace(start, end, text);
-        input.setSelection(start + text.length());
-    }
-
-    private void deleteLast() {
-        Editable editable = input.getText();
-        int start = Math.max(0, input.getSelectionStart());
-        int end = Math.max(0, input.getSelectionEnd());
-        if (start != end) {
-            editable.delete(Math.min(start, end), Math.max(start, end));
-            return;
-        }
-        if (start > 0) {
-            editable.delete(start - 1, start);
-        }
     }
 
     // ---------------------------------------------------------------- 搜索历史
@@ -458,42 +362,25 @@ public class SearchPage extends FrameLayout implements ModulePage {
             historyBox.setVisibility(View.GONE);
             return;
         }
-        // 两列、最多 6 条：键盘占掉大半列，再多就会画到下面的提示文字上。
-        // 「仅文字」那一版没有焦点框，遥控器走上去看不出停在哪，所以这里给回
-        // 带底的条目 + 放大，跟键盘按键是同一套视觉语言。
+        // 一行最多 6 条，横向均分：整屏都给了结果墙，历史只在输入框下面占一条。
         int count = Math.min(words.size(), 6);
-        LinearLayout line = null;
         for (int i = 0; i < count; i++) {
             final String word = words.get(i);
-            if (i % 2 == 0) {
-                line = new LinearLayout(getContext());
-                line.setOrientation(LinearLayout.HORIZONTAL);
-                // 这一行是「宽度刚好等于两个条目」的容器：默认 clipChildren=true 时，
-                // 条目按 1.06 放大出来的那一圈会被这一行的边界切掉，
-                // 看到的就是焦点框左右两侧被裁平（用户报的正是这个）
-                line.setClipChildren(false);
-                line.setClipToPadding(false);
-                LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                lineParams.bottomMargin = dp(6);
-                line.setLayoutParams(lineParams);
-                historyWords.addView(line);
-            }
             TextView item = new TextView(getContext());
             item.setText(word);
-            item.setTextSize(14);
+            item.setTextSize(13);
             item.setSingleLine(true);
             item.setEllipsize(TextUtils.TruncateAt.END);
-            item.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            item.setGravity(Gravity.CENTER);
             item.setTextColor(AppCompatResources.getColorStateList(getContext(), R.color.nav_item_text));
             item.setBackgroundResource(R.drawable.bg_module_item);
             item.setFocusable(true);
             item.setFocusableInTouchMode(true);
             item.setClickable(true);
-            item.setPadding(dp(12), 0, dp(12), 0);
+            item.setPadding(dp(10), 0, dp(10), 0);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(38), 1f);
-            if (i % 2 == 0) {
-                lp.rightMargin = dp(6);
+            if (i < count - 1) {
+                lp.rightMargin = dp(8);
             }
             item.setLayoutParams(lp);
             com.tvdesk.desk.motion.FocusScaler.attach(item,
@@ -506,9 +393,7 @@ public class SearchPage extends FrameLayout implements ModulePage {
                     searchNow(true);
                 }
             });
-            if (line != null) {
-                line.addView(item);
-            }
+            historyWords.addView(item);
         }
         historyBox.setVisibility(View.VISIBLE);
     }
@@ -524,31 +409,17 @@ public class SearchPage extends FrameLayout implements ModulePage {
     }
 
     /**
-     * 同步把焦点放回键盘第一个字母。
+     * 同步把焦点收回片名框（不主动弹输入法）。
      *
-     * <p>为什么要有「同步」这一版：清空结果、隐藏结果墙之前必须先把焦点挪走。
-     * {@link #focusFirstKey()} 是 post 出去的（布局还没铺好时也能用），
-     * 但清空的瞬间焦点已经没了，中间那两帧焦点会被系统补到片名框上。
+     * <p>「同步」是为了在清空结果、隐藏结果墙之前先把焦点挪走：清空的瞬间
+     * 焦点已经没了，中间那两帧系统会按几何关系自己补一个落点，
+     * 用户看到的就是「搜一下，焦点自己乱跑」。
+     *
+     * <p>不调 {@link #showIme()}：搜索时键盘盖住结果没有任何意义，
+     * 调用方那边的 {@link #hideIme()} 会把它收掉。
      */
-    private boolean moveFocusToKeyboard() {
-        if (keys.getChildCount() == 0) {
-            return false;
-        }
-        View row = keys.getChildAt(0);
-        View first = row instanceof ViewGroup ? ((ViewGroup) row).getChildAt(0) : row;
-        return first != null && first.requestFocus();
-    }
-
-    private void focusFirstKey() {
-        post(new Runnable() {
-            @Override
-            public void run() {
-                if (gone()) {
-                    return;
-                }
-                moveFocusToKeyboard();
-            }
-        });
+    private boolean moveFocusToInput() {
+        return input != null && input.requestFocus();
     }
 
     private void hideIme() {
@@ -556,6 +427,24 @@ public class SearchPage extends FrameLayout implements ModulePage {
                 getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm != null && input != null) {
             imm.hideSoftInputFromWindow(input.getWindowToken(), 0);
+        }
+        imeShown = false;
+    }
+
+    /**
+     * 软键盘此刻是不是真的占着屏幕下半截。
+     *
+     * <p>{@code InputMethodManager.isActive} 不可靠（键盘收起后照样 true），
+     * 所以直接量可见区域：键盘弹着时窗口可视区会被压短。
+     */
+    private boolean imeVisibleNow() {
+        try {
+            android.graphics.Rect r = new android.graphics.Rect();
+            getWindowVisibleDisplayFrame(r);
+            int rootH = getRootView().getHeight();
+            return rootH > 0 && (rootH - r.bottom) > dp(100);
+        } catch (Throwable th) {
+            return false;
         }
     }
 
@@ -577,21 +466,23 @@ public class SearchPage extends FrameLayout implements ModulePage {
         String wd = query();
         if (TextUtils.isEmpty(wd)) {
             DeskToast.makeText(getContext(), "先输入片名", Toast.LENGTH_SHORT).show();
-            focusFirstKey();
+            focusInput();
             return;
-        }
-        if (!fromTyping) {
-            hideIme();
         }
         hideHistory();
         SearchHistory.record(getContext(), wd);
         final int mySeq = ++seq;
         pendingFocusResults = focusResults;
-        // 结果墙要清空重来。焦点若正在里面，先把焦点**明确地**送回键盘再清 ——
-        // 直接清空/隐藏会让系统在子 View 消失后按几何关系补一个，
-        // 用户看到的就是「搜一下，焦点自己跑到片名框去了」。
+        // 结果墙要清空重来。焦点若正在里面，先把焦点**明确地**收回片名框再清 ——
+        // 直接清空/隐藏会让系统在子 View 消失后按几何关系补一个落点。
+        //
+        // 顺序必须是「先移焦点、后收输入法」：EditText 拿到焦点会顺手把输入法弹起来，
+        // 先收的话下一步又被弹回来，键盘就盖在刚搜出来的结果上了。
         if (grid.findFocus() != null) {
-            moveFocusToKeyboard();
+            moveFocusToInput();
+        }
+        if (!fromTyping) {
+            hideIme();
         }
         results.clear();
         seen.clear();
@@ -635,13 +526,13 @@ public class SearchPage extends FrameLayout implements ModulePage {
                     // 否则用户会以为「搜索坏了」。
                     boolean lettersOnly = wd.matches("^[A-Za-z0-9]+$");
                     emptyView.setText(lettersOnly
-                            ? "没找到「" + wd + "」\n当前这批源不支持拼音首字母搜索\n换个源，或把焦点移到片名框用输入法打中文"
+                            ? "没找到「" + wd + "」\n当前这批源不支持拼音首字母搜索\n换个源，或用输入法打中文片名"
                             : "没找到「" + wd + "」\n换个片名，或到设置里加个搜索源");
                     if (grid.findFocus() != null) {
-                        moveFocusToKeyboard();
+                        moveFocusToInput();
                     }
                     // 这里不再把「最近搜索」摊出来：片名框里还有关键词的时候，
-                    // 右边突然多出一列可聚焦的历史词，用户从键盘往右一按就落到那上面，
+                    // 结果区上方突然多出一排可聚焦的历史词，用户往下走就容易落到那上面，
                     // 看着就是「焦点乱跳、结果区进不去」。历史只在片名为空时出现。
                     emptyView.setVisibility(View.VISIBLE);
                     grid.setVisibility(View.INVISIBLE);

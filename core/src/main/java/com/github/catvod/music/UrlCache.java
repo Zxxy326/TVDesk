@@ -113,6 +113,32 @@ public final class UrlCache {
         prefs(context).edit().remove(cacheKey).remove(cacheKey + "#at").apply();
     }
 
+    /**
+     * 删掉某首歌在<b>所有源 / 所有音质</b>下的缓存。
+     *
+     * <p>「重新解析音源」用：用户觉得这条链接不对，要的是这首歌彻底重取，
+     * 不是只删某一个源的某一条。key 的形状是 {@code songKey|source|quality}，
+     * 所以按 {@code songKey|} 前缀扫一遍即可（{@code #at} 时间戳也跟着前缀走，一并删掉）。
+     */
+    public static void removeForSong(Context context, String songKey) {
+        if (context == null || TextUtils.isEmpty(songKey)) {
+            return;
+        }
+        SharedPreferences p = prefs(context);
+        String prefix = songKey + "|";
+        SharedPreferences.Editor e = p.edit();
+        boolean any = false;
+        for (String k : p.getAll().keySet()) {
+            if (k.startsWith(prefix)) {
+                e.remove(k);
+                any = true;
+            }
+        }
+        if (any) {
+            e.apply();
+        }
+    }
+
     /** 清空全部缓存 */
     public static void clear(Context context) {
         if (context == null) {

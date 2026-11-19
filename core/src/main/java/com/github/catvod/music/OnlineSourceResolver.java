@@ -72,6 +72,12 @@ public final class OnlineSourceResolver {
         public String title = "";
         public String artist = "";
         public String album = "";
+        /**
+         * 目标歌曲时长（毫秒），0 表示不知道。
+         *
+         * <p>跨源换歌时用来卡「同名不同版本」：标题一样但差 5 秒以上的直接不算同一首。
+         */
+        public long durationMs;
         /** 目标平台：wy / tx / kw / kg / mg */
         public String platform = "wy";
         /** 期望音质：flac / flac24bit / 320k / 128k */
@@ -359,13 +365,29 @@ public final class OnlineSourceResolver {
         if (TextUtils.isEmpty(request.title)) {
             return null;
         }
-        List<LxRuntime.SearchHit> hits = runtime.search(platform, request.title, 1, 5);
+        return bestHit(runtime.search(platform, request.title, 1, 5), request);
+    }
+
+    /**
+     * 从一堆候选里挑最像同一首的。
+     *
+     * <p>不是「第一个过关的」：搜索结果里常有同名不同版本，第一个过关的未必最像。
+     * 按分数取最高，分数一样时按顺序取前面的。
+     */
+    private static LxRuntime.SearchHit bestHit(List<LxRuntime.SearchHit> hits, Request request) {
+        if (hits == null || hits.isEmpty()) {
+            return null;
+        }
+        LxRuntime.SearchHit best = null;
+        int bestScore = 0;
         for (LxRuntime.SearchHit hit : hits) {
-            if (sameSong(hit, request)) {
-                return hit;
+            int sc = scoreHit(hit, request);
+            if (sc > bestScore) {
+                bestScore = sc;
+                best = hit;
             }
         }
-        return null;
+        return best;
     }
 
     /**
@@ -443,14 +465,8 @@ public final class OnlineSourceResolver {
             if (runtime == null) {
                 continue;
             }
-            List<LxRuntime.SearchHit> hits = runtime.search(def.platform, request.title, 1, 5);
-            LxRuntime.SearchHit hit = null;
-            for (LxRuntime.SearchHit h : hits) {
-                if (sameSong(h, request)) {
-                    hit = h;
-                    break;
-                }
-            }
+            LxRuntime.SearchHit hit = bestHit(
+                    runtime.search(def.platform, request.title, 1, 5), request);
             if (hit == null) {
                 continue;
             }
@@ -470,26 +486,77 @@ public final class OnlineSourceResolver {
         }
         return result;
     }
-    /** 跨源搜出来的歌要跟目标对得上，否则宁可不要 */
+    /**
+     * 跨源搜出来的歌要跟目标对得上，否则宁可不要。
+     *
+     * <p>照像素播放器 v1.7.1/1.7.2 的 findMusic 思路：先过时长（±5 秒），
+     * 再按「标题 → 歌手 → 专辑」三级打分。同名不同版本（现场版/伴奏/串烧）标题完全一样，
+     * 只靠标题会换错歌；时长是最便宜也最准的那道闸。
+     */
     private static boolean sameSong(LxRuntime.SearchHit hit, Request request) {
+        return scoreHit(hit, request) > 0;
+    }
+
+    /** 时长容差：超过 5 秒就不认为是同一首（LRC/试听片段、不同版本都在这个范围外） */
+    private static final long DURATION_TOLERANCE_MS = 5000L;
+
+    /**
+     * 给一个候选打分，越大越像同一首；&lt;=0 表示不是同一首。
+     *
+     * <ul>
+     *   <li>标题必须双向包含，否则 0 分（基础 40）</li>
+     *   <li>标题完全相等 +20；</li>
+     *   <li>歌手对得上 +25，明确对不上 -20；</li>
+     *   <li>专辑对得上 +10；</li>
+     *   <li>两边都有时长且差 &gt; 5 秒：直接判 0（不是同一首）；差 &lt; 2 秒 +15。</li>
+     * </ul>
+     */
+    private static int scoreHit(LxRuntime.SearchHit hit, Request request) {
+        if (hit == null) {
+            return 0;
+        }
         String wantTitle = clean(request.title);
         String gotTitle = clean(hit.title);
         if (TextUtils.isEmpty(wantTitle) || TextUtils.isEmpty(gotTitle)) {
-            return false;
+            return 0;
         }
-        boolean titleOk = gotTitle.contains(wantTitle) || wantTitle.contains(gotTitle);
-        if (!titleOk) {
-            return false;
+        if (!gotTitle.contains(wantTitle) && !wantTitle.contains(gotTitle)) {
+            return 0;
         }
+        int score = 40;
+        if (wantTitle.equals(gotTitle)) {
+            score += 20;
+        }
+
         String wantArtist = clean(request.artist);
-        if (TextUtils.isEmpty(wantArtist)) {
-            return true;
-        }
         String gotArtist = clean(hit.artist);
-        if (TextUtils.isEmpty(gotArtist)) {
-            return true;
+        if (!TextUtils.isEmpty(wantArtist) && !TextUtils.isEmpty(gotArtist)) {
+            if (gotArtist.contains(wantArtist) || wantArtist.contains(gotArtist)) {
+                score += 25;
+            } else {
+                // 标题对、歌手对不上：多半是翻唱/同名歌，压到接近淘汰
+                score -= 20;
+            }
         }
-        return gotArtist.contains(wantArtist) || wantArtist.contains(gotArtist);
+
+        String wantAlbum = clean(request.album);
+        String gotAlbum = clean(hit.album);
+        if (!TextUtils.isEmpty(wantAlbum) && !TextUtils.isEmpty(gotAlbum)
+                && (gotAlbum.contains(wantAlbum) || wantAlbum.contains(gotAlbum))) {
+            score += 10;
+        }
+
+        if (request.durationMs > 0L && hit.durationMs > 0L) {
+            long diff = Math.abs(request.durationMs - hit.durationMs);
+            if (diff > DURATION_TOLERANCE_MS) {
+                // 时长差太多就是另一个版本，标题再像也不要
+                return 0;
+            }
+            if (diff <= 2000L) {
+                score += 15;
+            }
+        }
+        return score;
     }
 
     private static String clean(String s) {

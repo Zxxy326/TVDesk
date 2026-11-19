@@ -55,32 +55,43 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <!-- 黑胶机：只有里面这个 400dp 的盘在转，唱臂、反光和盘心音符都是静止的。
-                 整台机器包一层 id，沉浸收起控制区时跟着曲名一起往下沉（MusicPage#shiftStageHead）。 -->
+            <!-- 动感涟漪层：风格 0 时铺满整屏，参数见 RippleStageView -->
+            <com.tvdesk.desk.widget.RippleStageView
+                android:id="@+id/stage_ripple"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
+
+            <!-- 圆形唱片封面 + 外围动效环（原来那台黑胶机已去掉）。
+                 整块包一层 id，沉浸收起控制区时跟着曲名一起往下沉（MusicPage#shiftStageHead）。 -->
             <FrameLayout
                 android:id="@+id/stage_turntable"
                 android:layout_width="460dp"
-                android:layout_height="460dp">
+                android:layout_height="460dp"
+                android:clipChildren="false"
+                android:clipToPadding="false">
 
+                <!-- 外围动效：静态细环 + 旋转渐变弧 + 呼吸光晕（见 DiscHaloView）。
+                     先画，环落在封面之外，不会压住封面本身 -->
+                <com.tvdesk.desk.widget.DiscHaloView
+                    android:id="@+id/stage_halo"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="center" />
+
+                <!-- 圆形封面：360dp，整块随播放旋转（唱片盘） -->
                 <FrameLayout
                     android:id="@+id/stage_disc"
-                    android:layout_width="400dp"
-                    android:layout_height="400dp"
+                    android:layout_width="360dp"
+                    android:layout_height="360dp"
                     android:layout_gravity="center">
 
                     <ImageView
+                        android:id="@+id/stage_cover"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:contentDescription="@null"
-                        android:src="@drawable/bg_vinyl_disc" />
-
-                    <!-- 封面占盘径 40%，标签 48%：露出一圈 16dp 的酒红标签边 -->
-                    <ImageView
-                        android:id="@+id/stage_cover"
-                        android:layout_width="160dp"
-                        android:layout_height="160dp"
-                        android:layout_gravity="center"
-                        android:contentDescription="@null" />
+                        android:scaleType="fitCenter" />
                 </FrameLayout>
 
                 <!-- 本地歌没有专辑封面，盘心不能空着——空着看着像图没加载出来，
@@ -92,13 +103,7 @@
                     android:layout_gravity="center"
                     android:text="♪"
                     android:textColor="#66FFE9DA"
-                    android:textSize="64sp" />
-
-                <ImageView
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:contentDescription="@null"
-                    android:src="@drawable/bg_vinyl_turntable" />
+                    android:textSize="72sp" />
             </FrameLayout>
 
             <com.tvdesk.desk.widget.LyricView
@@ -112,6 +117,17 @@
         </LinearLayout>
 
         <!-- ============ 底部：曲名 + 波浪进度 + 控制 ============ -->
+        <TextView
+            android:id="@+id/stage_clock"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:textColor="#FFFFFFFF"
+            android:textSize="187sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/stage_title"
             android:layout_width="match_parent"
@@ -228,6 +244,13 @@
                 style="@style/MusicControlIcon"
                 android:contentDescription="收藏"
                 android:src="@drawable/ic_like" />
+
+            <!-- 切换播放页风格：动感涟漪 / 简约 / 精简时钟 -->
+            <ImageView
+                android:id="@+id/stage_style"
+                style="@style/MusicControlIcon"
+                android:contentDescription="切换播放页风格"
+                android:src="@drawable/ic_expand" />
         </LinearLayout>
         </LinearLayout>
     </LinearLayout>

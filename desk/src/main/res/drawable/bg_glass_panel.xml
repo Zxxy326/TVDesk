@@ -1,40 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  统一的「玻璃面板」底色 —— 两个下拉菜单（「桌面」模块菜单、「更多」类目菜单）共用。
-
-  填色和透明度跟 bg_glass_pill 完全一致（#B3222028），只有圆角取面板那一档（20dp）。
-  「透明度不一样」是用户直接点出来的问题：原来这两个菜单用的是 bg_module_menu
-  （#FF1A1A20，完全不透明），压在海报上像两块黑板，和顶栏的玻璃明显不是一套。
+  下拉菜单 / 抽屉 / 弹窗的玻璃底（圆角取面板那一档）。
+  和 bg_glass_surface 同一套参数，只有圆角不同 —— 见那个文件的注释。
 -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <item>
-        <shape android:shape="rectangle">
-            <solid android:color="#E6202022" />
-            <corners android:radius="@dimen/radius_panel" />
-        </shape>
-    </item>
-
-    <!-- 上沿一道白高光：和胶囊同一套受光语言 -->
-    <item>
-        <shape android:shape="rectangle">
-            <corners android:radius="@dimen/radius_panel" />
-            <gradient
-                android:angle="270"
-                android:centerColor="#08FFFFFF"
-                android:endColor="#00FFFFFF"
-                android:startColor="#1FFFFFFF"
-                android:type="linear" />
-        </shape>
-    </item>
-
-    <item>
-        <shape android:shape="rectangle">
-            <corners android:radius="@dimen/radius_panel" />
-            <stroke
-                android:width="1dp"
-                android:color="#26FFFFFF" />
-        </shape>
-    </item>
-
-</layer-list>
+<com.tvdesk.desk.widget.GlassSurface
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:glassRadius="@dimen/radius_panel" />

@@ -22,8 +22,8 @@ android {
     defaultConfig {
         applicationId 'com.tvdesk.app'
         targetSdkVersion 28
-        versionCode 34
-        versionName '1.1.23'
+        versionCode 43
+        versionName '1.2.5'
         multiDexEnabled true
         // 两个模式各自在清单里写 tvdesk.home_mode，见 app/src/standard|guard/AndroidManifest.xml。
         // desk 侧读 ApplicationInfo.metaData，不反向依赖 app 的 BuildConfig
@@ -66,7 +66,7 @@ android {
         }
         java {
             dimension "mode"
-            minSdkVersion 21
+            minSdkVersion 23
             ndk {
                 //noinspection ChromeOsAbiSupport
                 abiFilters 'armeabi-v7a', 'arm64-v8a'
@@ -76,7 +76,7 @@ android {
         java32 {
             dimension "mode"
             // 最低统一 21：5.0 以下不在支持范围，也不再单独维护 Lite 版
-            minSdkVersion 21
+            minSdkVersion 23
             ndk {
                 //noinspection ChromeOsAbiSupport
                 abiFilters 'armeabi-v7a'
@@ -85,7 +85,7 @@ android {
         }
         java64 {
             dimension "mode"
-            minSdkVersion 21
+            minSdkVersion 23
             ndk {
                 abiFilters 'arm64-v8a'
             }
@@ -148,6 +148,8 @@ android {
 }
 
 dependencies {
+    // 新版 Compose 音乐模块已弃用，恢复桌面内嵌 MusicPage
+    // implementation project(':musicui')
     api fileTree(dir: "libs", include: ["*.jar","*.aar"])
 
     // 能力层

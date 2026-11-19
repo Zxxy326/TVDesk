@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MuYin 首页左侧横向压暗：0f #E605060A → 0.38f #B805060A → 1f #3305060A。
+     真实实现是四段渐变，XML 只支持三段，取 0 / 0.35 / 1 近似。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="0"
+        android:centerColor="#B805060A"
+        android:centerX="0.35"
+        android:endColor="#3305060A"
+        android:startColor="#E605060A"
+        android:type="linear" />
+</shape>

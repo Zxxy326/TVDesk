@@ -1195,8 +1195,10 @@ public class DeskActivity extends DeskAdaptActivity {
             }
 
             @Override
-            public void onOpenSettings() {
-                selectModule(MODULE_SETTING);
+            public void onQuickSettingsChanged() {
+                // 面板上的开关（时钟/天气）改完就地生效：不然用户得关掉面板、
+                // 切个模块再回来才看得到变化，会以为开关坏了
+                applyClockWeatherPrefs();
             }
 
             @Override

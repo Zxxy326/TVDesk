@@ -94,6 +94,14 @@ public class LyricView extends View {
         setSource(null);
     }
 
+    /** 当前唱到的那一句（首页 Hero 用它把歌手换成歌词）；没有歌词或还没开始返回空串 */
+    public String currentLine() {
+        if (index < 0 || index >= lines.size()) {
+            return "";
+        }
+        return lines.get(index).text;
+    }
+
     public boolean hasLyric() {
         return !lines.isEmpty();
     }

@@ -120,7 +120,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
     private static final long SEARCH_DEBOUNCE_MS = 500L;
 
     /** 整页背景的目标不透明度。B 站封面都是亮图，压得比音乐页更暗一档才不抢文字 */
-    private static final float BG_ALPHA = 0.5f;
+    private static final float BG_ALPHA = 0.95f;
 
     /** 一张卡片对应的东西。四种来源里只有一个非空 */
     static class Row {
@@ -255,7 +255,8 @@ public class BiliPage extends FrameLayout implements ModulePage {
     private LinearLayout navItems;
     private HorizontalScrollView subScroll;
     private LinearLayout subNav;
-    private com.tvdesk.desk.widget.TileWall grid;
+    /** 底部海报行（和桌面首页同款：一行、横向滚动） */
+    private com.tvdesk.desk.widget.TileRow grid;
     private TextView title;
     private TextView subtitle;
     private TextView emptyView;
@@ -284,6 +285,52 @@ public class BiliPage extends FrameLayout implements ModulePage {
         subScroll = findViewById(R.id.bili_sub_scroll);
         subNav = findViewById(R.id.bili_sub_nav);
         grid = findViewById(R.id.bili_grid);
+        grid.setItemWidthDp(240f);
+        findViewById(R.id.bili_hero_cta).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // 「开始观看」＝把焦点落到第一张卡上，确定键那一层才由卡片自己处理
+                grid.focusPosition(0);
+            }
+        });
+        findViewById(R.id.bili_action_like).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                tripleFocused();
+            }
+        });
+        findViewById(R.id.bili_action_author).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                com.tvdesk.core.ui.DeskToast.show(getContext(), "作者主页在视频页里进入");
+            }
+        });
+        findViewById(R.id.bili_action_refresh).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // 刷新＝原来「换一批」那颗子页签：推荐流换一个 feed key 重新要一屏
+                onSubChip("");
+            }
+        });
+        // 焦点换卡：Hero 大图/标题/作者跟着走
+        grid.setOnItemFocus(new com.tvdesk.desk.widget.TileRow.OnItemFocus() {
+            @Override
+            public void onItemFocus(int index) {
+                if (index < 0 || index >= rows.size()) {
+                    return;
+                }
+                Row row = rows.get(index);
+                if (title != null && !TextUtils.isEmpty(row.title)) {
+                    title.setText(row.title);
+                }
+                if (subtitle != null) {
+                    subtitle.setText(row.note == null ? "" : row.note);
+                }
+                if (!TextUtils.isEmpty(row.cover)) {
+                    showBackground(row.cover, true);
+                }
+            }
+        });
         title = findViewById(R.id.bili_title);
         subtitle = findViewById(R.id.bili_subtitle);
         emptyView = findViewById(R.id.bili_empty);
@@ -559,7 +606,10 @@ public class BiliPage extends FrameLayout implements ModulePage {
             // 关注流会一直有新动态：给一颗「刷新」，原地从头要一遍
             addSubChip("刷新", "");
         }
-        subScroll.setVisibility(subNav.getChildCount() == 0 ? View.GONE : View.VISIBLE);
+        // 新首页（照 MuYin 重做）里不再有子页签这一排：
+        // 「换一批」收进 Hero 的刷新圆钮，「排行榜分区」的入口等有地方了再说。
+        // 这里保留构建逻辑但整排不显示，免得以后要恢复时找不到代码
+        subScroll.setVisibility(View.GONE);
     }
 
     private void addSubChip(String label, final String value) {
@@ -589,6 +639,44 @@ public class BiliPage extends FrameLayout implements ModulePage {
             }
         });
         subNav.addView(item);
+    }
+
+    /** Hero 上的「一键三连」：对当前聚焦那张卡点赞 + 投币 + 收藏 */
+    private void tripleFocused() {
+        Row row = rows.isEmpty() ? null : rows.get(Math.max(0, Math.min(rows.size() - 1,
+                grid.focusedPosition())));
+        if (row == null || row.card == null || TextUtils.isEmpty(row.card.bvid)) {
+            com.tvdesk.core.ui.DeskToast.show(getContext(), "先选一张卡再三连");
+            return;
+        }
+        final BiliClient client = BiliClient.get(getContext());
+        if (!client.loggedIn()) {
+            com.tvdesk.core.ui.DeskToast.show(getContext(), "三连要登录 B 站 · 在「我的」里扫码");
+            return;
+        }
+        final com.tvdesk.core.bili.model.BiliCard card = row.card;
+        com.tvdesk.core.ui.DeskToast.show(getContext(), "正在三连…");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String msg;
+                try {
+                    com.tvdesk.core.bili.BiliClient.TripleResult r =
+                            client.triple(card.bvid, card.aid);
+                    msg = (r.liked ? "赞✓ " : "赞✗ ") + (r.coined ? "币✓ " : "币✗ ")
+                            + (r.favorited ? "藏✓" : "藏✗");
+                } catch (Throwable th) {
+                    msg = "三连失败：" + th.getMessage();
+                }
+                final String text = msg;
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        com.tvdesk.core.ui.DeskToast.show(getContext(), text);
+                    }
+                });
+            }
+        }).start();
     }
 
     private void onSubChip(String value) {
@@ -748,6 +836,18 @@ public class BiliPage extends FrameLayout implements ModulePage {
                 appendCards(feed(key(section, "")));
                 subtitle.setText(rankSubtitle());
                 headCoverUrl = coverOfFirst();
+                TextView meta = findViewById(R.id.bili_row_meta);
+                if (meta != null) {
+                    meta.setText(rows.isEmpty() ? "" : "共 " + rows.size() + " 个视频");
+                }
+                TextView desc = findViewById(R.id.bili_hero_desc);
+                if (desc != null) {
+                    desc.setText(rows.isEmpty() ? "" : "左右切换 · 按「确定」进入");
+                }
+                // 进来先拿第一条封面铺满整页（和桌面首页一样），别等焦点落到卡片才亮
+                if (TextUtils.isEmpty(shownBgUrl)) {
+                    showBackground(headCoverUrl, true);
+                }
                 break;
             case SEC_LIVE:
                 if (liveArea == null) {
@@ -1498,7 +1598,7 @@ public class BiliPage extends FrameLayout implements ModulePage {
     }
 
     /** B 站卡片墙 6 列（沿用原来 GridView 的排版） */
-    private static final int GRID_COLUMNS = 6;
+    private static final int GRID_COLUMNS = 5;
 
     private void focusChip() {
         if (section < navItems.getChildCount()) {
@@ -1657,9 +1757,13 @@ public class BiliPage extends FrameLayout implements ModulePage {
         }
         shownBgUrl = url;
         try {
+            // 整屏背景必须按屏幕分辨率解码：原来这里写的是 override(200, 112)，
+            // 等于拿一张 200×112 的缩略图拉满 1080p，怎么调 scaleType 都是糊的。
+            // 待播放页是 load(url).centerCrop() 不带 override，这里就照它来
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
             Glide.with(getContext())
                     .load(url)
-                    .override(200, 112)
+                    .override(dm.widthPixels, dm.heightPixels)
                     .centerCrop()
                     .transition(DrawableTransitionOptions.withCrossFade(420))
                     .into(bgImage);

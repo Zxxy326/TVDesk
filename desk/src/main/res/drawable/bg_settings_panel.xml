@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 设置页右侧的分组面板：整块内容源 / 系统设置的底板 -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/settings_panel" />
-    <corners android:radius="@dimen/radius_panel" />
-</shape>
+<!-- 设置类弹窗（B 站弹幕/设置）的底板：和 bg_dialog_panel 同一块玻璃 -->
+<com.tvdesk.desk.widget.GlassSurface
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:glassRadius="@dimen/radius_panel" />

@@ -1,42 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  悬浮播放条的底 —— 和顶栏胶囊同一套「玻璃」。
-
-  - 半透明深底：透出下面一点画面，不把墙压死；
-  - 上沿一道白高光（光从上面下来，玻璃上沿先亮，到中段淡掉）；
-  - 一圈 1dp 细描边：浮在卡片墙 / 视频画面上，没有这圈边就看不出是独立的一层。
-
-  以前这里只是一层「上浅下深的渐变 + 描边」，偏实心；顶栏换成玻璃之后，
-  两条栏一眼就能看出不是同一套东西，所以把高光层补齐。
+  底部悬浮播放条 / 播放器底栏。以前是 #A61C1C24（比顶栏更透）+ 1dp 描边，
+  和顶栏不是一套；现在和顶栏、菜单共用同一块玻璃。
 -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <item>
-        <shape android:shape="rectangle">
-            <solid android:color="#A61C1C24" />
-            <corners android:radius="@dimen/radius_control" />
-        </shape>
-    </item>
-
-    <item>
-        <shape android:shape="rectangle">
-            <corners android:radius="@dimen/radius_control" />
-            <gradient
-                android:angle="270"
-                android:centerColor="#08FFFFFF"
-                android:endColor="#00FFFFFF"
-                android:startColor="#26FFFFFF"
-                android:type="linear" />
-        </shape>
-    </item>
-
-    <item>
-        <shape android:shape="rectangle">
-            <corners android:radius="@dimen/radius_control" />
-            <stroke
-                android:width="1dp"
-                android:color="#2EFFFFFF" />
-        </shape>
-    </item>
-
-</layer-list>
+<com.tvdesk.desk.widget.GlassSurface
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    app:glassRadius="@dimen/radius_control" />

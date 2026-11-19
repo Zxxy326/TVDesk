@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 作者主页的作品行：只有「当前高亮」一种状态。
+     这一页的行不参与焦点（焦点永远在页自己身上，上下键改的是高亮行），
+     所以 state_focused 用不上；白描边是给「我现在停在这一条」用的，
+     在 10 尺外比纯底色变化认得更快。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <item android:state_selected="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#33FFFFFF" />
+            <corners android:radius="@dimen/radius_control" />
+            <stroke
+                android:width="2dp"
+                android:color="#FFFFFF" />
+        </shape>
+    </item>
+
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#00000000" />
+            <corners android:radius="@dimen/radius_control" />
+        </shape>
+    </item>
+
+</selector>

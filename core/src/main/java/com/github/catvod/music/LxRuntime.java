@@ -841,6 +841,7 @@ public class LxRuntime implements Closeable {
                 hit.title = first(item, "title", "name", "song");
                 hit.artist = first(item, "artist", "singer", "author");
                 hit.album = first(item, "album", "album_name");
+                hit.durationMs = durationOf(item);
                 if (!TextUtils.isEmpty(hit.id) && !TextUtils.isEmpty(hit.title)) {
                     hits.add(hit);
                 }
@@ -861,6 +862,52 @@ public class LxRuntime implements Closeable {
         return "";
     }
 
+    /**
+     * 把脚本搜索结果的时长归一成毫秒。
+     *
+     * <p>见过三种写法：{@code duration} 直接给毫秒、{@code interval} 给 "04:24"、
+     * 也有脚本给纯秒数字符串 "264"。全按「小数字当秒、大数字当毫秒」处理。
+     *
+     * @return 毫秒；认不出来就是 0（调用方据此跳过时长过滤）
+     */
+    private static long durationOf(JSONObject item) {
+        long d = item.optLong("duration", 0L);
+        if (d > 0L) {
+            // 小于 10000 的多半是秒（10000 秒以上的歌不存在）
+            return d < 10000L ? d * 1000L : d;
+        }
+        String itv = item.optString("interval", "");
+        if (TextUtils.isEmpty(itv)) {
+            return 0L;
+        }
+        itv = itv.trim();
+        if (itv.contains(":")) {
+            String[] parts = itv.split(":");
+            try {
+                if (parts.length == 2) {
+                    long min = Long.parseLong(parts[0].trim());
+                    long sec = Long.parseLong(parts[1].trim().replaceAll("[^0-9].*$", ""));
+                    return (min * 60L + sec) * 1000L;
+                }
+                if (parts.length == 3) {
+                    long h = Long.parseLong(parts[0].trim());
+                    long min = Long.parseLong(parts[1].trim());
+                    long sec = Long.parseLong(parts[2].trim().replaceAll("[^0-9].*$", ""));
+                    return ((h * 60L + min) * 60L + sec) * 1000L;
+                }
+            } catch (Throwable ignored) {
+                return 0L;
+            }
+            return 0L;
+        }
+        try {
+            long sec = Long.parseLong(itv.replaceAll("[^0-9].*$", ""));
+            return sec > 0L ? sec * 1000L : 0L;
+        } catch (Throwable ignored) {
+            return 0L;
+        }
+    }
+
     private static String lyricInfo(String musicInfoJson) {
         try {
             JSONObject info = new JSONObject();
@@ -877,6 +924,14 @@ public class LxRuntime implements Closeable {
         public String title = "";
         public String artist = "";
         public String album = "";
+        /**
+         * 时长（毫秒），拿不到就是 0。
+         *
+         * <p>跨源换歌时用来过滤「同名不同版本」：现场版、伴奏、串烧常常标题一模一样，
+         * 时长却差好几分钟。脚本的 interval 字段格式很杂（"04:24" / 264 / "264"），
+         * 统一在 {@link #durationOf} 里归一。
+         */
+        public long durationMs;
     }
 
     // ------------------------------------------------------------- 取播放链接

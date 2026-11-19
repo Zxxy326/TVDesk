@@ -454,7 +454,15 @@ public class MusicPage extends FrameLayout implements ModulePage {
      * 内容卡片墙。除了「音源管理」，所有版块都铺成和影视页一样的海报卡片：
      * 每日推荐 / 榜单目录 / 榜单曲目 / 推荐歌单 / 歌单曲目 / 我的 / 本地分组 / 搜索。
      */
-    private com.tvdesk.desk.widget.TileWall grid;
+    /** 底部海报行（以前是 6 列卡片墙，改成和桌面首页一样的一行） */
+    private com.tvdesk.desk.widget.TileRow grid;
+    /** 把海报行顶到底部的弹性空档（列表模式下权重要归零） */
+    private View topSpacer;
+    /** 海报行上方的灰色说明（「根据最近播放 · N 首」） */
+    private TextView rowMeta;
+    private TextView heroDesc;
+    /** Hero 上方那颗状态小字（正在播放/已暂停/继续聆听/为你推荐） */
+    private TextView heroKicker;
     /** 当前视图是一串歌时露出来的「播放全部」 */
     private TextView playAllBtn;
     private TextView title;
@@ -484,6 +492,12 @@ public class MusicPage extends FrameLayout implements ModulePage {
     private ImageView stageCover;
     private TextView stageNote;
     private LyricView stageLyric;
+    /** 播放页风格：0 动感涟漪 / 1 简约 / 2 精简时钟（对齐 MuYin 的三种） */
+    private int stageStyle;
+    private TextView stageClock;
+    private com.tvdesk.desk.widget.RippleStageView stageRipple;
+    /** 圆形封面外围的动效环（简约风格用，替代原来的黑胶机） */
+    private com.tvdesk.desk.widget.DiscHaloView stageHalo;
     private TextView stageTitle;
     private TextView stageMeta;
     private TextView stagePos;
@@ -564,6 +578,14 @@ public class MusicPage extends FrameLayout implements ModulePage {
     private String resolveStatus = "";
     /** 换源后要跳回原来的播放位置；-1 表示不用跳 */
     private long pendingSeekMs = -1L;
+
+    /**
+     * 「正在让 JS 源补封面」的那首歌的 key。
+     *
+     * <p>补封面是一首歌一次的事，但 renderStageHead 会随换歌/展开反复调，
+     * 没有这个去重键就会一次接一次地跑脚本（每次十几秒）。换歌时清空。
+     */
+    private String coverFetchKey = "";
     /** 内置网易云源的测试结论 */
     private String builtinProbeResult = "";
     /** 市场清单 */
@@ -646,6 +668,70 @@ public class MusicPage extends FrameLayout implements ModulePage {
         list = findViewById(R.id.music_list);
         listBox = findViewById(R.id.music_list_box);
         grid = findViewById(R.id.music_grid);
+        topSpacer = findViewById(R.id.music_top_spacer);
+        rowMeta = findViewById(R.id.music_row_meta);
+        heroDesc = findViewById(R.id.music_hero_desc);
+        heroKicker = findViewById(R.id.music_hero_kicker);
+        grid.setItemWidthDp(200f);
+        // Hero 三颗圆钮直接借用播放条上那三颗：上一首 / 下一首 / 收藏。
+        // 播放条的逻辑已经写好了（含无曲目时的提示），这里点一下等于点那颗，不重复实现一遍
+        findViewById(R.id.music_action_prev).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                findViewById(R.id.music_prev).performClick();
+            }
+        });
+        findViewById(R.id.music_action_next).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                findViewById(R.id.music_next).performClick();
+            }
+        });
+        findViewById(R.id.music_action_fav).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                findViewById(R.id.music_like).performClick();
+            }
+        });
+        // CTA 不是死的「播放全部」：已经在播就暂停，暂停中就继续，没曲目才播放全部。
+        // 这里按 id 取而不是用 playAllBtn 字段——这段代码在构造函数里跑得比字段赋值早
+        View ctaBtn = findViewById(R.id.music_play_all);
+        if (ctaBtn != null) ctaBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (nowPlaying != null) {
+                    findViewById(R.id.music_toggle).performClick();
+                } else {
+                    playAllTracks();
+                }
+            }
+        });
+        // 放大 / 切歌词页：就是原来那颗「展开」，换成 Hero 上的圆钮
+        findViewById(R.id.music_action_stage).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openStage();
+            }
+        });
+        // 焦点换卡：Hero 的标题/作者/简介和大图跟着走（和首页「焦点到哪张就贴哪张」一致）
+        grid.setOnItemFocus(new com.tvdesk.desk.widget.TileRow.OnItemFocus() {
+            @Override
+            public void onItemFocus(int index) {
+                if (index < 0 || index >= rows.size()) {
+                    return;
+                }
+                Row row = rows.get(index);
+                if (title != null && !TextUtils.isEmpty(row.title)) {
+                    title.setText(row.title);
+                }
+                if (subtitle != null) {
+                    subtitle.setText(TextUtils.isEmpty(row.sub) ? "" : row.sub);
+                }
+                if (!TextUtils.isEmpty(row.coverUrl)) {
+                    showBackground(row.coverUrl, true);
+                }
+            }
+        });
         playAllBtn = findViewById(R.id.music_play_all);
         title = findViewById(R.id.music_title);
         subtitle = findViewById(R.id.music_subtitle);
@@ -675,7 +761,13 @@ public class MusicPage extends FrameLayout implements ModulePage {
         buildNav();
         setupList();
         setupBar();
+        // 首页对齐 MuYin：底部不再挂播放条（播放/上一首/下一首/收藏都搬到 Hero 的圆钮上了），
+        // 整屏留给大图和海报行。播放条的逻辑还在，以后要放回某个页面直接 setVisibility 即可
+        if (bar != null) {
+            bar.setVisibility(View.GONE);
+        }
         setupNowChip();
+        startHeroClock();
         setupStage();
         setupPlayAll();
         wireSearch();
@@ -683,6 +775,75 @@ public class MusicPage extends FrameLayout implements ModulePage {
     }
 
     // ---------------------------------------------------------------- 顶栏
+
+    /**
+     * Hero 的三种状态，照 MuYin 的 kicker/CTA/meta 规则：
+     * <ul>
+     *   <li>kicker：正在播放 / 已暂停 / 继续聆听 / 为你推荐</li>
+     *   <li>CTA：「播放全部 / 暂停 / 继续播放」——有曲目在播时它就是个播放键</li>
+     *   <li>meta：播放中且拿到歌词就换成当前歌词行，否则回歌手信息</li>
+     * </ul>
+     */
+    private void updateHeroState() {
+        boolean has = !rows.isEmpty();
+        boolean live = nowPlaying != null;
+        boolean on = false;
+        try {
+            on = live && player != null && player.isPlaying();
+        } catch (Throwable ignored) {
+        }
+        if (heroKicker != null) {
+            heroKicker.setText(on ? "正在播放"
+                    : live ? "已暂停"
+                    : has ? "继续聆听" : "为你推荐");
+        }
+        if (playAllBtn != null) {
+            playAllBtn.setText(on ? "暂停" : live ? "继续播放" : "播放全部");
+        }
+        if (subtitle != null) {
+            String lyric = on && stageLyric != null ? stageLyric.currentLine() : "";
+            if (!TextUtils.isEmpty(lyric)) {
+                subtitle.setText(lyric);
+            } else {
+                Row row = has ? rows.get(Math.max(0, Math.min(rows.size() - 1,
+                        grid.focusedPosition()))) : null;
+                String meta = row == null ? "" : (TextUtils.isEmpty(row.sub) ? "" : row.sub);
+                if (TextUtils.isEmpty(meta) && live) {
+                    meta = metaTextFor(nowPlaying);
+                }
+                subtitle.setText(meta);
+            }
+        }
+    }
+
+    /** 右上角那颗胶囊：时间 + 天气（原来写的是「正在播放」，首页不需要） */
+    private void startHeroClock() {
+        if (nowChipText == null) {
+            return;
+        }
+        final Runnable tick = new Runnable() {
+            @Override
+            public void run() {
+                String time = new java.text.SimpleDateFormat("HH:mm",
+                        java.util.Locale.CHINA).format(new java.util.Date());
+                String temp = "";
+                try {
+                    com.tvdesk.desk.weather.WeatherClient.Now now =
+                            com.tvdesk.desk.weather.WeatherClient.fetch(getContext(), false);
+                    if (now != null) {
+                        temp = " · " + now.celsius + "°";
+                    }
+                } catch (Throwable ignored) {
+                }
+                nowChipText.setText(time + temp);
+                if (ui != null) {
+                    ui.removeCallbacks(this);
+                    ui.postDelayed(this, 30_000L);
+                }
+            }
+        };
+        tick.run();
+    }
 
     private void buildSwitcher() {
         FocusScaler.attach(switcher, FocusScaler.SCALE_FOCUSED);
@@ -724,6 +885,82 @@ public class MusicPage extends FrameLayout implements ModulePage {
                 openSourceImport();
             }
         });
+        // 对齐像素播放器 v1.7.2：手动指定音源 + 重新解析当前歌曲。
+        // 这两个是「正在听某首歌时觉得链接不对」的当场出口，不该埋进音源管理页。
+        addMenuEntry("选择音源", new Runnable() {
+            @Override
+            public void run() {
+                openSourcePicker();
+            }
+        });
+        addMenuEntry("重新解析音源", new Runnable() {
+            @Override
+            public void run() {
+                reparseCurrent();
+            }
+        });
+    }
+
+    /**
+     * 手动指定音源：列出内置网易云与已安装脚本的源，选中后对当前歌曲重新解析。
+     *
+     * <p>队列与播放进度都不动：换的只是这首歌的链接来源。
+     */
+    private void openSourcePicker() {
+        setMenuOpen(false);
+        final java.util.List<com.github.catvod.music.MusicSourceDef> defs =
+                com.github.catvod.music.OnlineSourceResolver.listSources(getContext(), jsProvider);
+        new SourcePickerDialog((android.app.Activity) getContext(), defs, lastSourceId,
+                new SourcePickerDialog.Listener() {
+                    @Override
+                    public void onPick(com.github.catvod.music.MusicSourceDef def) {
+                        Track cur = nowPlaying != null ? nowPlaying : resolvingTrack;
+                        if (cur == null) {
+                            toast("当前没有在播的歌");
+                            return;
+                        }
+                        // 换源前记下位置，重解析完接回去
+                        if (player != null) {
+                            try {
+                                int pos = player.getCurrentPosition();
+                                if (pos > 0) {
+                                    pendingSeekMs = pos;
+                                }
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                        String sourceId = def == null ? "" : def.id;
+                        setResolveStatus(def == null ? "重新解析（自动选源）…"
+                                : "切换到 " + def.name + " 重新解析…");
+                        playOnline(cur, sourceId);
+                    }
+                }).show();
+    }
+
+    /**
+     * 重新解析当前歌曲：先把这首歌在所有源/音质下的链接缓存清掉，再按自动顺序重取。
+     *
+     * <p>只清这一首，不动别的歌——用户就是想换这首歌的链接，不是要把整个缓存清空。
+     */
+    private void reparseCurrent() {
+        setMenuOpen(false);
+        Track cur = nowPlaying != null ? nowPlaying : resolvingTrack;
+        if (cur == null) {
+            toast("当前没有在播的歌");
+            return;
+        }
+        com.github.catvod.music.UrlCache.removeForSong(getContext(), songKeyOf(cur));
+        if (player != null) {
+            try {
+                int pos = player.getCurrentPosition();
+                if (pos > 0) {
+                    pendingSeekMs = pos;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        setResolveStatus("重新解析中…");
+        playOnline(cur, "");
     }
 
     private void addMenuEntry(String label, final Runnable action) {
@@ -1414,12 +1651,54 @@ public class MusicPage extends FrameLayout implements ModulePage {
         boolean hasRows = !rows.isEmpty();
         boolean showList = !cardMode && hasRows;
         grid.setVisibility(cardMode && hasRows ? View.VISIBLE : View.GONE);
-        // 盒子和列表一起切：盒子占着 weight=1，只藏列表的话卡片墙会被盒子推下去一大截
+        // 盒子和列表一起切：盒子占着 weight=1，只藏列表的话海报行会被盒子推下去一大截
         list.setVisibility(showList ? View.VISIBLE : View.GONE);
         if (listBox != null) {
             listBox.setVisibility(showList ? View.VISIBLE : View.GONE);
         }
+        // 海报行要贴在屏幕底部（桌面首页的排法），所以上面留一段弹性空档；
+        // 列表模式下这块空档必须让位，否则列表只拿到一半高度
+        if (topSpacer != null) {
+            LinearLayout.LayoutParams lp =
+                    (LinearLayout.LayoutParams) topSpacer.getLayoutParams();
+            int want = cardMode ? 1 : 0;
+            if (lp.weight != want) {
+                lp.weight = want;
+                lp.height = 0;
+                topSpacer.setLayoutParams(lp);
+            }
+        }
         playAllBtn.setVisibility(hasTrackRows() ? View.VISIBLE : View.GONE);
+        // 播放条在首页不出现（有地方会把它 setVisibility 回来，这里兜一次）
+        if (bar != null && bar.getVisibility() != View.GONE) {
+            bar.setVisibility(View.GONE);
+        }
+        // 进来就用第一条的封面当大图（和桌面首页一样）：焦点还没落到任何卡片上时，
+        // 背景不能是一条空的黑带，否则 Hero 看起来像浮在虚空里
+        updateHeroState();
+        if (rowMeta != null) {
+            rowMeta.setText(hasRows ? "根据最近播放 · " + rows.size() + " 首" : "");
+        }
+        if (heroDesc != null) {
+            // 别和元信息那句重复：元信息说「多少首」，这里说「怎么操作」
+            heroDesc.setText(hasRows ? "左右切换 · 按「确定」播放全部" : "");
+        }
+        // Hero 一开始就显示第一条的信息（焦点还没动过时也不能是一句栏目标题）
+        if (hasRows) {
+            Row first = rows.get(0);
+            if (title != null && !TextUtils.isEmpty(first.title)) {
+                title.setText(first.title);
+            }
+            if (subtitle != null) {
+                subtitle.setText(TextUtils.isEmpty(first.sub) ? "" : first.sub);
+            }
+        }
+        if (TextUtils.isEmpty(shownBgUrl) && hasRows) {
+            String cover = rows.get(0).coverUrl;
+            if (!TextUtils.isEmpty(cover)) {
+                showBackground(cover, true);
+            }
+        }
     }
 
     /** 当前视图是不是一串可以直接开播的歌 */
@@ -2374,6 +2653,33 @@ public class MusicPage extends FrameLayout implements ModulePage {
             toast("宿主不是 Activity，打不开登录界面");
             return;
         }
+        // v1.8.0：没登录时先给「手机号 + 密码」这条快路；有输入法时几秒就完事。
+        // 电视上没有输入法 / 被风控，再退到扫码或粘 Cookie。
+        if (!netease().loggedIn()) {
+            new NeteasePhoneLoginDialog((Activity) context,
+                    new NeteasePhoneLoginDialog.Listener() {
+                        @Override
+                        public void onLoggedIn(String nickname) {
+                            onNeteaseLoggedIn(nickname);
+                        }
+
+                        @Override
+                        public void onFallback() {
+                            openCookieLoginDialog();
+                        }
+                    }).show();
+            return;
+        }
+        openCookieLoginDialog();
+    }
+
+    /** 扫码 / 粘 Cookie 的老路（已登录时也走这里，里面有退出登录） */
+    private void openCookieLoginDialog() {
+        Context context = getContext();
+        if (!(context instanceof Activity)) {
+            toast("宿主不是 Activity，打不开登录界面");
+            return;
+        }
         boolean logged = netease().loggedIn();
         String name = account == null ? "" : account.nickname;
         if (logged && TextUtils.isEmpty(name)) {
@@ -2398,6 +2704,17 @@ public class MusicPage extends FrameLayout implements ModulePage {
                         toast("已退出网易云");
                     }
                 }).show();
+    }
+
+    /** 手机号登录成功后的刷新，和 {@link #applyCookie} 后半段保持一致 */
+    private void onNeteaseLoggedIn(String nickname) {
+        clearOnlineData();
+        rebuildRows();
+        liked.clear();
+        likedLoaded = false;
+        loadLiked();
+        updateBar();
+        toast(TextUtils.isEmpty(nickname) ? "已登录网易云" : ("已登录：" + nickname));
     }
 
     /**
@@ -2796,7 +3113,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
     // ---------------------------------------------------------------- 内容背景
 
     /** 背景图压到这个透明度：再亮就压不住白字，再暗就白贴了 */
-    private static final float BG_ALPHA = 0.62f;
+    private static final float BG_ALPHA = 0.95f;
 
     /**
      * 贴整页背景。
@@ -2825,9 +3142,11 @@ public class MusicPage extends FrameLayout implements ModulePage {
         }
         shownBgUrl = url;
         try {
+            // 和 B 站/待播放页同一套：按屏幕分辨率解码 + Crop 铺满（MuYin 的 fillMaxSize+Crop）
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
             Glide.with(getContext())
                     .load(url)
-                    .override(160, 90)
+                    .override(dm.widthPixels, dm.heightPixels)
                     .centerCrop()
                     .transition(DrawableTransitionOptions.withCrossFade(420))
                     .into(bgImage);
@@ -3299,6 +3618,15 @@ public class MusicPage extends FrameLayout implements ModulePage {
             // 而不是留一块空方块——整屏看过去像图挂了
             TextView rowGlyph = view.findViewById(R.id.music_row_glyph);
             rowGlyph.setText(glyphFor(row));
+            // 平台标识统一品牌色（v1.8.0：酷我 #FF7A00、酷狗 #2E7CF6…）。
+            // 必须每行都写：ListView 复用行时会沿用上一行的颜色，只写「有平台才设」会串色
+            if (row.builtinSource) {
+                rowGlyph.setTextColor(0xFFE64141);
+            } else if (row.platform != null) {
+                rowGlyph.setTextColor(SourcePickerDialog.platformColor(row.platform.id));
+            } else {
+                rowGlyph.setTextColor(getResources().getColor(R.color.text_primary));
+            }
             rowGlyph.setVisibility(TextUtils.isEmpty(row.coverUrl) ? View.VISIBLE : View.GONE);
             // 焦点走到哪一行，整页背景就跟到哪一行。捕获的是这一次绑定的地址，
             // 不是 row 对象——ListView 复用时 row 已经换成别的位置了
@@ -3336,7 +3664,7 @@ public class MusicPage extends FrameLayout implements ModulePage {
      * 播放队列下标、整页背景都能直接复用。
      */
     /** 音乐卡片墙每行 6 张（沿用原来 GridView 的排版） */
-    private static final int GRID_COLUMNS = 6;
+    private static final int GRID_COLUMNS = 5;
 
     private final class CardAdapter implements com.tvdesk.desk.widget.TileWall.Adapter {
 
@@ -4356,6 +4684,8 @@ public class MusicPage extends FrameLayout implements ModulePage {
         req.title = safe(track.title);
         req.artist = safe(track.artist);
         req.album = safe(track.album);
+        // 跨源换歌的时长闸（v1.7.2）：0 表示不知道，匹配会自动跳过这一项
+        req.durationMs = track.duration;
         req.platform = TextUtils.isEmpty(track.onlinePlatform) ? WY : track.onlinePlatform;
         req.quality = TextUtils.isEmpty(lastSourceQuality) ? "320k" : lastSourceQuality;
         req.sourceId = sourceId == null ? "" : sourceId;
@@ -5091,10 +5421,25 @@ public class MusicPage extends FrameLayout implements ModulePage {
         stage = findViewById(R.id.music_stage);
         stageBg = findViewById(R.id.stage_bg);
         stageTurntable = findViewById(R.id.stage_turntable);
+        stageHalo = findViewById(R.id.stage_halo);
         stageDisc = findViewById(R.id.stage_disc);
         stageCover = findViewById(R.id.stage_cover);
         stageNote = findViewById(R.id.stage_note);
         stageLyric = findViewById(R.id.stage_lyric);
+        stageClock = findViewById(R.id.stage_clock);
+        stageRipple = findViewById(R.id.stage_ripple);
+        View styleBtn = findViewById(R.id.stage_style);
+        if (styleBtn != null) {
+            styleBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    stageStyle = (stageStyle + 1) % 3;
+                    applyStageStyle();
+                }
+            });
+        }
+        stageStyle = DeskPrefs.musicStageStyle(getContext());
+        applyStageStyle();
         stageTitle = findViewById(R.id.stage_title);
         stageMeta = findViewById(R.id.stage_meta);
         stagePos = findViewById(R.id.stage_pos);
@@ -5383,6 +5728,45 @@ public class MusicPage extends FrameLayout implements ModulePage {
         stagePos.setText(formatDuration(position));
         stageDur.setText(formatDuration(duration));
         stageLyric.setPosition(position);
+        if (stageStyle == 0 && stageRipple != null) {
+            // 行级歌词没有逐字时间轴：先不上扫光，涟漪本身就是主体
+            stageRipple.setLyric(stageLyric == null ? "" : stageLyric.currentLine(), 0f);
+            stageRipple.tick(0f);
+        }
+        if (stageStyle == 2 && stageClock != null) {
+            stageClock.setText(new java.text.SimpleDateFormat("HH:mm:ss",
+                    java.util.Locale.CHINA).format(new java.util.Date()));
+        }
+        updateHeroState();
+    }
+
+    /**
+     * 三种播放页风格，参数照 MuYin 的 LandscapeLyricEffects：
+     * <ul>
+     *   <li>动感涟漪：转盘 + 歌词 + 背景光（默认）</li>
+     *   <li>简约：隐藏转盘，只留封面底 + 歌名 + 歌词（MuYin 是模糊封面 + 描边歌名）</li>
+     *   <li>精简时钟：只留模糊封面底 + 屏高 26% 的大字时间</li>
+     * </ul>
+     */
+    private void applyStageStyle() {
+        // 0 涟漪：交给自绘层；转盘让位（否则两套画面叠在一起）
+        if (stageRipple != null) {
+            stageRipple.setVisibility(stageStyle == 0 ? View.VISIBLE : View.GONE);
+        }
+        if (stageTurntable != null) {
+            stageTurntable.setVisibility(stageStyle == 1 ? View.VISIBLE : View.GONE);
+        }
+        if (stageLyric != null) {
+            stageLyric.setVisibility(stageStyle == 2 ? View.GONE : View.VISIBLE);
+        }
+        if (stageClock != null) {
+            stageClock.setVisibility(stageStyle == 2 ? View.VISIBLE : View.GONE);
+            if (stageStyle == 2) {
+                stageClock.setText(new java.text.SimpleDateFormat("HH:mm:ss",
+                        java.util.Locale.CHINA).format(new java.util.Date()));
+            }
+        }
+        DeskPrefs.setMusicStageStyle(getContext(), stageStyle);
     }
 
     /** 曲名、歌手、封面、背景。换歌和刚展开时各刷一次，不跟着进度走 */
@@ -5416,7 +5800,64 @@ public class MusicPage extends FrameLayout implements ModulePage {
             Glide.with(getContext()).clear(stageBg);
             stageCover.setImageDrawable(null);
             stageBg.setImageDrawable(null);
+            // 封面缺失：让 JS 源补一次（v1.7.2 的 lyric / pic 能力）
+            requestCoverFromJs(shown);
         }
+    }
+
+    /**
+     * 封面缺失时向 JS 音源要封面。
+     *
+     * <p>歌词已经优先走 JS 源（{@link com.github.catvod.music.OnlineSourceResolver#lyric}），
+     * 封面同理：官方接口给不出时，脚本的 pic 动作往往能补上。补到就写回 track
+     * 并重绘一次，补不到就算了——缺封面不影响播放。
+     */
+    private void requestCoverFromJs(final Track track) {
+        if (track == null || !TextUtils.isEmpty(track.coverUrl)) {
+            return;
+        }
+        final String key = songKeyOf(track);
+        if (TextUtils.equals(coverFetchKey, key)) {
+            return;
+        }
+        coverFetchKey = key;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    com.github.catvod.music.OnlineSourceResolver.Request req =
+                            new com.github.catvod.music.OnlineSourceResolver.Request();
+                    req.songKey = key;
+                    req.onlineId = track.onlineId == null ? "" : String.valueOf(track.onlineId);
+                    req.title = safe(track.title);
+                    req.artist = safe(track.artist);
+                    req.album = safe(track.album);
+                    req.platform = TextUtils.isEmpty(track.onlinePlatform) ? WY : track.onlinePlatform;
+                    req.musicInfoJson = musicInfo(track);
+                    String pic = com.github.catvod.music.OnlineSourceResolver.pic(
+                            getContext(), req, jsProvider);
+                    if (TextUtils.isEmpty(pic)) {
+                        return;
+                    }
+                    track.coverUrl = pic;
+                    android.util.Log.i(TAG, "JS 源补到封面：" + pic);
+                    post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (gone()) {
+                                return;
+                            }
+                            // 只在还是这首歌时才重绘，避免覆盖用户已经切到的下一首
+                            if (nowPlaying == track) {
+                                renderStageHead(track);
+                            }
+                        }
+                    });
+                } catch (Throwable th) {
+                    android.util.Log.i(TAG, "补封面失败：" + describe(th));
+                }
+            }
+        }).start();
     }
 
     /** 播放/暂停切换时图标和盘的转动一起改，两处按钮共用这一个出口 */
@@ -5438,6 +5879,10 @@ public class MusicPage extends FrameLayout implements ModulePage {
 
     /** 一圈 18 秒：再快就转成电风扇，慢过这个数又看不出在动 */
     private void startSpin() {
+        // 外圈动效和封面自转分开驱动：它自己一条 ValueAnimator，重复调用会自己忽略
+        if (stageHalo != null) {
+            stageHalo.startSpin();
+        }
         if (discSpin != null) {
             if (discSpin.isPaused()) {
                 discSpin.resume();
@@ -5463,6 +5908,9 @@ public class MusicPage extends FrameLayout implements ModulePage {
         if (discSpin != null) {
             discSpin.cancel();
             discSpin = null;
+        }
+        if (stageHalo != null) {
+            stageHalo.stopSpin();
         }
         if (stageDisc != null) {
             stageDisc.setRotation(0f);
